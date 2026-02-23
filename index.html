@@ -692,16 +692,16 @@ function renderMain(slug) {
 
     const steps = stepsForType(ep.mediaType);
     
-    let html = steps.map(s => {
+    let html = steps.filter(s => s.applicable).map(s => {
         const done = ep.steps[s.id === 'transcribe' ? 'transcribed' : s.id === 'analyze' ? 'analyzed' : s.id === 'generate' ? 'generated' : s.id === 'cut' ? 'cut' : 'subtitled'];
-        const statusClass = !s.applicable ? 'badge-na' : done ? 'badge-done' : 'badge-pending';
-        const statusText = !s.applicable ? 'N/A' : done ? '✓ DONE' : 'PENDING';
+        const statusClass = done ? 'badge-done' : 'badge-pending';
+        const statusText = done ? '✓ DONE' : 'PENDING';
         
         let note = '';
         if (s.id === 'cut' && done) note = '<div class="stage-note">' + ep.counts.reels + ' clips</div>';
         if (s.id === 'subtitle' && done) note = '<div class="stage-note">' + ep.counts.final + ' videos</div>';
 
-        const canRun = s.applicable && !ep.isRunning;
+        const canRun = !ep.isRunning;
         const needGuest = s.id === 'generate' && (!ep.guest || !ep.role);
         
         // Model selector for generate step - advanced autocomplete

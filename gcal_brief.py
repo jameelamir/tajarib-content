@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Google Calendar integration - Localhost auth (requires browser)
+Google Calendar integration - Prints auth URL for manual copy/paste
 """
 
 import os
 import pickle
-import socket
 from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -21,7 +20,7 @@ CLIENT_CONFIG = {
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
-        "redirect_uris": ["http://localhost:8080", "http://localhost"]
+        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"]
     }
 }
 
@@ -30,14 +29,8 @@ CALENDARS = {
     'tajarib': 'jameel@tajarib.show'
 }
 
-def find_free_port():
-    """Find a free port"""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
-        return s.getsockname()[1]
-
 def get_credentials():
-    """Get or refresh credentials via browser auth"""
+    """Get or refresh credentials - prints URL for manual auth"""
     token_path = '/root/.openclaw/workspace/tajarib/.gcal_token.pickle'
     
     if os.path.exists(token_path):
@@ -53,21 +46,27 @@ def get_credentials():
                 pickle.dump(creds, token)
             return creds
     
-    # Need browser auth
-    port = find_free_port()
-    print(f"\n{'='*60}")
-    print("🔗 Google Calendar Authentication")
-    print("="*60)
-    print(f"\n⚠️  A browser window should open automatically.")
-    print(f"If not, check the VNC desktop at: http://76.13.145.146:5901")
-    print(f"\n📝 Or manually open:")
-    print(f"   http://localhost:{port}")
-    print("="*60 + "\n")
-    
+    # Need auth - print URL for manual copy/paste
     flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-    creds = flow.run_local_server(port=port, open_browser=False)
     
-    print("✅ Authenticated!\n")
+    # Generate auth URL
+    auth_url, _ = flow.authorization_url(prompt='consent')
+    
+    print("\n" + "="*70)
+    print("🔗 Google Calendar Authentication Required")
+    print("="*70)
+    print("\n📋 STEP 1: Copy this URL and open in your browser:")
+    print(f"\n{auth_url}\n")
+    print("📋 STEP 2: Sign in with Google and allow calendar access")
+    print("📋 STEP 3: You'll get a code - paste it here and press Enter")
+    print("="*70 + "\n")
+    
+    code = input("Enter the auth code: ").strip()
+    
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+    
+    print("✅ Authenticated successfully!\n")
     
     with open(token_path, 'wb') as token:
         pickle.dump(creds, token)
