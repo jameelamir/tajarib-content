@@ -4,23 +4,36 @@
  * Reads:  episodes/{slug}/transcript.json + analysis.json + formats/*.md
  * Writes: episodes/{slug}/content.json
  *
+ * Uses Haimaker (OpenAI-compatible) — same model as the main agent.
+ *
  * Usage:
- *   node generate.js --slug my-episode --guest "اسم الضيف" --role "المنصب" [--force]
+ *   node generate.js --slug my-episode --guest "اسم الضيف" --role "المنصب" [--model auto|claude|openai|gemini] [--force]
  */
 
-const fs = require("fs");
+const fs   = require("fs");
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
 
-const AUTH_FILE = "/root/.openclaw/agents/main/agent/auth.json";
+const AUTH_FILE   = "/root/.openclaw/agents/main/agent/models.json";
 const EPISODES_DIR = path.join(__dirname, "episodes");
-const FORMATS_DIR = path.join(__dirname, "formats");
+const FORMATS_DIR  = path.join(__dirname, "formats");
+
+// ─── Config ─────────────────────────────────────────────────────
+const BASE_URL = "https://api.haimaker.ai/v1";
+let MODEL      = "auto"; // default, can be overridden via --model
 
 function getApiKey() {
-  const auth = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
-  return auth.anthropic.key;
+  // Read from models.json (has inline apiKey) or fall back to auth.json
+  try {
+    const m = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
+    const key = m?.providers?.haimaker?.apiKey;
+    if (key) return key;
+  } catch (e) {}
+  // fallback
+  const auth = JSON.parse(fs.readFileSync("/root/.openclaw/agents/main/agent/auth.json", "utf8"));
+  return auth.haimaker.key;
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────
 function loadJSON(filePath) {
   if (!fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -31,7 +44,6 @@ function loadFormat(name) {
   return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
 }
 
-// Given a reel with start/end timestamps (MM:SS or HH:MM:SS), extract transcript text
 function extractReelText(transcript, startStr, endStr) {
   function toSeconds(ts) {
     const parts = ts.split(":").map(Number);
@@ -39,7 +51,7 @@ function extractReelText(transcript, startStr, endStr) {
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   }
   const start = toSeconds(startStr);
-  const end = toSeconds(endStr);
+  const end   = toSeconds(endStr);
   return transcript.segments
     .filter(s => s.end > start && s.start < end)
     .map(s => s.text)
@@ -47,7 +59,37 @@ function extractReelText(transcript, startStr, endStr) {
     .trim();
 }
 
-const SYSTEM_PROMPT_REELS = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
+// ─── LLM call (OpenAI-compatible) ────────────────────────────────
+async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024) {
+  const res = await fetch(`${BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userMessage  },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  const text   = data.choices?.[0]?.message?.content?.trim() ?? "";
+  const tokens = (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0);
+  return { text, tokens };
+}
+
+// ─── Prompts ──────────────────────────────────────────────────────
+const SYSTEM_REELS = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
 مهمتك: كتابة كابشن لريل إنستغرام بناءً على مقطع من الحلقة.
 
 اقرأ تعليمات الفورمات جيداً واتبعها بدقة.
@@ -63,7 +105,7 @@ const SYSTEM_PROMPT_REELS = `أنت كاتب محتوى لبودكاست "تجا
 
 أخرج فقط نص الكابشن — بدون شرح أو تعليق.`;
 
-const SYSTEM_PROMPT_YT = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
+const SYSTEM_YT = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
 مهمتك: كتابة وصف يوتيوب + عنوان + نص إعلان إنستغرام.
 
 اقرأ تعليمات الفورمات جيداً واتبعها بدقة.
@@ -85,8 +127,9 @@ const SYSTEM_PROMPT_YT = `أنت كاتب محتوى لبودكاست "تجار�
   "announcement_post": "نص منشور الإعلان للإنستغرام"
 }`;
 
-async function generateReelCaption(client, reel, guest, role, reelText, formatSpec) {
-  const userMessage = `فورمات الكابشن المطلوب:
+// ─── Generate functions ───────────────────────────────────────────
+async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec) {
+  const user = `فورمات الكابشن المطلوب:
 ${formatSpec}
 
 ---
@@ -103,21 +146,10 @@ ${reelText}
 
 اكتب الكابشن الآن:`;
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-5",
-    max_tokens: 512,
-    system: SYSTEM_PROMPT_REELS,
-    messages: [{ role: "user", content: userMessage }]
-  });
-
-  return {
-    caption: response.content[0].text.trim(),
-    tokens: response.usage.input_tokens + response.usage.output_tokens
-  };
+  return chat(apiKey, SYSTEM_REELS, user, 512);
 }
 
-async function generateYouTubeContent(client, transcript, analysis, guest, role, formatSpec) {
-  // Send a condensed transcript summary (first + last segments + chapter starts) to save tokens
+async function generateYouTubeContent(apiKey, transcript, analysis, guest, role, formatSpec) {
   const summary = transcript.segments
     .filter((_, i) => i < 5 || i >= transcript.segments.length - 3 ||
       analysis.chapters?.some(ch => {
@@ -127,12 +159,12 @@ async function generateYouTubeContent(client, transcript, analysis, guest, role,
       }))
     .map(s => s.text)
     .join(" ")
-    .slice(0, 3000); // cap at ~3k chars
+    .slice(0, 3000);
 
   const chaptersText = analysis.chapters?.map(ch => `${ch.start} — ${ch.title}`).join("\n") || "";
-  const reelsText = analysis.reels?.map(r => `• ${r.hook}`).join("\n") || "";
+  const reelsText    = analysis.reels?.map(r => `• ${r.hook}`).join("\n") || "";
 
-  const userMessage = `فورمات المطلوب:
+  const user = `فورمات المطلوب:
 ${formatSpec}
 
 ---
@@ -156,21 +188,22 @@ ${summary}
 ---
 أخرج JSON فقط.`;
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-5",
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT_YT,
-    messages: [{ role: "user", content: userMessage }]
-  });
-
-  const raw = response.content[0].text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  return {
-    content: JSON.parse(raw),
-    tokens: response.usage.input_tokens + response.usage.output_tokens
-  };
+  const result = await chat(apiKey, SYSTEM_YT, user, 2048);
+  const raw = result.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  return { content: JSON.parse(raw), tokens: result.tokens };
 }
 
-async function generate(slug, guest, role, force = false) {
+// ─── Main ─────────────────────────────────────────────────────────
+/**
+ * @param {string}  slug
+ * @param {string}  guest
+ * @param {string}  role
+ * @param {boolean} force
+ * @param {boolean} reelOnly  — true for reel_full / reel_cut: skip YouTube/announcement.
+ *                             In reel-only mode the transcript + analysis may not exist;
+ *                             we generate a single caption from whatever info we have.
+ */
+async function generate(slug, guest, role, force = false, reelOnly = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "content.json");
 
   if (fs.existsSync(outputPath) && !force) {
@@ -179,71 +212,122 @@ async function generate(slug, guest, role, force = false) {
     return outputPath;
   }
 
-  const transcript = loadJSON(path.join(EPISODES_DIR, slug, "transcript.json"));
-  const analysis = loadJSON(path.join(EPISODES_DIR, slug, "analysis.json"));
-
-  if (!transcript) { console.error("❌ No transcript.json found. Run transcribe.py first."); process.exit(1); }
-  if (!analysis) { console.error("❌ No analysis.json found. Run analyze.js first."); process.exit(1); }
-
   const reelFormat = loadFormat("reel-caption");
-  const ytFormat = loadFormat("youtube-description");
-
-  const client = new Anthropic.default({ apiKey: getApiKey() });
-  let totalTokens = 0;
+  const apiKey     = getApiKey();
 
   console.log(`✍️  Generating content for: ${slug}`);
   console.log(`   Guest: ${guest} — ${role}`);
+  console.log(`   Mode: ${reelOnly ? "REEL ONLY (caption only)" : "FULL EPISODE"}`);
+  console.log(`   Model: ${MODEL} via Haimaker\n`);
 
-  // Generate reel captions
+  let totalTokens = 0;
+
+  // ── REEL-ONLY MODE ──────────────────────────────────────────────
+  // The user has uploaded an already-cut reel. We don't have a full transcript
+  // or analysis. Generate a single reel caption from scratch using guest info
+  // and whatever transcript exists (or a placeholder if none).
+  if (reelOnly) {
+    const transcript = loadJSON(path.join(EPISODES_DIR, slug, "transcript.json"));
+
+    // Build a best-effort reel text from transcript, or use a stub
+    let reelText = "[No transcript available — reel was uploaded as already edited]";
+    if (transcript && transcript.segments && transcript.segments.length) {
+      reelText = transcript.segments.map(s => s.text).join(" ").trim().slice(0, 2000);
+    }
+
+    // Create a minimal fake reel object so generateReelCaption can run
+    const fakeReel = { id: "reel-01", hook: "", start: "0:00", end: "1:00" };
+
+    process.stdout.write(`   🎬 Generating reel caption…`);
+    const result = await generateReelCaption(apiKey, fakeReel, guest, role, reelText, reelFormat);
+    totalTokens += result.tokens;
+    console.log(` ✅ (${result.tokens} tokens)`);
+
+    const output = {
+      slug,
+      generated_at: new Date().toISOString(),
+      guest, role,
+      reel_only: true,
+      total_tokens_used: totalTokens,
+      reels: [{
+        id: "reel-01",
+        reel_text: reelText,
+        caption: result.text,
+      }],
+    };
+
+    fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
+    console.log(`\n✅ Done! Total tokens: ${totalTokens.toLocaleString()}`);
+    console.log(`📄 Saved: ${outputPath}`);
+    return outputPath;
+  }
+
+  // ── FULL EPISODE MODE ───────────────────────────────────────────
+  const transcript = loadJSON(path.join(EPISODES_DIR, slug, "transcript.json"));
+  const analysis   = loadJSON(path.join(EPISODES_DIR, slug, "analysis.json"));
+
+  if (!transcript) { console.error("❌ No transcript.json found. Run transcribe first."); process.exit(1); }
+  if (!analysis)   { console.error("❌ No analysis.json found. Run analyze first.");     process.exit(1); }
+
+  const ytFormat = loadFormat("youtube-description");
+
+  let totalTokens2 = 0; // separate var to avoid shadowing
+
+  // Reel captions (from analysis.reels)
   const reelCaptions = [];
   for (const reel of (analysis.reels || [])) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
     process.stdout.write(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
-    const result = await generateReelCaption(client, reel, guest, role, reelText, reelFormat);
+    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat);
     reelCaptions.push({
-      id: reel.id,
-      start: reel.start,
-      end: reel.end,
-      hook: reel.hook,
-      reel_text: reelText,
-      caption: result.caption
+      id: reel.id, start: reel.start, end: reel.end,
+      hook: reel.hook, reel_text: reelText, caption: result.text,
     });
-    totalTokens += result.tokens;
+    totalTokens2 += result.tokens;
     console.log(` ✅ (${result.tokens} tokens)`);
   }
 
-  // Generate YouTube content
+  // YouTube + announcement
   console.log("   📺 Generating YouTube description + titles + announcement...");
-  const ytResult = await generateYouTubeContent(client, transcript, analysis, guest, role, ytFormat);
-  totalTokens += ytResult.tokens;
+  const ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat);
+  totalTokens2 += ytResult.tokens;
   console.log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
 
   const output = {
     slug,
     generated_at: new Date().toISOString(),
-    guest,
-    role,
-    total_tokens_used: totalTokens,
+    guest, role,
+    total_tokens_used: totalTokens2,
     reels: reelCaptions,
-    ...ytResult.content
+    ...ytResult.content,
   };
 
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
-  console.log(`\n✅ Done! Total tokens used: ${totalTokens.toLocaleString()}`);
+  console.log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
   console.log(`📄 Saved: ${outputPath}`);
   return outputPath;
 }
 
-// CLI
-const args = process.argv.slice(2);
-const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
-const slug = get("--slug");
-const guest = get("--guest");
-const role = get("--role");
-const force = args.includes("--force");
+// ─── CLI ──────────────────────────────────────────────────────────
+const args     = process.argv.slice(2);
+const get      = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
+const slug     = get("--slug");
+const guest    = get("--guest");
+const role     = get("--role");
+const force    = args.includes("--force");
+const reelOnly = args.includes("--reel-only");
+const modelArg = get("--model");
+
+if (modelArg) {
+  MODEL = modelArg;
+}
 
 if (!slug || !guest || !role) {
-  console.error("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--force]");
+  console.error("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model auto|claude|openai|gemini] [--force] [--reel-only]");
   process.exit(1);
 }
-generate(slug, guest, role, force).catch(err => { console.error("❌", err.message); process.exit(1); });
+
+generate(slug, guest, role, force, reelOnly).catch(err => {
+  console.error("❌", err.message);
+  process.exit(1);
+});

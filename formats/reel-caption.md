@@ -25,6 +25,7 @@ www.tajarib.show 💜
 - Don't use چ → use ج. Say وية not ويا.
 - Avoid يحجي → use نتكلم، نناقش، نغطي instead.
 - Length: 2-4 lines total (excluding CTA). Short. Punchy.
+- No em-dashes (—) or hyphens for separation. Use commas or split into separate sentences instead.
 
 ## Approved Examples
 _(add examples here as they get approved by Jameel)_

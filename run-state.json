@@ -1,0 +1,12 @@
+{
+  "startedAt": "2026-02-21T11:22:15.732Z",
+  "youtube": {
+    "status": "ok",
+    "completedAt": "2026-02-21T11:36:57.705Z"
+  },
+  "sheets": {
+    "status": "skipped"
+  },
+  "error": null,
+  "durationSeconds": 882
+}

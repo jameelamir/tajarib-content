@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+  <title>Tajarib Pipeline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0f0f0f; color: #eee; line-height: 1.6; }
+
+    /* ── Header ── */
+    .header { background: #111; border-bottom: 1px solid #222; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .header h1 { color: #a855f7; font-size: 1.3rem; display: flex; align-items: center; gap: 8px; }
+    .header .hint { color: #555; font-size: 0.75rem; }
+
+    /* ── Layout ── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* ── Buttons ── */
+    button { background: #a855f7; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: background 0.15s; }
+    button:hover { background: #9333ea; }
+    button:disabled { background: #444; color: #777; cursor: not-allowed; }
+    button.secondary { background: #2a2a2a; color: #ccc; border: 1px solid #333; }
+    button.secondary:hover { background: #333; }
+    button.success { background: #16a34a; }
+    button.success:hover { background: #15803d; }
+    button.danger  { background: #dc2626; }
+    button.danger:hover  { background: #b91c1c; }
+
+    /* ── Upload zone ── */
+    .upload-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 28px; margin-bottom: 28px; }
+    .upload-card h2 { color: #a855f7; font-size: 1rem; margin-bottom: 16px; }
+    .drop-zone { border: 2px dashed #3f3f3f; border-radius: 8px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all 0.15s; color: #888; }
+    .drop-zone:hover, .drop-zone.hover { border-color: #a855f7; background: #1a102b; color: #ccc; }
+    .drop-zone .icon { font-size: 2.5rem; display: block; margin-bottom: 8px; }
+    .drop-zone input[type="file"] { display: none; }
+
+    /* Media type selector */
+    .media-type-row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+    .media-type-btn { flex: 1; min-width: 160px; padding: 12px 16px; border-radius: 8px; border: 2px solid #2a2a2a; background: #161616; color: #888; cursor: pointer; text-align: center; transition: all 0.15s; font-size: 0.875rem; line-height: 1.4; }
+    .media-type-btn:hover { border-color: #a855f7; color: #ccc; }
+    .media-type-btn.selected { border-color: #a855f7; background: #1a102b; color: #c084fc; }
+    .media-type-btn .mtitle { font-weight: 600; font-size: 0.95rem; display: block; }
+    .media-type-btn .msub   { font-size: 0.75rem; opacity: 0.7; display: block; margin-top: 2px; }
+
+    .upload-row { display: flex; gap: 12px; margin-top: 16px; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+    .form-group label { font-size: 0.75rem; color: #777; text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-group input { background: #0f0f0f; border: 1px solid #2a2a2a; color: #eee; padding: 8px 10px; border-radius: 6px; font-size: 0.9rem; }
+    .form-group input:focus { outline: none; border-color: #a855f7; }
+
+    #upload-status { margin-top: 12px; font-size: 0.85rem; }
+
+    /* ── Episodes list ── */
+    .episodes-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .episodes-header h2 { color: #a855f7; font-size: 1rem; }
+
+    .episode-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
+    .episode-card-header { padding: 14px 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+    .episode-card-header:hover { background: #1e1e1e; }
+    .ep-title { font-weight: 600; font-size: 0.95rem; flex: 1; }
+    .ep-subtitle { font-size: 0.78rem; color: #666; }
+    .ep-type-badge { font-size: 0.68rem; padding: 3px 8px; border-radius: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ep-type-badge.episode  { background: #1e1b4b; color: #818cf8; }
+    .ep-type-badge.reel_full{ background: #0f2d0f; color: #4ade80; }
+    .ep-type-badge.reel_cut { background: #2d1b0f; color: #fb923c; }
+    .ep-chevron { color: #555; font-size: 0.75rem; transition: transform 0.2s; }
+    .episode-card.expanded .ep-chevron { transform: rotate(90deg); }
+
+    /* Steps strip */
+    .steps-strip { padding: 10px 18px; border-top: 1px solid #222; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .step-pill { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; font-size: 0.78rem; border: 1px solid #2a2a2a; background: #111; color: #666; }
+    .step-pill .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #333; flex-shrink: 0; }
+    .step-pill.done  .step-dot { background: #4ade80; }
+    .step-pill.running .step-dot { background: #facc15; animation: pulse 1s infinite alternate; }
+    .step-pill.error .step-dot { background: #f87171; }
+    .step-pill.na    { opacity: 0.35; }
+    @keyframes pulse { from { opacity: 1; } to { opacity: 0.4; } }
+
+    /* Expanded body */
+    .episode-body { display: none; padding: 18px; border-top: 1px solid #1e1e1e; }
+    .episode-card.expanded .episode-body { display: block; }
+
+    /* Pipeline steps */
+    .pipeline { display: flex; flex-direction: column; gap: 12px; }
+    .pipeline-step { background: #111; border: 1px solid #222; border-radius: 8px; overflow: hidden; }
+    .pipeline-step-header { padding: 10px 14px; display: flex; align-items: center; gap: 10px; }
+    .pipeline-step-header .step-name { font-weight: 600; font-size: 0.875rem; flex: 1; }
+    .pipeline-step-header .step-status { font-size: 0.75rem; }
+    .status-done    { color: #4ade80; }
+    .status-pending { color: #555; }
+    .status-running { color: #facc15; }
+    .status-error   { color: #f87171; }
+    .status-na      { color: #444; }
+    .pipeline-step-body { padding: 12px 14px; border-top: 1px solid #1e1e1e; }
+    .step-na-msg { color: #444; font-size: 0.8rem; font-style: italic; }
+
+    /* Log output */
+    .log-box { background: #0a0a0a; border: 1px solid #1e1e1e; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.75rem; color: #aaa; max-height: 160px; overflow-y: auto; white-space: pre-wrap; margin-top: 8px; display: none; }
+    .log-box.visible { display: block; }
+
+    /* Generated content */
+    .content-section { margin-top: 12px; }
+    .content-block { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+    .content-block-header { padding: 8px 12px; background: #111; display: flex; align-items: center; justify-content: space-between; }
+    .content-block-title { font-size: 0.8rem; font-weight: 600; color: #a855f7; }
+    .content-block-actions { display: flex; gap: 6px; }
+    textarea.content-edit { width: 100%; background: #0a0a0a; border: none; color: #ddd; padding: 12px; font-size: 0.85rem; font-family: inherit; resize: vertical; min-height: 100px; outline: none; direction: rtl; text-align: right; }
+    textarea.content-edit:focus { background: #0d0d0d; }
+
+    /* Feedback box */
+    .feedback-row { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid #1e1e1e; background: #0d0d0d; }
+    .feedback-input { flex: 1; background: #111; border: 1px solid #2a2a2a; color: #eee; padding: 7px 10px; border-radius: 6px; font-size: 0.82rem; }
+    .feedback-input:focus { outline: none; border-color: #a855f7; }
+    .feedback-input::placeholder { color: #444; }
+
+    /* Inline save status */
+    .save-hint { font-size: 0.72rem; color: #555; margin-top: 4px; }
+    .save-hint.ok  { color: #4ade80; }
+    .save-hint.err { color: #f87171; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 500; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; max-width: 680px; width: 95%; padding: 28px; }
+    .modal-box h3 { color: #a855f7; margin-bottom: 16px; }
+    .modal-box textarea { width: 100%; background: #111; border: 1px solid #2a2a2a; color: #eee; padding: 10px; border-radius: 6px; font-size: 0.875rem; resize: vertical; min-height: 80px; }
+    .modal-footer { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px 18px; font-size: 0.85rem; z-index: 9999; animation: fadeIn 0.2s ease; }
+    .toast.ok  { border-color: #16a34a; color: #4ade80; }
+    .toast.err { border-color: #dc2626; color: #f87171; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 60px 20px; color: #444; }
+    .empty-state .icon { font-size: 3rem; display: block; margin-bottom: 12px; }
+
+    /* ── Mobile Responsive Styles ──────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      /* Header */
+      .header { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+      .header h1 { font-size: 1.1rem; }
+      .header .hint { font-size: 0.7rem; width: 100%; }
+
+      /* Container */
+      .container { padding: 16px; }
+
+      /* Upload card */
+      .upload-card { padding: 20px; margin-bottom: 20px; }
+      .upload-card h2 { font-size: 0.95rem; }
+
+      /* Media type buttons - stack vertically on mobile */
+      .media-type-row { flex-direction: column; gap: 8px; }
+      .media-type-btn { min-width: auto; width: 100%; padding: 10px 12px; }
+      .media-type-btn .mtitle { font-size: 0.9rem; }
+      .media-type-btn .msub { font-size: 0.7rem; }
+
+      /* Upload row - stack inputs */
+      .upload-row { flex-direction: column; gap: 12px; }
+      .upload-row .form-group { min-width: auto; width: 100%; }
+
+      /* Drop zone */
+      .drop-zone { padding: 28px 16px; }
+      .drop-zone .icon { font-size: 2rem; }
+      .drop-zone p { font-size: 0.85rem; }
+
+      /* Episode cards */
+      .episode-card-header { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+      .ep-title { font-size: 0.9rem; width: 100%; }
+      .ep-subtitle { font-size: 0.72rem; width: 100%; }
+      .ep-type-badge { font-size: 0.65rem; }
+
+      /* Steps strip */
+      .steps-strip { padding: 8px 14px; gap: 6px; }
+      .step-pill { padding: 4px 10px; font-size: 0.72rem; }
+
+      /* Episode body */
+      .episode-body { padding: 14px; }
+
+      /* Pipeline steps */
+      .pipeline-step-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+      .pipeline-step-header .step-name { font-size: 0.85rem; width: 100%; }
+      .pipeline-step-body { padding: 10px 12px; }
+
+      /* Log box */
+      .log-box { max-height: 120px; font-size: 0.7rem; }
+
+      /* Content blocks */
+      .content-block-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+      .content-block-title { font-size: 0.78rem; }
+      .content-block-actions { width: 100%; justify-content: flex-end; }
+      textarea.content-edit { padding: 10px; font-size: 0.82rem; min-height: 80px; }
+
+      /* Feedback row */
+      .feedback-row { flex-direction: column; gap: 8px; padding: 10px 12px; }
+      .feedback-input { width: 100%; }
+
+      /* Modal */
+      .modal-box { padding: 20px; margin: 16px; width: calc(100% - 32px); max-width: none; }
+      .modal-box h3 { font-size: 1rem; margin-bottom: 14px; }
+      .modal-footer { flex-direction: column-reverse; gap: 8px; }
+      .modal-footer button { width: 100%; }
+
+      /* Toast - center on mobile */
+      .toast { left: 16px; right: 16px; bottom: 16px; text-align: center; }
+
+      /* Empty state */
+      .empty-state { padding: 40px 16px; }
+      .empty-state .icon { font-size: 2.5rem; }
+
+      /* Buttons */
+      button { padding: 10px 14px; font-size: 0.85rem; }
+
+      /* Episodes header */
+      .episodes-header { flex-wrap: wrap; gap: 12px; }
+      .episodes-header h2 { font-size: 0.95rem; }
+    }
+
+    /* Extra small screens */
+    @media (max-width: 480px) {
+      .header h1 { font-size: 1rem; }
+      .header .hint { display: none; } /* Hide hint on very small screens */
+      
+      .container { padding: 12px; }
+      
+      .upload-card { padding: 16px; }
+      
+      .episode-card-header { padding: 10px 12px; }
+      
+      .step-pill { padding: 3px 8px; font-size: 0.68rem; }
+      .step-pill .step-dot { width: 6px; height: 6px; }
+      
+      .drop-zone { padding: 24px 12px; }
+      .drop-zone .icon { font-size: 1.8rem; }
+    }
+
+    /* Touch-friendly improvements */
+    @media (hover: none) and (pointer: coarse) {
+      button, .media-type-btn, .drop-zone { 
+        min-height: 44px; /* iOS recommended touch target */
+      }
+      .episode-card-header { 
+        min-height: 44px; 
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎙️ Tajarib Pipeline</h1>
+  <span class="hint">v7 — Mobile Ready 🚀</span>
+</div>
+
+<div class="container">
+
+  <!-- Upload Card -->
+  <div class="upload-card">
+    <h2>Upload Video</h2>
+
+    <!-- Media type selection -->
+    <div class="media-type-row" id="mediaTypeRow">
+      <div class="media-type-btn selected" data-type="episode">
+        <span class="mtitle">📺 Full Episode</span>
+        <span class="msub">Transcribe → Analyze → Generate → Cut → Subtitle</span>
+      </div>
+      <div class="media-type-btn" data-type="reel_cut">
+        <span class="mtitle">✂️ Reel — Cut, No Subs</span>
+        <span class="msub">Already cut but needs subtitles → Generate caption + Subtitle</span>
+      </div>
+      <div class="media-type-btn" data-type="reel_full">
+        <span class="mtitle">✅ Reel — Fully Done</span>
+        <span class="msub">Cut &amp; subtitled already → Generate caption only</span>
+      </div>
+    </div>
+
+    <!-- Guest info + drop zone -->
+    <div class="upload-row">
+      <div class="form-group">
+        <label>Guest Name (Arabic)</label>
+        <input type="text" id="guestInput" placeholder="اسم الضيف" dir="rtl">
+      </div>
+      <div class="form-group">
+        <label>Guest Role / Title</label>
+        <input type="text" id="roleInput" placeholder="المنصب أو الدور" dir="rtl">
+      </div>
+    </div>
+
+    <div class="drop-zone" id="dropZone" style="margin-top:16px;">
+      <span class="icon">☁️</span>
+      <p>Drag &amp; drop a video here, or click to select</p>
+      <input type="file" id="fileInput" accept="video/*">
+    </div>
+
+    <div id="upload-status"></div>
+  </div>
+
+  <!-- Episodes -->
+  <div class="episodes-header">
+    <h2>Episodes &amp; Reels</h2>
+    <button class="secondary" id="refreshBtn">↻ Refresh</button>
+  </div>
+
+  <div id="episodesList">
+    <div class="empty-state"><span class="icon">🎬</span>No episodes yet — upload a video above.</div>
+  </div>
+
+</div>
+
+<!-- Modal: set guest info for existing slugs -->
+<div class="modal-overlay" id="guestModal">
+  <div class="modal-box">
+    <h3>Set Guest Info</h3>
+    <input type="hidden" id="modalSlug">
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Guest Name (Arabic)</label>
+      <input type="text" id="modalGuest" placeholder="اسم الضيف" dir="rtl" style="background:#111;border:1px solid #2a2a2a;color:#eee;padding:8px 10px;border-radius:6px;font-size:0.9rem;">
+    </div>
+    <div class="form-group">
+      <label>Guest Role</label>
+      <input type="text" id="modalRole" placeholder="المنصب" dir="rtl" style="background:#111;border:1px solid #2a2a2a;color:#eee;padding:8px 10px;border-radius:6px;font-size:0.9rem;">
+    </div>
+    <div class="modal-footer">
+      <button class="secondary" onclick="closeModal('guestModal')">Cancel</button>
+      <button onclick="saveGuestInfo()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const socket = io({ path: "/socket.io/" });
+let selectedMediaType = "episode";
+let episodes = [];
+
+// ─── Socket events ────────────────────────────────────────────────────────────
+socket.on("statusUpdate", () => loadEpisodes());
+
+socket.on("stepLog", ({ slug, step, line }) => {
+  const box = document.getElementById(`log-${slug}-${step}`);
+  if (box) {
+    box.classList.add("visible");
+    box.textContent += line;
+    box.scrollTop = box.scrollHeight;
+  }
+  // Also update pill to "running"
+  setPillState(slug, step, "running");
+});
+
+socket.on("stepDone", ({ slug, step }) => {
+  setPillState(slug, step, "done");
+  loadEpisodes(); // refresh cards
+  toast("✅ " + step + " complete", "ok");
+});
+
+socket.on("stepError", ({ slug, step, message }) => {
+  setPillState(slug, step, "error");
+  toast("❌ " + step + " failed: " + (message || ""), "err");
+});
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+
+dropZone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", e => handleUpload(e.target.files[0]));
+["dragenter","dragover"].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add("hover"); }));
+["dragleave","drop"].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove("hover"); }));
+dropZone.addEventListener("drop", e => {
+  const file = e.dataTransfer.files[0];
+  if (file) handleUpload(file);
+});
+
+document.querySelectorAll(".media-type-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".media-type-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    selectedMediaType = btn.dataset.type;
+  });
+});
+
+function handleUpload(file) {
+  if (!file) return;
+  const guest = document.getElementById("guestInput").value.trim();
+  const role  = document.getElementById("roleInput").value.trim();
+  const statusEl = document.getElementById("upload-status");
+
+  const formData = new FormData();
+  formData.append("video", file);
+  formData.append("mediaType", selectedMediaType);
+  if (guest) formData.append("guest", guest);
+  if (role)  formData.append("role", role);
+
+  statusEl.innerHTML = `<span style="color:#facc15">⏳ Uploading ${file.name}…</span>`;
+
+  fetch("/api/upload-video", { method: "POST", body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        statusEl.innerHTML = `<span style="color:#4ade80">✅ Uploaded as <strong>${data.slug}</strong> (${humanType(data.mediaType)})</span>`;
+        loadEpisodes();
+      } else {
+        statusEl.innerHTML = `<span style="color:#f87171">❌ ${data.error}</span>`;
+      }
+    })
+    .catch(err => {
+      statusEl.innerHTML = `<span style="color:#f87171">❌ ${err.message}</span>`;
+    });
+}
+
+// ─── Render episodes ──────────────────────────────────────────────────────────
+function loadEpisodes() {
+  fetch("/api/episodes")
+    .then(r => r.json())
+    .then(data => {
+      episodes = data;
+      renderEpisodes();
+    });
+}
+
+function renderEpisodes() {
+  const container = document.getElementById("episodesList");
+  if (!episodes.length) {
+    container.innerHTML = `<div class="empty-state"><span class="icon">🎬</span>No episodes yet — upload a video above.</div>`;
+    return;
+  }
+
+  container.innerHTML = episodes.map(ep => renderCard(ep)).join("");
+  attachCardListeners();
+}
+
+function humanType(t) {
+  if (t === "episode")   return "Full Episode";
+  if (t === "reel_full") return "Reel (fully done)";
+  if (t === "reel_cut")  return "Reel (cut, no subs)";
+  return t;
+}
+
+function stepsForType(mediaType) {
+  // Returns the ordered list of steps that apply to this media type
+  // Each: { id, label, applicable }
+  const all = [
+    { id: "transcribe", label: "1. Transcribe" },
+    { id: "analyze",    label: "2. Analyze"    },
+    { id: "generate",   label: "3. Generate"   },
+    { id: "cut",        label: "4. Cut Clips"  },
+    { id: "subtitle",   label: "5. Subtitles"  },
+  ];
+  return all.map(s => {
+    let applicable = true;
+    if (mediaType === "reel_full") {
+      applicable = s.id === "generate"; // only generate
+    } else if (mediaType === "reel_cut") {
+      applicable = ["transcribe","generate","subtitle"].includes(s.id); // no analyze, no cut
+    }
+    return { ...s, applicable };
+  });
+}
+
+function stepDoneFor(ep, stepId) {
+  const map = { transcribe: ep.steps.transcribed, analyze: ep.steps.analyzed, generate: ep.steps.generated, cut: ep.steps.cut, subtitle: ep.steps.subtitled };
+  return map[stepId] || false;
+}
+
+function renderCard(ep) {
+  const steps = stepsForType(ep.mediaType);
+  const pills = steps.map(s => {
+    const done = stepDoneFor(ep, s.id);
+    const naClass = s.applicable ? "" : " na";
+    const doneClass = done && s.applicable ? " done" : "";
+    return `<div class="step-pill${doneClass}${naClass}" id="pill-${ep.slug}-${s.id}">
+      <span class="step-dot"></span>${s.label}
+    </div>`;
+  }).join("");
+
+  const badge = `<span class="ep-type-badge ${ep.mediaType}">${humanType(ep.mediaType)}</span>`;
+  const guestLabel = ep.guest ? `${ep.guest} — ${ep.role}` : `<span style="color:#555;font-style:italic">No guest set</span>`;
+
+  return `
+<div class="episode-card" id="card-${ep.slug}">
+  <div class="episode-card-header" data-slug="${ep.slug}">
+    ${badge}
+    <div style="flex:1;">
+      <div class="ep-title">${ep.slug}</div>
+      <div class="ep-subtitle">${guestLabel}</div>
+    </div>
+    <span class="ep-chevron">▶</span>
+  </div>
+  <div class="steps-strip">${pills}</div>
+  <div class="episode-body">
+    ${renderPipeline(ep)}
+  </div>
+</div>`;
+}
+
+function renderPipeline(ep) {
+  const steps = stepsForType(ep.mediaType);
+
+  return `<div class="pipeline">
+    ${steps.map(s => renderPipelineStep(ep, s)).join("")}
+    ${ep.steps.generated ? renderContentSection(ep) : ""}
+  </div>`;
+}
+
+function renderPipelineStep(ep, step) {
+  const done = stepDoneFor(ep, step.id);
+  const statusText = !step.applicable ? "N/A" : done ? "Done" : "Pending";
+  const statusClass = !step.applicable ? "status-na" : done ? "status-done" : "status-pending";
+
+  const actionBtn = step.applicable && !done
+    ? `<button onclick="runStep('${ep.slug}','${step.id}')" id="btn-${ep.slug}-${step.id}">${step.id === "generate" && !ep.guest ? "Set guest first" : "Run"}</button>`
+    : (done && step.applicable ? `<button class="secondary" onclick="runStep('${ep.slug}','${step.id}')">Re-run</button>` : "");
+
+  // Guest info button — only show for generate step if no guest set
+  const guestBtn = step.id === "generate" && !ep.guest
+    ? `<button class="secondary" onclick="openGuestModal('${ep.slug}','${ep.guest}','${ep.role}')">Set Guest</button>`
+    : "";
+
+  const naMsg = !step.applicable
+    ? `<div class="step-na-msg">Not applicable for ${humanType(ep.mediaType)}</div>`
+    : "";
+
+  return `
+<div class="pipeline-step" id="step-${ep.slug}-${step.id}">
+  <div class="pipeline-step-header">
+    <span class="step-name">${step.label}</span>
+    <span class="step-status ${statusClass}" id="status-${ep.slug}-${step.id}">${statusText}</span>
+    <div style="display:flex;gap:6px;margin-left:8px;">
+      ${guestBtn}
+      ${actionBtn}
+    </div>
+  </div>
+  ${step.applicable ? `<div class="pipeline-step-body">
+    ${naMsg}
+    <div class="log-box" id="log-${ep.slug}-${step.id}"></div>
+  </div>` : `<div class="pipeline-step-body">${naMsg}</div>`}
+</div>`;
+}
+
+function renderContentSection(ep) {
+  if (!ep.content) return "";
+  const c = ep.content;
+  const mt = ep.mediaType;
+  let blocks = "";
+
+  // Reel caption(s)
+  if (c.reels && c.reels.length) {
+    c.reels.forEach((reel, i) => {
+      blocks += contentBlock(ep.slug, `reels.${i}.caption`, `🎬 Reel ${i+1} Caption`, reel.caption || "");
+    });
+  }
+
+  // For reels: skip YouTube/announcement sections
+  if (mt === "episode") {
+    if (c.youtube_description) {
+      blocks += contentBlock(ep.slug, "youtube_description", "📺 YouTube Description", c.youtube_description);
+    }
+    if (c.announcement_post) {
+      blocks += contentBlock(ep.slug, "announcement_post", "📢 Announcement Post", c.announcement_post);
+    }
+    if (c.youtube_titles && c.youtube_titles.length) {
+      blocks += contentBlock(ep.slug, "youtube_titles_raw", "🏷️ YouTube Titles", c.youtube_titles.join("\n"));
+    }
+  }
+
+  if (!blocks) return "";
+
+  // Publish button for reels (when video is ready)
+  const hasReels = c.reels && c.reels.length > 0;
+  const hasSubtitledVideo = ep.reels && ep.reels.subtitled > 0;
+  const publishBtn = (hasReels && hasSubtitledVideo) ? `
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #2a2a2a;">
+      <button class="success" onclick="publishEpisode('${ep.slug}')" id="publish-btn-${ep.slug}" style="width:100%;padding:12px;font-size:0.95rem;">
+        📤 Publish to Zapier
+      </button>
+      <div id="publish-status-${ep.slug}" style="margin-top:8px;font-size:0.8rem;text-align:center;"></div>
+    </div>
+  ` : "";
+
+  return `<div class="content-section">
+    <div style="font-size:0.8rem;color:#666;margin-bottom:10px;">✍️ Generated Content — edit directly or use feedback to revise via AI</div>
+    ${blocks}
+    ${publishBtn}
+  </div>`;
+}
+
+function contentBlock(slug, field, title, value) {
+  const safeVal = escHtml(value);
+  const safeField = escHtml(field);
+  return `
+<div class="content-block">
+  <div class="content-block-header">
+    <span class="content-block-title">${title}</span>
+    <div class="content-block-actions">
+      <button class="secondary" style="font-size:0.75rem;padding:4px 10px;" onclick="copyContent('${slug}','${safeField}')">Copy</button>
+      <button class="success" style="font-size:0.75rem;padding:4px 10px;" onclick="saveContent('${slug}','${safeField}')">Save</button>
+    </div>
+  </div>
+  <textarea class="content-edit" id="content-${slug}-${safeField}" data-slug="${slug}" data-field="${safeField}">${safeVal}</textarea>
+  <div class="feedback-row">
+    <input class="feedback-input" id="fb-${slug}-${safeField}" placeholder="e.g. make it shorter, change the tone, focus on the financial angle…" dir="auto">
+    <button onclick="submitFeedback('${slug}','${safeField}')" id="fbBtn-${slug}-${safeField}">↩ Revise</button>
+  </div>
+  <div class="save-hint" id="hint-${slug}-${safeField}"></div>
+</div>`;
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
+
+function attachCardListeners() {
+  document.querySelectorAll(".episode-card-header").forEach(el => {
+    el.addEventListener("click", () => {
+      const card = el.closest(".episode-card");
+      card.classList.toggle("expanded");
+    });
+  });
+}
+
+function runStep(slug, step) {
+  const btn = document.getElementById(`btn-${slug}-${step}`);
+  if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+  const log = document.getElementById(`log-${slug}-${step}`);
+  if (log) { log.textContent = ""; }
+  setPillState(slug, step, "running");
+
+  fetch("/api/run-step", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, step })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.success) {
+      toast("❌ " + data.error, "err");
+      if (btn) { btn.disabled = false; btn.textContent = "Run"; }
+      setPillState(slug, step, "error");
+    }
+    // Otherwise step is running; events come via socket
+  })
+  .catch(err => {
+    toast("❌ " + err.message, "err");
+    if (btn) { btn.disabled = false; btn.textContent = "Run"; }
+  });
+}
+
+function saveContent(slug, field) {
+  const ta = document.getElementById(`content-${slug}-${field}`);
+  const hint = document.getElementById(`hint-${slug}-${field}`);
+  if (!ta) return;
+
+  fetch("/api/save-content", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, field, value: ta.value })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      hint.textContent = "✓ Saved";
+      hint.className = "save-hint ok";
+    } else {
+      hint.textContent = "✗ " + data.error;
+      hint.className = "save-hint err";
+    }
+    setTimeout(() => { hint.textContent = ""; }, 3000);
+  });
+}
+
+function copyContent(slug, field) {
+  const ta = document.getElementById(`content-${slug}-${field}`);
+  if (!ta) return;
+  navigator.clipboard.writeText(ta.value).then(() => toast("Copied!", "ok"));
+}
+
+function submitFeedback(slug, field) {
+  const fbInput = document.getElementById(`fb-${slug}-${field}`);
+  const ta = document.getElementById(`content-${slug}-${field}`);
+  const btn = document.getElementById(`fbBtn-${slug}-${field}`);
+  const hint = document.getElementById(`hint-${slug}-${field}`);
+  if (!fbInput || !ta) return;
+
+  const feedback = fbInput.value.trim();
+  if (!feedback) { toast("Enter feedback first", "err"); return; }
+
+  btn.disabled = true;
+  btn.textContent = "Revising…";
+  hint.textContent = "⏳ Sending to model…";
+  hint.className = "save-hint";
+
+  fetch("/api/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, field, currentContent: ta.value, feedback })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      ta.value = data.revised;
+      fbInput.value = "";
+      hint.textContent = "✓ Revised and saved";
+      hint.className = "save-hint ok";
+      toast("✅ Content revised", "ok");
+    } else {
+      hint.textContent = "✗ " + data.error;
+      hint.className = "save-hint err";
+      toast("❌ " + data.error, "err");
+    }
+    btn.disabled = false;
+    btn.textContent = "↩ Revise";
+    setTimeout(() => { hint.textContent = ""; }, 4000);
+  })
+  .catch(err => {
+    hint.textContent = "✗ " + err.message;
+    hint.className = "save-hint err";
+    btn.disabled = false;
+    btn.textContent = "↩ Revise";
+  });
+}
+
+// ─── Guest modal ──────────────────────────────────────────────────────────────
+
+function openGuestModal(slug, guest, role) {
+  document.getElementById("modalSlug").value = slug;
+  document.getElementById("modalGuest").value = guest || "";
+  document.getElementById("modalRole").value  = role  || "";
+  document.getElementById("guestModal").classList.add("open");
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove("open");
+}
+
+function saveGuestInfo() {
+  const slug  = document.getElementById("modalSlug").value;
+  const guest = document.getElementById("modalGuest").value.trim();
+  const role  = document.getElementById("modalRole").value.trim();
+
+  fetch("/api/set-meta", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, guest, role })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      closeModal("guestModal");
+      loadEpisodes();
+      toast("✅ Guest info saved", "ok");
+    } else {
+      toast("❌ " + data.error, "err");
+    }
+  });
+}
+
+// ─── Publish to Zapier ────────────────────────────────────────────────────────
+
+function publishEpisode(slug) {
+  const btn = document.getElementById(`publish-btn-${slug}`);
+  const status = document.getElementById(`publish-status-${slug}`);
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.textContent = "📤 Publishing…";
+  if (status) status.textContent = "Sending to Zapier webhook…";
+
+  fetch("/api/publish", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      btn.textContent = "✅ Published!";
+      btn.className = "secondary";
+      if (status) status.innerHTML = `<span style="color:#4ade80">Sent to Zapier successfully</span>`;
+      toast("Published to Zapier!", "ok");
+    } else {
+      btn.disabled = false;
+      btn.textContent = "📤 Publish to Zapier";
+      if (status) status.innerHTML = `<span style="color:#f87171">Error: ${data.error}</span>`;
+      toast("Publish failed: " + data.error, "err");
+    }
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.textContent = "📤 Publish to Zapier";
+    if (status) status.innerHTML = `<span style="color:#f87171">Error: ${err.message}</span>`;
+    toast("Publish failed: " + err.message, "err");
+  });
+}
+
+// ─── Pill state updates ───────────────────────────────────────────────────────
+
+function setPillState(slug, step, state) {
+  const pill = document.getElementById(`pill-${slug}-${step}`);
+  if (!pill) return;
+  pill.className = "step-pill " + state;
+  const statusEl = document.getElementById(`status-${slug}-${step}`);
+  if (statusEl) {
+    const labels = { done: "Done", running: "Running…", error: "Error", pending: "Pending" };
+    const classes = { done: "status-done", running: "status-running", error: "status-error", pending: "status-pending" };
+    statusEl.textContent = labels[state] || state;
+    statusEl.className = "step-status " + (classes[state] || "");
+  }
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function toast(msg, type = "ok") {
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ─── Refresh button ───────────────────────────────────────────────────────────
+document.getElementById("refreshBtn").addEventListener("click", loadEpisodes);
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+loadEpisodes();
+
+// ─── Mobile Enhancements ──────────────────────────────────────────────────────
+
+// Auto-resize textareas on mobile for better UX
+document.addEventListener('input', function(e) {
+  if (e.target.tagName === 'TEXTAREA' && window.innerWidth <= 768) {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
+  }
+});
+
+// Double-tap to zoom prevention on buttons (mobile)
+document.querySelectorAll('button, .media-type-btn, .episode-card-header').forEach(el => {
+  el.addEventListener('touchend', function(e) {
+    // Prevent double-tap zoom
+    e.preventDefault();
+    el.click();
+  }, { passive: false });
+});
+
+// Pull-to-refresh detection (mobile safari/chrome)
+let touchStartY = 0;
+let isPulling = false;
+document.addEventListener('touchstart', function(e) {
+  if (e.touches.length === 1 && window.scrollY === 0) {
+    touchStartY = e.touches[0].clientY;
+    isPulling = true;
+  }
+}, { passive: true });
+
+document.addEventListener('touchmove', function(e) {
+  if (isPulling && e.touches.length === 1) {
+    const touchY = e.touches[0].clientY;
+    const diff = touchY - touchStartY;
+    if (diff > 80 && window.scrollY === 0) {
+      // Pulled down enough - trigger refresh
+      isPulling = false;
+      toast("Refreshing…", "ok");
+      loadEpisodes();
+    }
+  }
+}, { passive: true });
+
+document.addEventListener('touchend', function() {
+  isPulling = false;
+});
+
+// Fix iOS 100vh issue
+function setVH() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+window.addEventListener('resize', setVH);
+setVH();
+</script>
+</body>
+</html>

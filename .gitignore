@@ -1,4 +1,33 @@
+# Dependencies
 node_modules/
-service-account.json
+.venv/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime data
+uploads/
+episodes/
 cookies/
-run-state.json
+
+# Sensitive files
+service-account.json
+config.json
+agent.json
+
+# Backups (keep only latest)
+*-backup.js
+*-old.js
+dashboard-v*.js
+dashboard-v*.log
+index.html.v*.pre-mobile-backup
+*.v*.pre-mobile-backup.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
