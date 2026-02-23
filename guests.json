@@ -1,0 +1,31 @@
+[
+  {
+    "name": "جميل عامر",
+    "role": "محاور تجارب",
+    "status": "published",
+    "used": 1,
+    "lastUsed": "2026-02-23T18:11:48.741Z"
+  },
+  {
+    "name": "Mohammed Ayad",
+    "role": "Founder, Dofied",
+    "status": "prospect",
+    "priority": "high",
+    "company": "Dofied",
+    "industry": "Fintech / B2B Payments",
+    "location": "Baghdad, Iraq",
+    "used": 0,
+    "notes": "Founder of Dofied (2021), B2B payment platform for pharma & FMCG. Spoke at Baghdad Business School. Expanding to UAE. Abbott as client."
+  },
+  {
+    "name": "Taha Ayad",
+    "role": "Founder, Saleem (سليم)",
+    "status": "prospect",
+    "priority": "medium",
+    "company": "Saleem",
+    "industry": "Healthtech",
+    "location": "Iraq",
+    "used": 0,
+    "notes": "Dr. Taha Ayad, founder of Saleem healthtech. Spoke at Baghdad Business School. Likely related to Mohammed Ayad (brothers?)."
+  }
+]

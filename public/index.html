@@ -374,8 +374,11 @@ let guestHistory = [];
 
 // Initialize
 async function init() {
+    console.log('🚀 init() starting...');
     await loadGuestHistory();
-    refresh();
+    console.log('✅ loadGuestHistory done, calling refresh...');
+    await refresh();
+    console.log('✅ refresh done, episodes:', episodes.length);
     setInterval(refresh, 5000);
 }
 
@@ -586,16 +589,23 @@ function confirmUpload() {
 
 // Data functions
 async function refresh() {
+    console.log('🔄 refresh() called');
     try {
         const res = await fetch('/api/episodes');
         episodes = await res.json();
-    } catch(e) { return; }
+        console.log('📊 fetched', episodes.length, 'episodes');
+    } catch(e) {
+        console.error('❌ refresh error:', e);
+        return;
+    }
     renderSidebar();
     if (currentSlug) renderMain(currentSlug);
 }
 
 function renderSidebar() {
+    console.log('📋 renderSidebar(), episodes:', episodes.length);
     const list = document.getElementById('ep-list');
+    console.log('📋 ep-list element:', list ? 'found' : 'NOT FOUND');
     if (episodes.length === 0) {
         list.innerHTML = '<div style="padding:20px; text-align:center; color:#444; font-size:0.8rem;">No episodes yet</div>';
         return;
@@ -671,7 +681,12 @@ function renderMain(slug) {
     document.getElementById('ep-meta').innerHTML = 
         '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
         '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
-        '<button class="text-btn" onclick="editMeta()">Edit</button>';
+        '<button class="text-btn" onclick="editMeta()">Edit</button>' +
+        '<select onchange="changeMediaType(currentSlug, this.value)" style="background:#111; border:1px solid #333; color:#888; padding:4px 8px; border-radius:4px; font-size:0.75rem;">' +
+            '<option value="episode" ' + (ep.mediaType === 'episode' ? 'selected' : '') + '>Episode</option>' +
+            '<option value="reel_full" ' + (ep.mediaType === 'reel_full' ? 'selected' : '') + '>Reel (Full)</option>' +
+            '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
+        '</select>';
 
     document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
 
@@ -872,6 +887,26 @@ async function confirmMeta() {
     if (pendingRun) {
         await runStep(pendingRun);
         pendingRun = null;
+    }
+}
+
+async function changeMediaType(slug, newType) {
+    if (!slug || !newType) return;
+    try {
+        const res = await fetch('/api/set-meta', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug, mediaType: newType})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Type changed to ' + newType, 'success');
+            refresh();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed to change type: ' + err.message, 'error');
     }
 }
 
