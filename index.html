@@ -733,6 +733,7 @@ function renderMain(slug) {
                 (s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
                 (s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
                 (s.id !== 'cut' && s.id !== 'subtitle' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
+                (s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
             '</div>' +
         '</div>';
     }).join('');
@@ -1014,6 +1015,21 @@ async function generateTopicClip() {
     } catch (err) {
         showToast('Failed: ' + err.message, 'error');
     }
+}
+
+// Show reels in modal
+async function showReels() {
+    if (!currentSlug) return;
+    const ep = episodes.find(e => e.slug === currentSlug);
+    if (!ep || ep.counts.final === 0) {
+        showToast('No subtitled reels yet. Run Subtitle step first.', 'error');
+        return;
+    }
+
+    // Switch to preview tab which shows the video
+    document.getElementById('tab-preview').style.display = '';
+    switchTab('preview');
+    showToast('Showing subtitled reels in Preview tab', 'success');
 }
 
 // Content Editor
