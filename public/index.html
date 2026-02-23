@@ -704,16 +704,20 @@ function renderMain(slug) {
         const canRun = s.applicable && !ep.isRunning;
         const needGuest = s.id === 'generate' && (!ep.guest || !ep.role);
         
-        // Model selector for generate step
+        // Model selector for generate step - advanced autocomplete
         let modelSelector = '';
         if (s.id === 'generate' && !done && !needGuest) {
-            modelSelector = '<div style="margin:6px 0;">' +
-                '<select id="model-select-' + s.id + '" style="background:#111; border:1px solid #333; color:#888; padding:4px 8px; border-radius:4px; font-size:0.7rem; width:100%;">' +
-                    '<option value="auto">🤖 Auto (default)</option>' +
-                    '<option value="claude">🧠 Claude</option>' +
-                    '<option value="openai">⚡ OpenAI</option>' +
-                    '<option value="gemini">✨ Gemini</option>' +
-                '</select>' +
+            modelSelector = '<div style="margin:6px 0; position:relative;">' +
+                '<input type="text" ' +
+                    'id="model-select-' + s.id + '" ' +
+                    'list="model-list" ' +
+                    'placeholder="🤖 Auto (type to search models...)" ' +
+                    'style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.7rem; width:100%;" ' +
+                    'oninput="validateModel(this)" ' +
+                    'onfocus="loadModelList()" ' +
+                '>' +
+                '<datalist id="model-list"></datalist>' +
+                '<div id="model-validation-' + s.id + '" style="font-size:0.65rem; margin-top:4px; color:#666;">Type model name or select from list</div>' +
             '</div>';
         }
         
@@ -1030,6 +1034,120 @@ async function showReels() {
     document.getElementById('tab-preview').style.display = '';
     switchTab('preview');
     showToast('Showing subtitled reels in Preview tab', 'success');
+}
+
+// Model Management
+let availableModels = [];
+let modelListLoaded = false;
+
+// Known model aliases for validation
+const KNOWN_MODEL_ALIASES = {
+    // Auto
+    'auto': 'Auto (HAI Maker picks best)',
+    '': 'Auto (HAI Maker picks best)',
+    // Claude models
+    'claude': 'Claude (Latest)',
+    'claude-sonnet': 'Claude 3.5 Sonnet',
+    'claude-opus': 'Claude 3 Opus',
+    'claude-haiku': 'Claude 3 Haiku',
+    'anthropic/claude-sonnet-4-20250514': 'Claude 3.5 Sonnet (2025-05)',
+    // OpenAI models
+    'openai': 'OpenAI (Latest)',
+    'gpt-4': 'GPT-4',
+    'gpt-4o': 'GPT-4o',
+    'gpt-4o-mini': 'GPT-4o Mini',
+    'gpt-4-turbo': 'GPT-4 Turbo',
+    // Gemini models
+    'gemini': 'Gemini (Latest)',
+    'gemini-pro': 'Gemini Pro',
+    'gemini-1.5-pro': 'Gemini 1.5 Pro',
+    'gemini-1.5-flash': 'Gemini 1.5 Flash',
+    // HAI Maker specific
+    'haimaker/auto': 'HAI Maker Auto',
+    'haimaker/claude-sonnet': 'HAI Maker Claude Sonnet',
+    'haimaker/gpt-4o': 'HAI Maker GPT-4o',
+    // OpenRouter models (common ones)
+    'openrouter/auto': 'OpenRouter Auto',
+    'openrouter/anthropic/claude-3.5-sonnet': 'OpenRouter Claude 3.5 Sonnet',
+    'openrouter/openai/gpt-4o': 'OpenRouter GPT-4o',
+};
+
+async function loadModelList() {
+    if (modelListLoaded) return;
+    
+    const datalist = document.getElementById('model-list');
+    if (!datalist) return;
+    
+    // Build options from known aliases
+    let options = '<option value="auto">🤖 Auto (default - HAI Maker picks best)</option>';
+    
+    // Add categorized options
+    const categories = {
+        'Claude': ['claude', 'claude-sonnet', 'claude-opus', 'claude-haiku'],
+        'OpenAI': ['openai', 'gpt-4o', 'gpt-4o-mini', 'gpt-4', 'gpt-4-turbo'],
+        'Gemini': ['gemini', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+        'HAI Maker': ['haimaker/auto', 'haimaker/claude-sonnet', 'haimaker/gpt-4o'],
+        'OpenRouter': ['openrouter/auto', 'openrouter/anthropic/claude-3.5-sonnet', 'openrouter/openai/gpt-4o']
+    };
+    
+    for (const [category, models] of Object.entries(categories)) {
+        models.forEach(model => {
+            const label = KNOWN_MODEL_ALIASES[model] || model;
+            options += `<option value="${model}">${label}</option>`;
+        });
+    }
+    
+    // Add any custom models from localStorage
+    const customModels = JSON.parse(localStorage.getItem('customModels') || '[]');
+    customModels.forEach(m => {
+        options += `<option value="${m.id}">⭐ ${m.name}</option>`;
+    });
+    
+    datalist.innerHTML = options;
+    modelListLoaded = true;
+}
+
+function validateModel(input) {
+    const value = input.value.trim();
+    const validationDiv = document.getElementById('model-validation-generate');
+    if (!validationDiv) return;
+    
+    if (!value || value === 'auto') {
+        validationDiv.textContent = '✓ Auto (HAI Maker will pick the best model)';
+        validationDiv.style.color = '#4ade80';
+        return;
+    }
+    
+    // Check if it's a known alias
+    const normalizedValue = value.toLowerCase();
+    if (KNOWN_MODEL_ALIASES[normalizedValue]) {
+        validationDiv.textContent = '✓ ' + KNOWN_MODEL_ALIASES[normalizedValue];
+        validationDiv.style.color = '#4ade80';
+        return;
+    }
+    
+    // Check if it looks like a valid model identifier
+    // Valid patterns: provider/model, provider:model, or simple model names
+    const validPattern = /^[a-z0-9]+([\/:._-][a-z0-9-]+)*$/i;
+    if (validPattern.test(value)) {
+        validationDiv.textContent = '✓ Custom model: ' + value + ' (will be passed to API)';
+        validationDiv.style.color = '#60a5fa';
+        
+        // Save to custom models for future
+        saveCustomModel(value);
+    } else {
+        validationDiv.textContent = '⚠ Invalid format. Use: provider/model or model-name';
+        validationDiv.style.color = '#f87171';
+    }
+}
+
+function saveCustomModel(modelId) {
+    const customModels = JSON.parse(localStorage.getItem('customModels') || '[]');
+    if (!customModels.find(m => m.id === modelId)) {
+        customModels.push({ id: modelId, name: modelId, added: new Date().toISOString() });
+        localStorage.setItem('customModels', JSON.stringify(customModels));
+        modelListLoaded = false; // Refresh list next time
+    }
 }
 
 // Content Editor

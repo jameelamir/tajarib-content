@@ -27,7 +27,7 @@ CLIENT_CONFIG = {
 
 CALENDARS = {
     'personal': 'jameel.nedham@gmail.com',
-    'tajarib': 'primary'
+    'tajarib': 'jameel@tajarib.show'
 }
 
 def find_free_port():
