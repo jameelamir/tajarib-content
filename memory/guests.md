@@ -13,6 +13,59 @@ Potential and confirmed guests for Tajarib podcast.
 
 ---
 
+## Fahad Alhafidh — Al Hafidh Group
+
+**Status:** prospect  
+**Priority:** High
+
+### Profile
+| Field | Details |
+|-------|---------|
+| **Full Name** | Fahad Alhafidh |
+| **Company** | ALHAFIDH GROUP TRADING |
+| **Role** | Managing Director |
+| **Location** | Baghdad, Iraq |
+| **Industry** | Consumer Electronics / Trading / Distribution |
+
+### Company: Al Hafidh Group
+- **Founded:** 1940 (85+ years of history)
+- **HQ:** Baghdad, Iraq
+- **Group Structure:** 25 companies, 1,500+ employees
+- **Global Presence:** Iraq, UAE, Canada, Jordan, India, Germany
+- **LinkedIn:** 18,598 followers
+- **Website:** alhafidh.com
+
+### What Al Hafidh Does
+- **Main Distributor** for: Panasonic, Midea, Electrolux (Home Entertainment & Appliances)
+- Samsung Signage & Hisense HVAC
+- Trading, banking & finance sectors
+- B2B solutions & wholesale
+
+### Recent Activity (2025-2026)
+- Video wall installations for commercial/monitoring projects
+- Central HVAC systems (VRF) for buildings
+- Free installation campaigns for inverters
+- B2B product offerings expansion
+
+### Potential Topics
+- 85 years of family business — succession & evolution
+- From traditional trading to modern distribution
+- Managing 25 companies across sectors
+- Distribution giants: working with global brands
+- Regional expansion (UAE, Canada, Jordan, India, Germany)
+- Iraq's consumer electronics market
+
+### Links
+- Website: https://alhafidh.com
+- LinkedIn: https://linkedin.com/company/al-hafidh-group-trading
+
+### Episode Angles
+1. **85 Years of Business** — Legacy, family succession, adapting to change
+2. **The Distribution Model** — Why global brands trust Al Hafidh
+3. **Family Business at Scale** — Managing 1,500 people across 25 companies
+
+---
+
 ## Mohammed Ayad — Dofied
 
 **Status:** prospect  
