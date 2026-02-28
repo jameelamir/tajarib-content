@@ -7,6 +7,17 @@
     "lastUsed": "2026-02-23T18:11:48.741Z"
   },
   {
+    "name": "Fahad Alhafidh",
+    "role": "Managing Director, Al Hafidh Group",
+    "status": "prospect",
+    "priority": "high",
+    "company": "Al Hafidh Group Trading",
+    "industry": "Consumer Electronics / Distribution",
+    "location": "Baghdad, Iraq",
+    "used": 0,
+    "notes": "Leading 85-year-old family business. 25 companies, 1,500+ employees. Main distributor for Panasonic, Midea, Electrolux, Samsung Signage, Hisense HVAC. Regional presence in UAE, Canada, Jordan, India, Germany."
+  },
+  {
     "name": "Mohammed Ayad",
     "role": "Founder, Dofied",
     "status": "prospect",
@@ -27,5 +38,11 @@
     "location": "Iraq",
     "used": 0,
     "notes": "Dr. Taha Ayad, founder of Saleem healthtech. Spoke at Baghdad Business School. Likely related to Mohammed Ayad (brothers?)."
+  },
+  {
+    "name": "هاري استيبانيان",
+    "role": "الباحث في شؤون الطاقة ومؤسس مركز العراق للتغير المناخي",
+    "used": 13,
+    "lastUsed": "2026-02-26T15:05:07.580Z"
   }
 ]

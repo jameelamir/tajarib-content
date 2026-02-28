@@ -1,36 +1,71 @@
 #!/usr/bin/env python3
 """
-Google Calendar integration - Prints auth URL for manual copy/paste
+Google Calendar integration - Manual OAuth URL generation
 """
 
 import os
 import pickle
+import urllib.parse
 from datetime import datetime
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-CLIENT_CONFIG = {
-    "installed": {
-        "client_id": "935986916520-rv5ffk2f2fuk8sp7aoma0i4mbhibbfee.apps.googleusercontent.com",
-        "project_id": "tajarib-calendar",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": "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",
-        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"]
-    }
-}
+CLIENT_ID = "935986916520-rv5ffk2f2fuk8sp7aoma0i4mbhibbfee.apps.googleusercontent.com"
+CLIENT_SECRET = "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"
+REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"  # For manual copy/paste
 
 CALENDARS = {
     'personal': 'jameel.nedham@gmail.com',
     'tajarib': 'jameel@tajarib.show'
 }
 
+def get_auth_url():
+    """Generate OAuth URL for manual auth"""
+    params = {
+        'response_type': 'code',
+        'client_id': CLIENT_ID,
+        'redirect_uri': REDIRECT_URI,
+        'scope': ' '.join(SCOPES),
+        'access_type': 'offline',
+        'prompt': 'consent'
+    }
+    
+    base_url = "https://accounts.google.com/o/oauth2/auth"
+    query = urllib.parse.urlencode(params)
+    return f"{base_url}?{query}"
+
+def exchange_code_for_token(code):
+    """Exchange auth code for credentials"""
+    import requests
+    
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        'code': code,
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'redirect_uri': REDIRECT_URI,
+        'grant_type': 'authorization_code'
+    }
+    
+    response = requests.post(token_url, data=data)
+    token_data = response.json()
+    
+    if 'error' in token_data:
+        raise Exception(f"Token exchange failed: {token_data}")
+    
+    return Credentials(
+        token=token_data['access_token'],
+        refresh_token=token_data.get('refresh_token'),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        scopes=SCOPES
+    )
+
 def get_credentials():
-    """Get or refresh credentials - prints URL for manual auth"""
+    """Get or refresh credentials"""
     token_path = '/root/.openclaw/workspace/tajarib/.gcal_token.pickle'
     
     if os.path.exists(token_path):
@@ -46,32 +81,26 @@ def get_credentials():
                 pickle.dump(creds, token)
             return creds
     
-    # Need auth - print URL for manual copy/paste
-    flow = InstalledAppFlow.from_client_config(CLIENT_CONFIG, SCOPES)
-    
-    # Generate auth URL
-    auth_url, _ = flow.authorization_url(prompt='consent')
+    # Print auth URL and wait for code
+    auth_url = get_auth_url()
     
     print("\n" + "="*70)
-    print("🔗 Google Calendar Authentication Required")
+    print("🔗 Google Calendar Authentication")
     print("="*70)
-    print("\n📋 STEP 1: Copy this URL and open in your browser:")
+    print("\n📋 STEP 1: Open this URL in your browser:")
     print(f"\n{auth_url}\n")
-    print("📋 STEP 2: Sign in with Google and allow calendar access")
-    print("📋 STEP 3: You'll get a code - paste it here and press Enter")
-    print("="*70 + "\n")
+    print("📋 STEP 2: Sign in and allow access")
+    print("📋 STEP 3: Copy the code shown and paste it below")
+    print("="*70)
     
-    code = input("Enter the auth code: ").strip()
-    
-    flow.fetch_token(code=code)
-    creds = flow.credentials
-    
-    print("✅ Authenticated successfully!\n")
-    
+    return None  # Will be handled by manual code entry
+
+def save_credentials(creds):
+    """Save credentials to file"""
+    token_path = '/root/.openclaw/workspace/tajarib/.gcal_token.pickle'
     with open(token_path, 'wb') as token:
         pickle.dump(creds, token)
-    
-    return creds
+    print("✅ Credentials saved!\n")
 
 def get_today_events(service, calendar_id='primary'):
     """Get today's events"""
@@ -106,10 +135,14 @@ def format_event(event):
     
     return f"{time} — {summary}"
 
-def get_daily_brief():
+def get_daily_brief(creds=None):
     """Generate brief"""
     try:
-        creds = get_credentials()
+        if creds is None:
+            creds = get_credentials()
+            if creds is None:
+                return None  # Need manual auth
+        
         service = build('calendar', 'v3', credentials=creds)
         
         events = []
@@ -133,4 +166,8 @@ def get_daily_brief():
         return f"❌ Error: {e}"
 
 if __name__ == '__main__':
-    print(get_daily_brief())
+    result = get_daily_brief()
+    if result is None:
+        print("\nWaiting for auth code...")
+    else:
+        print(result)

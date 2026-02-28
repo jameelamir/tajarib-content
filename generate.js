@@ -39,6 +39,11 @@ function loadJSON(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+// Force immediate output for dashboard logging
+function log(msg) {
+  process.stdout.write(msg + "\n");
+}
+
 function loadFormat(name) {
   const p = path.join(FORMATS_DIR, `${name}.md`);
   return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
@@ -207,18 +212,18 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "content.json");
 
   if (fs.existsSync(outputPath) && !force) {
-    console.log(`⏭️  Content already exists: ${outputPath}`);
-    console.log("   Use --force to regenerate.");
+    log(`⏭️  Content already exists: ${outputPath}`);
+    log("   Use --force to regenerate.");
     return outputPath;
   }
 
   const reelFormat = loadFormat("reel-caption");
   const apiKey     = getApiKey();
 
-  console.log(`✍️  Generating content for: ${slug}`);
-  console.log(`   Guest: ${guest} — ${role}`);
-  console.log(`   Mode: ${reelOnly ? "REEL ONLY (caption only)" : "FULL EPISODE"}`);
-  console.log(`   Model: ${MODEL} via Haimaker\n`);
+  log(`✍️  Generating content for: ${slug}`);
+  log(`   Guest: ${guest} — ${role}`);
+  log(`   Mode: ${reelOnly ? "REEL ONLY (caption only)" : "FULL EPISODE"}`);
+  log(`   Model: ${MODEL} via Haimaker\n`);
 
   let totalTokens = 0;
 
@@ -238,10 +243,10 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
     // Create a minimal fake reel object so generateReelCaption can run
     const fakeReel = { id: "reel-01", hook: "", start: "0:00", end: "1:00" };
 
-    process.stdout.write(`   🎬 Generating reel caption…`);
+    log(`   🎬 Generating reel caption…`);
     const result = await generateReelCaption(apiKey, fakeReel, guest, role, reelText, reelFormat);
     totalTokens += result.tokens;
-    console.log(` ✅ (${result.tokens} tokens)`);
+    log(`   ✅ Done (${result.tokens} tokens)`);
 
     const output = {
       slug,
@@ -257,8 +262,8 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
     };
 
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
-    console.log(`\n✅ Done! Total tokens: ${totalTokens.toLocaleString()}`);
-    console.log(`📄 Saved: ${outputPath}`);
+    log(`\n✅ Done! Total tokens: ${totalTokens.toLocaleString()}`);
+    log(`📄 Saved: ${outputPath}`);
     return outputPath;
   }
 
@@ -266,8 +271,8 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   const transcript = loadJSON(path.join(EPISODES_DIR, slug, "transcript.json"));
   const analysis   = loadJSON(path.join(EPISODES_DIR, slug, "analysis.json"));
 
-  if (!transcript) { console.error("❌ No transcript.json found. Run transcribe first."); process.exit(1); }
-  if (!analysis)   { console.error("❌ No analysis.json found. Run analyze first.");     process.exit(1); }
+  if (!transcript) { process.stderr.write("❌ No transcript.json found. Run transcribe first.\n"); process.exit(1); }
+  if (!analysis)   { process.stderr.write("❌ No analysis.json found. Run analyze first.\n");     process.exit(1); }
 
   const ytFormat = loadFormat("youtube-description");
 
@@ -277,21 +282,21 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   const reelCaptions = [];
   for (const reel of (analysis.reels || [])) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
-    process.stdout.write(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
+    log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
     const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat);
     reelCaptions.push({
       id: reel.id, start: reel.start, end: reel.end,
       hook: reel.hook, reel_text: reelText, caption: result.text,
     });
     totalTokens2 += result.tokens;
-    console.log(` ✅ (${result.tokens} tokens)`);
+    log(`   ✅ Done (${result.tokens} tokens)`);
   }
 
   // YouTube + announcement
-  console.log("   📺 Generating YouTube description + titles + announcement...");
+  log("   📺 Generating YouTube description + titles + announcement...");
   const ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat);
   totalTokens2 += ytResult.tokens;
-  console.log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
+  log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
 
   const output = {
     slug,
@@ -303,8 +308,8 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   };
 
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
-  console.log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
-  console.log(`📄 Saved: ${outputPath}`);
+  log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
+  log(`📄 Saved: ${outputPath}`);
   return outputPath;
 }
 
@@ -323,11 +328,11 @@ if (modelArg) {
 }
 
 if (!slug || !guest || !role) {
-  console.error("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model auto|claude|openai|gemini] [--force] [--reel-only]");
+  process.stderr.write("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model auto|claude|openai|gemini] [--force] [--reel-only]\n");
   process.exit(1);
 }
 
 generate(slug, guest, role, force, reelOnly).catch(err => {
-  console.error("❌", err.message);
+  process.stderr.write("❌ " + err.message + "\n");
   process.exit(1);
 });

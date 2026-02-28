@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Tajarib Pipeline</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/socket.io/socket.io.js?v=3"></script>
     <style>
         :root { --bg: #0a0a0a; --panel: #141414; --border: #2a2a2a; --accent: #a855f7; --text: #eee; --sub: #777; --success: #4ade80; --error: #ef4444; --warning: #f59e0b; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -51,6 +54,32 @@
         .stage { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-width: 160px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
         .stage h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; }
         .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; width: fit-content; }
+
+        /* Preview video styles */
+        #preview-content video {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+        }
+        #preview-editor-wrap {
+            overflow: hidden;
+        }
+
+        /* Delete/Storage management */
+        .storage-section { margin: 12px; padding: 12px; background: #1a0a0a; border: 1px solid #3a1a1a; border-radius: 6px; }
+        .storage-section h4 { margin-bottom: 10px; color: #888; font-size: 0.75rem; }
+        .delete-btn { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; font-size: 0.7rem; padding: 4px 10px; }
+        .delete-btn:hover { background: #7f1d1d; }
+        .storage-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-size: 0.75rem; }
+        .storage-size { color: #666; }
+
+        /* Enhanced upload progress */
+        .upload-controls { display: flex; gap: 8px; margin-top: 8px; justify-content: center; }
+        .upload-controls button { font-size: 0.7rem; padding: 4px 12px; }
+        .chunk-info { font-size: 0.65rem; color: #666; margin-top: 4px; text-align: center; }
+        .upload-paused { border-color: #f59e0b !important; color: #f59e0b !important; }
         .badge-done { background: #064e3b; color: #34d399; }
         .badge-pending { background: #222; color: #666; }
         .badge-na { background: #1a1a1a; color: #444; }
@@ -78,10 +107,12 @@
         .editor-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
         .text-editor-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-        .content-editor-wrap { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+        .content-editor-wrap { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; min-height: 0; }
+        .content-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+        .content-field:last-child { margin-bottom: 0; }
         .content-field { display: flex; flex-direction: column; gap: 6px; }
         .content-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; color: #555; font-weight: 600; }
-        .content-textarea { background: #111; border: 1px solid #2a2a2a; color: #ddd; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; resize: none; outline: none; line-height: 1.6; direction: rtl; width: 100%; }
+        .content-textarea { background: #111; border: 1px solid #2a2a2a; color: #ddd; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; resize: vertical; outline: none; line-height: 1.6; direction: rtl; width: 100%; min-height: 80px; overflow: auto; }
         .content-textarea:focus { border-color: var(--accent); }
         .content-titles-wrap { display: flex; flex-direction: column; gap: 6px; }
         .content-title-row { display: flex; gap: 6px; align-items: center; }
@@ -98,9 +129,13 @@
         .content-hint.err { color: var(--error); }
 
         .seg-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-        .seg-row { display: flex; gap: 8px; align-items: flex-start; }
-        .seg-ts { font-size: 0.7rem; color: #555; font-family: monospace; padding-top: 8px; min-width: 48px; flex-shrink: 0; }
+        .seg-row { display: flex; gap: 8px; align-items: flex-start; padding: 4px; border-radius: 4px; transition: background 0.2s; }
+        .seg-row.playing { background: rgba(168, 85, 247, 0.1); border-left: 2px solid var(--accent); }
+        .seg-ts { font-size: 0.7rem; color: #555; font-family: monospace; padding-top: 8px; min-width: 48px; flex-shrink: 0; cursor: pointer; color: var(--accent); transition: color 0.15s; }
+        .seg-ts:hover { color: #c084fc; text-decoration: underline; }
+        .seg-row.playing .seg-ts { color: #c084fc; font-weight: bold; }
         .seg-input { flex: 1; background: #111; border: 1px solid #2a2a2a; color: #ddd; padding: 7px 10px; border-radius: 4px; font-size: 0.85rem; resize: none; outline: none; line-height: 1.5; direction: rtl; }
+        .seg-row.playing .seg-input { background: #1a1025; border-color: var(--accent); }
 
         .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 100; }
         .modal.open { display: flex; }
@@ -180,7 +215,10 @@
 <div class="sidebar">
     <div class="sidebar-header">
         <span>🎙️ Tajarib</span>
-        <span style="font-size:0.65rem; color:#555;">v7 Mobile</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:0.65rem; color:#555;">v7 Mobile</span>
+            <button onclick="toggleBulkMode()" id="bulk-mode-btn" style="font-size:0.6rem; padding:3px 8px; background:#1a1a1a; border-color:#333; display:none;">Select</button>
+        </div>
     </div>
 
     <!-- Media Type Selector -->
@@ -200,14 +238,37 @@
     <div class="upload-zone" id="upload-zone">
         <div style="font-size:1.5rem; margin-bottom:6px;">📁</div>
         <div>Drop video or <strong>click to upload</strong></div>
-        <div style="font-size:0.7rem; margin-top:4px; color:#444;">MP4, MKV, MOV — up to 10 GB</div>
+        <div style="font-size:0.7rem; margin-top:4px; color:#444;">MP4, MKV, MOV — up to 30 GB (resumable)</div>
         <input type="file" id="file-input" accept=".mp4,.mkv,.mov,.avi">
+    </div>
+
+    <!-- MP3 Analysis Zone -->
+    <div class="upload-zone" id="mp3-zone" style="border-color:#2d4a2d; background:#0f1a0f;">
+        <div style="font-size:1.5rem; margin-bottom:6px;">🎧</div>
+        <div><strong>Upload MP3 for Clip Analysis</strong></div>
+        <div style="font-size:0.7rem; margin-top:4px; color:#666;">Transcribe → AI suggests clips → Get cut commands</div>
+        <input type="file" id="mp3-input" accept=".mp3,.wav,.m4a,.aac">
     </div>
 
     <!-- Upload Progress -->
     <div class="upload-progress" id="upload-progress">
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         <div class="progress-text" id="progress-text">Uploading...</div>
+        <div class="chunk-info" id="chunk-info"></div>
+        <div class="upload-controls">
+            <button id="pause-btn" onclick="pauseUpload()" style="display:none;">⏸ Pause</button>
+            <button id="resume-btn" onclick="resumeUpload()" style="display:none;">▶ Resume</button>
+            <button id="cancel-btn" onclick="cancelUpload()" style="display:none; background:#450a0a; color:#fca5a5;">✕ Cancel</button>
+        </div>
+    </div>
+
+    <!-- Space-Saving Tip -->
+    <div class="buffer-config" style="background:#0f2d0f; border-color:#1a4a1a;">
+        <h4 style="color:#4ade80;">💡 Space-Saving Tip</h4>
+        <div style="color:#888; font-size:0.7rem;">
+            Cut clips <strong>locally first</strong>, then upload as "Reel (cut, no subs)". 
+            See <code>LOCAL_CUTTING.md</code> or run <code>node cut-and-upload.js</code>
+        </div>
     </div>
 
     <!-- Zapier Integration Info -->
@@ -215,6 +276,17 @@
         <h4>🔗 Zapier Connected</h4>
         <div style="color:#666; font-size:0.7rem;">
             Reels will be sent to your Zapier webhook for posting to TikTok, Instagram, etc.
+        </div>
+    </div>
+
+    <!-- Bulk Actions Bar (shown in select mode) -->
+    <div class="bulk-actions" id="bulk-actions" style="display:none; padding:8px 12px; background:#1a0a0a; border-top:1px solid #3a1a1a;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:0.75rem; color:#888;"><span id="bulk-count">0</span> selected</span>
+            <div style="display:flex; gap:6px;">
+                <button onclick="cancelBulkSelect()" style="font-size:0.7rem; padding:4px 10px;">Cancel</button>
+                <button class="delete-btn" onclick="bulkDelete()" style="font-size:0.7rem; padding:4px 10px;">🗑️ Delete Selected</button>
+            </div>
         </div>
     </div>
 
@@ -266,6 +338,21 @@
                 </div>
 
                 <div class="text-editor-wrap" id="text-editor-wrap" style="display:none;">
+                    <!-- Audio Player for Transcript Editing -->
+                    <div id="transcript-audio-player" style="padding:12px 14px; background:#1a1a1a; border-bottom:1px solid var(--border); display:none;">
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <audio id="transcript-audio" controls style="flex:1; min-width:250px; max-width:400px; height:36px;"></audio>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:#666; cursor:pointer;">
+                                    <input type="checkbox" id="sync-transcript" checked>
+                                    Auto-sync
+                                </label>
+                            </div>
+                            <div style="font-size:0.7rem; color:#666;">
+                                💡 Click timestamps to jump • Edit while listening
+                            </div>
+                        </div>
+                    </div>
                     <div class="seg-list" id="seg-list">
                         <div style="color:#555; font-size:0.8rem; padding:20px; text-align:center;">Click "Edit Transcript" to edit segment by segment</div>
                     </div>
@@ -340,6 +427,59 @@
     </div>
 </div>
 
+<!-- MP3 Upload Modal -->
+<div class="modal" id="mp3-modal">
+    <div class="modal-box">
+        <h3>🎧 Upload MP3 for Clip Analysis</h3>
+        <div class="field">
+            <label>Episode Slug</label>
+            <input type="text" id="mp3-slug" placeholder="e.g. muhannad-interview">
+        </div>
+        <div class="field">
+            <label>Guest</label>
+            <div class="guest-select-row">
+                <select id="mp3-guest-select" onchange="onMp3GuestSelect()">
+                    <option value="">-- Select or type new --</option>
+                </select>
+                <button onclick="toggleMp3GuestInput()">✏️</button>
+            </div>
+            <input type="text" id="mp3-guest-input" placeholder="New guest name (Arabic)" dir="rtl" style="display:none; margin-top:8px;">
+        </div>
+        <div class="field">
+            <label>Guest Role</label>
+            <input type="text" id="mp3-role" placeholder="مثال: المدير التنفيذي" dir="rtl">
+        </div>
+        <div class="hint-text" style="color:#666; font-size:0.75rem;">
+            This will: 1) Upload MP3 → 2) Transcribe → 3) AI suggests clips → 4) Show cut commands
+        </div>
+        <div class="modal-actions">
+            <button onclick="closeMp3Modal()">Cancel</button>
+            <button class="primary" onclick="confirmMp3Upload()">Analyze for Clips</button>
+        </div>
+    </div>
+</div>
+
+<!-- Clip Suggestions Modal -->
+<div class="modal" id="clips-modal" style="align-items:flex-start; padding-top:40px;">
+    <div class="modal-box" style="width:600px; max-height:85vh; overflow-y:auto;">
+        <h3>🎯 Suggested Clips</h3>
+        <div style="color:#888; font-size:0.8rem; margin-bottom:16px;">
+            AI analyzed your audio and found these best moments. Copy commands, cut locally, then upload.
+        </div>
+        <div id="clips-container"></div>
+        <div style="background:#0f1a0f; border:1px solid #1a4a1a; border-radius:8px; padding:14px; margin-top:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong style="color:#4ade80;">⚡ One-Click Batch Command</strong>
+                <button class="primary" style="font-size:0.75rem;" onclick="copyBatchCommand()">Copy All</button>
+            </div>
+            <textarea id="batch-command" readonly style="width:100%; height:120px; background:#111; border:1px solid #333; color:#888; padding:10px; font-family:monospace; font-size:0.7rem; resize:none;"></textarea>
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button onclick="closeClipsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
 <!-- Meta Edit Modal -->
 <div class="modal" id="meta-modal">
     <div class="modal-box">
@@ -359,6 +499,54 @@
     </div>
 </div>
 
+<!-- Delete Menu Modal -->
+<div class="modal" id="delete-modal">
+    <div class="modal-box">
+        <h3>🗑️ Delete Files</h3>
+        <div style="background:#1a0a0a; padding:12px; border-radius:6px; margin-bottom:16px; border:1px solid #3a1a1a;">
+            <div style="font-size:0.75rem; color:#888; margin-bottom:4px;">Episode: <strong id="delete-target-name" style="color:#fff;"></strong></div>
+            <div style="font-size:0.7rem; color:#555;" id="delete-target-info"></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <button class="delete-btn" onclick="deleteVideoFiles('raw')" style="padding:10px; text-align:left; display:flex; justify-content:space-between;">
+                <span>🎬 Delete Raw Video</span>
+                <span style="color:#888; font-size:0.75rem;">Frees most space</span>
+            </button>
+            <button class="delete-btn" onclick="deleteVideoFiles('processed')" style="padding:10px; text-align:left; display:flex; justify-content:space-between;">
+                <span>✂️ Delete Processed Files</span>
+                <span style="color:#888; font-size:0.75rem;">Reels & subtitled</span>
+            </button>
+            <button class="delete-btn" onclick="deleteVideoFiles('transcript')" style="padding:10px; text-align:left; display:flex; justify-content:space-between;">
+                <span>📝 Delete Transcript</span>
+                <span style="color:#888; font-size:0.75rem;">Can regenerate</span>
+            </button>
+            <button class="delete-btn" onclick="deleteVideoFiles('all')" style="padding:10px; text-align:left; display:flex; justify-content:space-between; background:#7f1d1d;">
+                <span>⚠️ Delete All Files</span>
+                <span style="color:#fca5a5; font-size:0.75rem;">Everything</span>
+            </button>
+        </div>
+        <div class="modal-actions">
+            <button onclick="closeDeleteModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Manual Caption Modal -->
+<div class="modal" id="manual-caption-modal">
+    <div class="modal-box">
+        <h3>✍️ Write Caption Manually</h3>
+        <div class="field">
+            <label>Caption (Arabic)</label>
+            <textarea id="manual-caption-input" dir="rtl" rows="8" placeholder="اكتب الكابشن هنا..." style="background:#111; border:1px solid #333; padding:12px; color:#fff; border-radius:6px; font-size:0.9rem; width:100%; resize:vertical; line-height:1.6;"></textarea>
+        </div>
+        <div class="hint-text">This will save directly to content.json — no AI involved. You can publish right after.</div>
+        <div class="modal-actions">
+            <button onclick="closeManualCaption()">Cancel</button>
+            <button class="primary" onclick="saveManualCaption()">Save & Continue</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const socket = io();
 let episodes = [];
@@ -371,6 +559,10 @@ let selectedMediaType = 'episode';
 let contentEditorData = null;
 let textEditorData = null;
 let guestHistory = [];
+
+// Chunked upload state
+let currentUpload = null; // { uploadId, file, slug, guest, role, mediaType, transcribeMethod, totalChunks, chunkSize, paused, aborted }
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB - must match server
 
 // Initialize
 async function init() {
@@ -387,6 +579,7 @@ init();
 socket.on('connect', () => console.log('Socket connected'));
 socket.on('status-update', refresh);
 socket.on('log', ({slug, text}) => {
+    console.log('[Socket log]', slug, text.substring(0, 50) + '...');
     if (!logs[slug]) logs[slug] = '';
     logs[slug] += text;
     if (currentSlug === slug) updateLogs();
@@ -420,6 +613,19 @@ function populateGuestSelect() {
         option.dataset.role = g.role;
         select.appendChild(option);
     });
+    
+    // Also populate MP3 guest select
+    const mp3Select = document.getElementById('mp3-guest-select');
+    if (mp3Select) {
+        mp3Select.innerHTML = '<option value="">-- Select or type new --</option>';
+        guestHistory.sort((a, b) => b.used - a.used).forEach(g => {
+            const option = document.createElement('option');
+            option.value = g.name;
+            option.textContent = g.name + (g.role ? ' (' + g.role + ')' : '');
+            option.dataset.role = g.role;
+            mp3Select.appendChild(option);
+        });
+    }
 }
 
 function onGuestSelect() {
@@ -477,6 +683,9 @@ document.getElementById('upload-zone').onclick = function(e) {
 const dropZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
 
+// Make dropZone globally accessible for upload functions
+window.dropZone = dropZone;
+
 dropZone.ondragenter = dropZone.ondragover = function(e) {
     e.preventDefault();
     this.classList.add('dragover');
@@ -500,7 +709,268 @@ document.body.ondrop = function(e) {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file && /\\.(mp4|mkv|mov|avi)$/i.test(file.name)) startUploadFlow(file);
+    if (file && /\\.(mp3|wav|m4a|aac)$/i.test(file.name)) startMp3Flow(file);
 };
+
+// ─── MP3 Upload Flow ─────────────────────────────────────────────────────────
+
+const mp3Zone = document.getElementById('mp3-zone');
+const mp3Input = document.getElementById('mp3-input');
+
+mp3Zone.onclick = function(e) {
+    if (e.target === this || e.target.parentElement === this) {
+        mp3Input.click();
+    }
+};
+
+mp3Zone.ondragenter = mp3Zone.ondragover = function(e) {
+    e.preventDefault();
+    this.classList.add('dragover');
+};
+mp3Zone.ondragleave = mp3Zone.ondrop = function(e) {
+    e.preventDefault();
+    this.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && /\\.(mp3|wav|m4a|aac)$/i.test(file.name)) startMp3Flow(file);
+};
+
+mp3Input.onchange = function() {
+    if (this.files[0]) startMp3Flow(this.files[0]);
+    this.value = '';
+};
+
+function startMp3Flow(file) {
+    pendingFile = file;
+    const autoSlug = file.name.replace(/\\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+    document.getElementById('mp3-slug').value = autoSlug;
+    
+    // Reset guest inputs
+    document.getElementById('mp3-guest-select').value = '';
+    document.getElementById('mp3-guest-input').value = '';
+    document.getElementById('mp3-guest-input').style.display = 'none';
+    document.getElementById('mp3-guest-select').style.display = 'block';
+    document.getElementById('mp3-role').value = '';
+    
+    document.getElementById('mp3-modal').classList.add('open');
+}
+
+function closeMp3Modal() {
+    pendingFile = null;
+    document.getElementById('mp3-modal').classList.remove('open');
+}
+
+function toggleMp3GuestInput() {
+    const select = document.getElementById('mp3-guest-select');
+    const input = document.getElementById('mp3-guest-input');
+    
+    if (input.style.display === 'none') {
+        input.style.display = 'block';
+        select.style.display = 'none';
+        input.focus();
+    } else {
+        input.style.display = 'none';
+        select.style.display = 'block';
+    }
+}
+
+function onMp3GuestSelect() {
+    const select = document.getElementById('mp3-guest-select');
+    const input = document.getElementById('mp3-guest-input');
+    const roleInput = document.getElementById('mp3-role');
+    
+    if (select.value) {
+        input.value = select.value;
+        const option = select.options[select.selectedIndex];
+        if (option.dataset.role) {
+            roleInput.value = option.dataset.role;
+        }
+    }
+}
+
+async function confirmMp3Upload() {
+    const slug = document.getElementById('mp3-slug').value.trim();
+    const guestInput = document.getElementById('mp3-guest-input');
+    const guestSelect = document.getElementById('mp3-guest-select');
+    const guest = guestInput.style.display !== 'none' ? guestInput.value.trim() : guestSelect.value;
+    const role = document.getElementById('mp3-role').value.trim();
+    
+    if (!slug) return alert('Slug is required');
+    if (!pendingFile) return;
+
+    document.getElementById('mp3-modal').classList.remove('open');
+    
+    // Upload MP3 and analyze
+    await uploadAndAnalyzeMp3(pendingFile, slug, guest, role);
+}
+
+async function uploadAndAnalyzeMp3(file, slug, guest, role) {
+    // Show progress
+    const progressEl = document.getElementById('upload-progress');
+    const fillEl = document.getElementById('progress-fill');
+    const textEl = document.getElementById('progress-text');
+    const chunkInfoEl = document.getElementById('chunk-info');
+    
+    progressEl.classList.add('active');
+    document.getElementById('upload-zone').style.display = 'none';
+    document.getElementById('mp3-zone').style.display = 'none';
+    
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    
+    // Initialize upload
+    let uploadId;
+    try {
+        textEl.textContent = 'Initializing...';
+        const initRes = await fetch('/api/upload-init', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                filename: file.name,
+                fileSize: file.size,
+                slug,
+                guest,
+                role,
+                mediaType: 'audio_preview',
+                transcribeMethod: 'local'
+            })
+        });
+        const initData = await initRes.json();
+        if (!initData.success) throw new Error(initData.error);
+        uploadId = initData.uploadId;
+    } catch (err) {
+        showToast('Failed to start upload: ' + err.message, 'error');
+        cleanupUploadUI();
+        return;
+    }
+    
+    // Upload chunks
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        try {
+            const pct = Math.round(((i + 1) / totalChunks) * 100);
+            fillEl.style.width = pct + '%';
+            const uploadedMb = ((i + 1) * CHUNK_SIZE / 1024 / 1024).toFixed(0);
+            const totalMb = (file.size / 1024 / 1024).toFixed(0);
+            textEl.textContent = `Uploading MP3: ${uploadedMb} / ${totalMb} MB (${pct}%)`;
+            chunkInfoEl.textContent = `Chunk ${i + 1} of ${totalChunks}`;
+            
+            await fetch(`/api/upload-chunk?uploadId=${uploadId}&chunkIndex=${i}`, {
+                method: 'POST',
+                body: chunk
+            });
+        } catch (err) {
+            showToast('Upload failed: ' + err.message, 'error');
+            cleanupUploadUI();
+            return;
+        }
+    }
+    
+    // Complete upload and start transcription
+    textEl.textContent = 'Transcribing...';
+    try {
+        const completeRes = await fetch('/api/upload-complete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({uploadId})
+        });
+        const completeData = await completeRes.json();
+        if (!completeData.success) throw new Error(completeData.error);
+        
+        // Run transcription
+        const transcribeRes = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: completeData.slug, step: 'transcribe', force: false})
+        });
+        
+        cleanupUploadUI();
+        showToast('MP3 uploaded! Analyzing for clips...', 'success');
+        
+        // Start analysis
+        analyzeForClips(completeData.slug, guest, role);
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+        cleanupUploadUI();
+    }
+}
+
+async function analyzeForClips(slug, guest, role) {
+    showToast('Analyzing transcript for best clips...', 'success');
+    
+    try {
+        const res = await fetch('/api/analyze-clips', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug, guest, role})
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        
+        showClipSuggestions(data.clips, slug, guest, role);
+    } catch (err) {
+        showToast('Analysis failed: ' + err.message, 'error');
+    }
+}
+
+function showClipSuggestions(clips, slug, guest, role) {
+    const modal = document.getElementById('clips-modal');
+    const container = document.getElementById('clips-container');
+    
+    container.innerHTML = clips.map((clip, i) => `
+        <div style="background:#1a1a1a; border:1px solid #333; border-radius:8px; padding:14px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong style="color:#4ade80;">Clip ${i + 1}: ${clip.duration_seconds}s</strong>
+                <span style="color:#888; font-size:0.8rem;">${clip.start} → ${clip.end}</span>
+            </div>
+            <div style="color:#aaa; font-size:0.8rem; margin-bottom:8px; direction:rtl; text-align:right;">
+                ${clip.hook}
+            </div>
+            <div style="background:#111; padding:10px; border-radius:4px; font-size:0.75rem; color:#888; direction:rtl; text-align:right; margin-bottom:10px; max-height:80px; overflow-y:auto;">
+                ${clip.caption}
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="primary" style="flex:1; font-size:0.75rem;" onclick="copyClipCommand('${slug}', ${i}, '${clip.start}', ${clip.duration_seconds}, '${guest}', '${role}')">
+                    📋 Copy Command
+                </button>
+                <button style="font-size:0.75rem;" onclick="previewClip('${slug}', ${clip.start_seconds}, ${clip.end_seconds})">
+                    ▶ Preview
+                </button>
+            </div>
+        </div>
+    `).join('');
+    
+    // Add batch command
+    document.getElementById('batch-command').value = generateBatchCommand(clips, slug, guest, role);
+    
+    modal.classList.add('open');
+}
+
+function copyClipCommand(slug, index, start, duration, guest, role) {
+    const cmd = `ffmpeg -ss ${start} -i "VIDEO.mp4" -t ${duration} -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k "${slug}-clip-${index + 1}.mp4" && curl -X POST "${window.location.origin}/api/upload" -F "slug=${slug}-clip-${index + 1}" -F "video=@${slug}-clip-${index + 1}.mp4" -F "mediaType=reel_cut" -F "guest=${guest}" -F "role=${role}"`;
+    navigator.clipboard.writeText(cmd);
+    showToast('Command copied!', 'success');
+}
+
+function generateBatchCommand(clips, slug, guest, role) {
+    const origin = window.location.origin;
+    const commands = clips.map((clip, i) => {
+        const idx = i + 1;
+        return 'ffmpeg -ss ' + clip.start + ' -i "$VIDEO_PATH" -t ' + clip.duration_seconds + ' -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k "' + slug + '-clip-' + idx + '.mp4" && \\\ncurl -X POST "' + origin + '/api/upload" -F "slug=' + slug + '-clip-' + idx + '" -F "video=@' + slug + '-clip-' + idx + '.mp4" -F "mediaType=reel_cut" -F "guest=' + guest + '" -F "role=' + role + '"';
+    });
+    return 'VIDEO_PATH="your-video.mp4" && \\\n' + commands.join(' && \\\n');
+}
+
+function copyBatchCommand() {
+    const cmd = document.getElementById('batch-command').value;
+    navigator.clipboard.writeText(cmd);
+    showToast('Batch command copied!', 'success');
+}
+
+function closeClipsModal() {
+    document.getElementById('clips-modal').classList.remove('open');
+}
 
 function startUploadFlow(file) {
     pendingFile = file;
@@ -517,6 +987,12 @@ function startUploadFlow(file) {
     const typeLabels = {episode: 'Full Episode', reel_cut: 'Reel (cut, no subs)', reel_full: 'Reel (fully done)'};
     document.getElementById('upload-media-type-display').textContent = typeLabels[selectedMediaType];
     
+    // Show file size warning if very large
+    if (file.size > 10 * 1024 * 1024 * 1024) {
+        document.getElementById('upload-media-type-display').innerHTML = typeLabels[selectedMediaType] + 
+            '<br><span style="color:#f59e0b;">⚠️ Large file: ' + (file.size / 1024 / 1024 / 1024).toFixed(1) + ' GB</span>';
+    }
+    
     document.getElementById('upload-modal').classList.add('open');
 }
 
@@ -525,7 +1001,7 @@ function closeUploadModal() {
     document.getElementById('upload-modal').classList.remove('open');
 }
 
-function confirmUpload() {
+async function confirmUpload() {
     const slug = document.getElementById('upload-slug').value.trim();
     const guest = getSelectedGuest();
     const role = document.getElementById('upload-role').value.trim();
@@ -537,54 +1013,426 @@ function confirmUpload() {
     if (!pendingFile) return;
 
     document.getElementById('upload-modal').classList.remove('open');
+    
+    // Use chunked upload for files > 100MB, or always for reliability
+    await startChunkedUpload(pendingFile, slug, guest, role, selectedMediaType, transcribeMethod);
+}
 
-    const formData = new FormData();
-    formData.append('slug', slug);
-    formData.append('video', pendingFile);
-    formData.append('mediaType', selectedMediaType);
-    formData.append('transcribeMethod', transcribeMethod);
-    if (guest) formData.append('guest', guest);
-    if (role) formData.append('role', role);
+// ─── Chunked Upload Implementation ───────────────────────────────────────────
 
-    const xhr = new XMLHttpRequest();
+async function startChunkedUpload(file, slug, guest, role, mediaType, transcribeMethod) {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    
+    // Initialize upload on server
+    let uploadId;
+    try {
+        const initRes = await fetch('/api/upload-init', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                filename: file.name,
+                fileSize: file.size,
+                slug,
+                guest,
+                role,
+                mediaType,
+                transcribeMethod
+            })
+        });
+        const initData = await initRes.json();
+        if (!initData.success) throw new Error(initData.error);
+        uploadId = initData.uploadId;
+    } catch (err) {
+        showToast('Failed to start upload: ' + err.message, 'error');
+        return;
+    }
+    
+    // Set up upload state
+    currentUpload = {
+        uploadId,
+        file,
+        slug,
+        guest,
+        role,
+        mediaType,
+        transcribeMethod,
+        totalChunks,
+        chunkSize: CHUNK_SIZE,
+        paused: false,
+        aborted: false,
+        nextChunk: 0
+    };
+    
+    // Show progress UI
     const progressEl = document.getElementById('upload-progress');
     const fillEl = document.getElementById('progress-fill');
     const textEl = document.getElementById('progress-text');
-
+    const chunkInfoEl = document.getElementById('chunk-info');
+    const pauseBtn = document.getElementById('pause-btn');
+    const resumeBtn = document.getElementById('resume-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    
     progressEl.classList.add('active');
     dropZone.style.display = 'none';
-
-    xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            fillEl.style.width = pct + '%';
-            const mb = (e.loaded / 1024 / 1024).toFixed(0);
-            const totalMb = (e.total / 1024 / 1024).toFixed(0);
-            textEl.textContent = 'Uploading: ' + mb + ' / ' + totalMb + ' MB (' + pct + '%)';
+    pauseBtn.style.display = '';
+    resumeBtn.style.display = 'none';
+    cancelBtn.style.display = '';
+    
+    // Upload chunks
+    for (let i = 0; i < totalChunks; i++) {
+        if (currentUpload.aborted) {
+            cleanupUploadUI();
+            return;
         }
-    };
+        
+        // Wait if paused
+        while (currentUpload.paused) {
+            if (currentUpload.aborted) {
+                cleanupUploadUI();
+                return;
+            }
+            await new Promise(r => setTimeout(r, 100));
+        }
+        
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        // Retry logic for each chunk
+        let retries = 3;
+        let success = false;
+        while (retries > 0 && !success) {
+            try {
+                const chunkRes = await fetch(`/api/upload-chunk?uploadId=${uploadId}&chunkIndex=${i}`, {
+                    method: 'POST',
+                    body: chunk
+                });
+                if (!chunkRes.ok) throw new Error('Chunk upload failed');
+                const chunkData = await chunkRes.json();
+                success = true;
+                currentUpload.nextChunk = i + 1;
+                
+                // Update progress
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
+                fillEl.style.width = pct + '%';
+                const uploadedMb = ((i + 1) * CHUNK_SIZE / 1024 / 1024).toFixed(0);
+                const totalMb = (file.size / 1024 / 1024).toFixed(0);
+                textEl.textContent = `Uploading: ${uploadedMb} / ${totalMb} MB (${pct}%)`;
+                chunkInfoEl.textContent = `Chunk ${i + 1} of ${totalChunks}`;
+            } catch (err) {
+                retries--;
+                if (retries === 0) {
+                    showToast(`Failed to upload chunk ${i + 1}. Will retry on resume.`, 'error');
+                    currentUpload.paused = true;
+                    pauseBtn.style.display = 'none';
+                    resumeBtn.style.display = '';
+                    progressEl.classList.add('upload-paused');
+                    // Don't return - keep state for resume
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 1000 * (4 - retries))); // Exponential backoff
+            }
+        }
+    }
+    
+    // Complete upload
+    try {
+        const completeRes = await fetch('/api/upload-complete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({uploadId})
+        });
+        const completeData = await completeRes.json();
+        if (!completeData.success) throw new Error(completeData.error);
+        
+        showToast('Upload complete!', 'success');
+        cleanupUploadUI();
+        await refresh();
+        selectEp(slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase());
+    } catch (err) {
+        showToast('Failed to finalize upload: ' + err.message, 'error');
+        cleanupUploadUI();
+    }
+    
+    pendingFile = null;
+    currentUpload = null;
+}
 
-    xhr.onload = function() {
-        progressEl.classList.remove('active');
-        dropZone.style.display = '';
-        if (xhr.status === 200) {
-            showToast('Upload complete!', 'success');
-            refresh().then(() => selectEp(slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()));
+function pauseUpload() {
+    if (!currentUpload) return;
+    currentUpload.paused = true;
+    document.getElementById('pause-btn').style.display = 'none';
+    document.getElementById('resume-btn').style.display = '';
+    document.getElementById('upload-progress').classList.add('upload-paused');
+    document.getElementById('progress-text').textContent += ' (PAUSED)';
+}
+
+async function resumeUpload() {
+    if (!currentUpload) return;
+    currentUpload.paused = false;
+    document.getElementById('pause-btn').style.display = '';
+    document.getElementById('resume-btn').style.display = 'none';
+    document.getElementById('upload-progress').classList.remove('upload-paused');
+    
+    // Continue from where we left off
+    await continueChunkedUpload();
+}
+
+async function continueChunkedUpload() {
+    if (!currentUpload) return;
+    
+    const { uploadId, file, totalChunks, nextChunk } = currentUpload;
+    const fillEl = document.getElementById('progress-fill');
+    const textEl = document.getElementById('progress-text');
+    const chunkInfoEl = document.getElementById('chunk-info');
+    const pauseBtn = document.getElementById('pause-btn');
+    
+    // Resume from nextChunk
+    for (let i = nextChunk; i < totalChunks; i++) {
+        if (currentUpload.aborted) {
+            cleanupUploadUI();
+            return;
+        }
+        
+        while (currentUpload.paused) {
+            if (currentUpload.aborted) {
+                cleanupUploadUI();
+                return;
+            }
+            await new Promise(r => setTimeout(r, 100));
+        }
+        
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        let retries = 3;
+        let success = false;
+        while (retries > 0 && !success) {
+            try {
+                const chunkRes = await fetch(`/api/upload-chunk?uploadId=${uploadId}&chunkIndex=${i}`, {
+                    method: 'POST',
+                    body: chunk
+                });
+                if (!chunkRes.ok) throw new Error('Chunk upload failed');
+                success = true;
+                currentUpload.nextChunk = i + 1;
+                
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
+                fillEl.style.width = pct + '%';
+                const uploadedMb = ((i + 1) * CHUNK_SIZE / 1024 / 1024).toFixed(0);
+                const totalMb = (file.size / 1024 / 1024).toFixed(0);
+                textEl.textContent = `Uploading: ${uploadedMb} / ${totalMb} MB (${pct}%)`;
+                chunkInfoEl.textContent = `Chunk ${i + 1} of ${totalChunks}`;
+            } catch (err) {
+                retries--;
+                if (retries === 0) {
+                    showToast(`Failed to upload chunk ${i + 1}. Click Resume to retry.`, 'error');
+                    currentUpload.paused = true;
+                    pauseBtn.style.display = 'none';
+                    document.getElementById('resume-btn').style.display = '';
+                    document.getElementById('upload-progress').classList.add('upload-paused');
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 1000 * (4 - retries)));
+            }
+        }
+    }
+    
+    // Complete upload
+    try {
+        const completeRes = await fetch('/api/upload-complete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({uploadId})
+        });
+        const completeData = await completeRes.json();
+        if (!completeData.success) throw new Error(completeData.error);
+        
+        showToast('Upload complete!', 'success');
+        cleanupUploadUI();
+        await refresh();
+        selectEp(currentUpload.slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase());
+    } catch (err) {
+        showToast('Failed to finalize upload: ' + err.message, 'error');
+        cleanupUploadUI();
+    }
+    
+    pendingFile = null;
+    currentUpload = null;
+}
+
+function cancelUpload() {
+    if (currentUpload) {
+        currentUpload.aborted = true;
+        currentUpload = null;
+    }
+    cleanupUploadUI();
+    showToast('Upload cancelled', 'error');
+}
+
+function cleanupUploadUI() {
+    const progressEl = document.getElementById('upload-progress');
+    progressEl.classList.remove('active', 'upload-paused');
+    document.getElementById('upload-zone').style.display = '';
+    document.getElementById('pause-btn').style.display = 'none';
+    document.getElementById('resume-btn').style.display = 'none';
+    document.getElementById('cancel-btn').style.display = 'none';
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('chunk-info').textContent = '';
+}
+
+// ─── Delete Video Functionality ──────────────────────────────────────────────
+
+async function deleteVideoFiles(fileType) {
+    if (!currentSlug) return;
+    
+    const typeLabels = {
+        raw: 'raw video file',
+        processed: 'all processed videos (reels, subtitled files)',
+        all: 'ALL video files (raw and processed)'
+    };
+    
+    const confirmed = confirm(
+        `🗑️ Delete ${typeLabels[fileType]}?\n\n` +
+        `This will free up storage space but cannot be undone.\n\n` +
+        `Episode: ${currentSlug}`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+        const res = await fetch('/api/delete-video', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, fileType })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Deleted ${data.deleted.length} files, freed ${data.freedMb} MB`, 'success');
+            await refresh();
+            renderMain(currentSlug);
         } else {
-            showToast('Upload failed: ' + xhr.responseText, 'error');
+            throw new Error(data.error);
         }
-        pendingFile = null;
-    };
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, 'error');
+    }
+}
 
-    xhr.onerror = function() {
-        progressEl.classList.remove('active');
-        dropZone.style.display = '';
-        showToast('Upload failed', 'error');
-        pendingFile = null;
-    };
+// ─── Delete Menu Modal ─────────────────────────────────────────────────────
 
-    xhr.open('POST', '/api/upload');
-    xhr.send(formData);
+function showDeleteMenu() {
+    if (!currentSlug) return;
+    const ep = episodes.find(e => e.slug === currentSlug);
+    if (!ep) return;
+    
+    document.getElementById('delete-target-name').textContent = ep.slug;
+    const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + ' MB' : 'unknown';
+    const info = `Size: ${sizeMb} · Type: ${ep.mediaType}`;
+    document.getElementById('delete-target-info').textContent = info;
+    
+    document.getElementById('delete-modal').classList.add('open');
+}
+
+function closeDeleteModal() {
+    document.getElementById('delete-modal').classList.remove('open');
+}
+
+// ─── Bulk Selection Mode ───────────────────────────────────────────────────
+
+let bulkMode = false;
+let selectedSlugs = new Set();
+
+function toggleBulkMode() {
+    bulkMode = !bulkMode;
+    selectedSlugs.clear();
+    
+    const btn = document.getElementById('bulk-mode-btn');
+    const bulkActions = document.getElementById('bulk-actions');
+    
+    if (bulkMode) {
+        btn.textContent = 'Done';
+        btn.style.background = 'var(--accent)';
+        bulkActions.style.display = '';
+        updateBulkCount();
+    } else {
+        btn.textContent = 'Select';
+        btn.style.background = '#1a1a1a';
+        bulkActions.style.display = 'none';
+    }
+    
+    renderSidebar();
+}
+
+function cancelBulkSelect() {
+    bulkMode = false;
+    selectedSlugs.clear();
+    
+    document.getElementById('bulk-mode-btn').textContent = 'Select';
+    document.getElementById('bulk-mode-btn').style.background = '#1a1a1a';
+    document.getElementById('bulk-actions').style.display = 'none';
+    
+    renderSidebar();
+}
+
+function toggleEpisodeSelect(slug, event) {
+    event.stopPropagation();
+    
+    if (selectedSlugs.has(slug)) {
+        selectedSlugs.delete(slug);
+    } else {
+        selectedSlugs.add(slug);
+    }
+    
+    updateBulkCount();
+    renderSidebar();
+}
+
+function updateBulkCount() {
+    document.getElementById('bulk-count').textContent = selectedSlugs.size;
+}
+
+async function bulkDelete() {
+    if (selectedSlugs.size === 0) {
+        showToast('No episodes selected', 'error');
+        return;
+    }
+    
+    const confirmed = confirm(
+        `🗑️ Delete ALL video files for ${selectedSlugs.size} episode(s)?\n\n` +
+        `This will delete raw and processed videos to free up space.\n` +
+        `Transcripts and generated content will be kept.\n\n` +
+        `This cannot be undone!`
+    );
+    
+    if (!confirmed) return;
+    
+    let deletedCount = 0;
+    let freedMb = 0;
+    
+    for (const slug of selectedSlugs) {
+        try {
+            const res = await fetch('/api/delete-video', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ slug, fileType: 'all' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                deletedCount += data.deleted.length;
+                freedMb += data.freedMb || 0;
+            }
+        } catch (err) {
+            console.error('Failed to delete', slug, err);
+        }
+    }
+    
+    showToast(`Deleted ${deletedCount} files from ${selectedSlugs.size} episodes, freed ${freedMb.toFixed(0)} MB`, 'success');
+    
+    selectedSlugs.clear();
+    updateBulkCount();
+    await refresh();
 }
 
 // Data functions
@@ -605,7 +1453,15 @@ async function refresh() {
 function renderSidebar() {
     console.log('📋 renderSidebar(), episodes:', episodes.length);
     const list = document.getElementById('ep-list');
+    const bulkBtn = document.getElementById('bulk-mode-btn');
+    
     console.log('📋 ep-list element:', list ? 'found' : 'NOT FOUND');
+    
+    // Show/hide bulk select button based on having episodes
+    if (bulkBtn) {
+        bulkBtn.style.display = episodes.length > 0 ? '' : 'none';
+    }
+    
     if (episodes.length === 0) {
         list.innerHTML = '<div style="padding:20px; text-align:center; color:#444; font-size:0.8rem;">No episodes yet</div>';
         return;
@@ -617,11 +1473,21 @@ function renderSidebar() {
         const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + ' MB' : '';
         const typeClass = ep.mediaType;
         const typeLabel = ep.mediaType === 'episode' ? 'EP' : ep.mediaType === 'reel_full' ? 'RF' : 'RC';
+        const isSelected = selectedSlugs.has(ep.slug);
         
-        return '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(' + "'" + ep.slug + "'" + ')">' +
-            '<div class="ep-slug">' +
+        // Bulk mode checkbox
+        const checkbox = bulkMode ? 
+            '<input type="checkbox" ' + (isSelected ? 'checked' : '') + 
+            ' onclick="toggleEpisodeSelect(' + "'" + ep.slug + "', event)" + '"' +
+            ' style="margin-left:8px; cursor:pointer;">' : '';
+        
+        return '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" ' +
+            (bulkMode ? '' : 'onclick="selectEp(' + "'" + ep.slug + "'" + ')"') +
+            ' style="' + (bulkMode ? 'cursor:default;' : '') + '">' +
+            '<div class="ep-slug" style="display:flex; align-items:center;">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + '</span>' +
-                ep.slug +
+                '<span style="flex:1;">' + ep.slug + '</span>' +
+                checkbox +
             '</div>' +
             '<div class="ep-info">' +
                 '<span>' + (ep.guest || '—') + '</span>' +
@@ -642,8 +1508,14 @@ function stepsForType(mediaType) {
     ];
     
     if (mediaType === 'reel_full') {
-        return all.map(s => Object.assign({}, s, {applicable: s.id === 'generate'}));
+        // reel_full = fully produced reel with subs already burned in
+        // Still needs: transcribe (for AI content), generate (captions/copy)
+        // Skip: cut (already cut), subtitle (already has subs), analyze (not needed)
+        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate'].includes(s.id)}));
     } else if (mediaType === 'reel_cut') {
+        // reel_cut = pre-cut reel, no subs
+        // Needs: transcribe, generate, subtitle
+        // Skip: cut (already cut), analyze
         return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'subtitle'].includes(s.id)}));
     }
     return all.map(s => Object.assign({}, s, {applicable: true}));
@@ -678,15 +1550,19 @@ function renderMain(slug) {
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
     
+    const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + ' MB' : '';
+    
     document.getElementById('ep-meta').innerHTML = 
         '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
         '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
+        (sizeMb ? '<span style="color:#555;">' + sizeMb + '</span>' : '') +
         '<button class="text-btn" onclick="editMeta()">Edit</button>' +
         '<select onchange="changeMediaType(currentSlug, this.value)" style="background:#111; border:1px solid #333; color:#888; padding:4px 8px; border-radius:4px; font-size:0.75rem;">' +
             '<option value="episode" ' + (ep.mediaType === 'episode' ? 'selected' : '') + '>Episode</option>' +
             '<option value="reel_full" ' + (ep.mediaType === 'reel_full' ? 'selected' : '') + '>Reel (Full)</option>' +
             '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
-        '</select>';
+        '</select>' +
+        '<button class="delete-btn" onclick="showDeleteMenu()" title="Delete files">🗑️</button>';
 
     document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
 
@@ -706,7 +1582,7 @@ function renderMain(slug) {
         
         // Model selector for generate step - advanced autocomplete
         let modelSelector = '';
-        if (s.id === 'generate' && !done && !needGuest) {
+        if (s.id === 'generate' && !needGuest) {
             modelSelector = '<div style="margin:6px 0; position:relative;">' +
                 '<input type="text" ' +
                     'id="model-select-' + s.id + '" ' +
@@ -730,11 +1606,12 @@ function renderMain(slug) {
             note +
             modelSelector +
             '<div class="stage-actions">' +
-                '<button class="primary" onclick="runStep(' + "'" + s.id + "'" + ')" ' + (!canRun || needGuest ? 'disabled' : '') + '>' +
+                '<button class="primary" onclick="runStep(\'' + s.id + '\')" ' + (!canRun || needGuest ? 'disabled' : '') + '>' +
                     (needGuest ? 'Set guest first' : (done ? 'Re-run' : 'Run')) +
                 '</button>' +
                 (needGuest ? '<button onclick="editMeta()">Set Guest</button>' : '') +
                 (s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
+                (s.id === 'generate' && !done ? '<button onclick="openManualCaption()">✍️ Write Caption</button>' : '') +
                 (s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
                 (s.id !== 'cut' && s.id !== 'subtitle' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
                 (s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
@@ -743,9 +1620,10 @@ function renderMain(slug) {
     }).join('');
 
     // Add Publish button for reels when ready
-    // reel_full: ready after generate (already has subtitles)
+    // reel_full: ready after generate or manual caption (already has subtitles)
     // reel_cut: ready after subtitle step
-    const canPublish = (ep.mediaType === 'reel_full' && ep.steps.generated) || 
+    const hasContent = ep.content && ep.content.reels && ep.content.reels.length > 0;
+    const canPublish = (ep.mediaType === 'reel_full' && (ep.steps.generated || hasContent)) || 
                        (ep.mediaType === 'reel_cut' && ep.steps.subtitled);
     
     if (canPublish && !ep.steps.published) {
@@ -772,8 +1650,8 @@ function renderMain(slug) {
         '</div>';
     }
 
-    // Preview button for reels
-    if (ep.mediaType.includes('reel') && ep.steps.generated) {
+    // Preview button for reels - show when generated OR subtitled (has final video)
+    if (ep.mediaType.includes('reel') && (ep.steps.generated || ep.steps.subtitled)) {
         html += '<div class="stage" style="border-color:var(--accent);">' +
             '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                 '<h3>👁️ Preview</h3>' +
@@ -808,7 +1686,18 @@ function renderMain(slug) {
 
 // Actions
 async function runStep(step) {
-    if (!currentSlug) return;
+    console.log('🎯 runStep called:', step, 'currentSlug:', currentSlug);
+    if (!currentSlug) {
+        console.error('❌ No currentSlug!');
+        showToast('No episode selected', 'error');
+        return;
+    }
+    
+    // Initialize logs for this slug so console shows something immediately
+    if (!logs[currentSlug]) logs[currentSlug] = '';
+    logs[currentSlug] += `\n▶ Starting ${step}...\n`;
+    if (currentSlug === currentSlug) updateLogs();
+    
     const ep = episodes.find(e => e.slug === currentSlug);
 
     if (step === 'generate' && (!ep.guest || !ep.role)) {
@@ -843,6 +1732,16 @@ async function runStep(step) {
 
 async function publishToZapier() {
     if (!currentSlug) return;
+    
+    // Check if there's content
+    const ep = episodes.find(e => e.slug === currentSlug);
+    const hasContent = ep && ep.content && ep.content.reels && ep.content.reels.length > 0;
+    
+    // Warn if no caption generated
+    if (!hasContent) {
+        const proceed = confirm('⚠️ No caption generated yet. A basic caption will be used.\n\nClick OK to publish anyway, or Cancel to generate a caption first.');
+        if (!proceed) return;
+    }
     
     try {
         showToast('Sending to Zapier...', 'success');
@@ -895,6 +1794,44 @@ async function confirmMeta() {
     }
 }
 
+// ─── Manual Caption ─────────────────────────────────────────────────────────
+
+function openManualCaption() {
+    if (!currentSlug) return;
+    // Pre-fill with existing caption if any
+    const ep = episodes.find(e => e.slug === currentSlug);
+    const existing = ep && ep.content && ep.content.reels && ep.content.reels[0] && ep.content.reels[0].caption;
+    document.getElementById('manual-caption-input').value = existing || '';
+    document.getElementById('manual-caption-modal').classList.add('open');
+}
+
+function closeManualCaption() {
+    document.getElementById('manual-caption-modal').classList.remove('open');
+}
+
+async function saveManualCaption() {
+    const caption = document.getElementById('manual-caption-input').value.trim();
+    if (!caption) return alert('Caption is required');
+
+    try {
+        const res = await fetch('/api/manual-caption', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, caption })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        closeManualCaption();
+        showToast('Caption saved!', 'success');
+        await refresh();
+        renderMain(currentSlug);
+        loadContentEditor();
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
 async function changeMediaType(slug, newType) {
     if (!slug || !newType) return;
     try {
@@ -917,6 +1854,14 @@ async function changeMediaType(slug, newType) {
 
 // Editor Tabs
 function switchTab(tab) {
+    // Pause audio when leaving transcript tab
+    if (tab !== 'text') {
+        const audioEl = document.getElementById('transcript-audio');
+        if (audioEl) {
+            audioEl.pause();
+        }
+    }
+
     document.getElementById('tab-text').classList.toggle('active', tab === 'text');
     document.getElementById('tab-content').classList.toggle('active', tab === 'content');
     document.getElementById('tab-preview').classList.toggle('active', tab === 'preview');
@@ -946,13 +1891,27 @@ async function loadPreview() {
     }
     
     const ep = episodes.find(e => e.slug === currentSlug);
-    if (!ep || !ep.content || !ep.content.reels || ep.content.reels.length === 0) {
-        previewDiv.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:40px;">No reel content found</div>';
+    console.log('[Preview] Episode:', ep?.slug, 'subtitled:', ep?.steps?.subtitled, 'final:', ep?.counts?.final, 'content:', !!ep?.content);
+    
+    // Check if we have a subtitled video to preview
+    const hasSubtitledVideo = ep && (ep.steps.subtitled || ep.counts.final > 0);
+    
+    // Check if we have generated content (captions, etc.)
+    const hasContent = ep && ep.content && ep.content.reels && ep.content.reels.length > 0;
+    
+    console.log('[Preview] hasSubtitledVideo:', hasSubtitledVideo, 'hasContent:', hasContent);
+    
+    if (!hasSubtitledVideo && !hasContent) {
+        previewDiv.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:40px;">No video available for preview</div>';
         return;
     }
     
-    const reel = ep.content.reels[0];
-    const caption = reel.caption || reel.hook || 'No caption';
+    // Get caption if available
+    let caption = 'No caption generated yet';
+    if (hasContent) {
+        const reel = ep.content.reels[0];
+        caption = reel.caption || reel.hook || caption;
+    }
     
     // Determine video source
     let videoSrc = '';
@@ -964,19 +1923,38 @@ async function loadPreview() {
         videoSrc = '/api/video?slug=' + currentSlug + '&type=subtitled';
     }
     
+    let captionSection = '';
+    if (hasContent) {
+        captionSection = '<div style="background:#161616; padding:16px; border-radius:8px; border:1px solid #2a2a2a;">' +
+            '<div style="font-size:0.7rem; color:#666; margin-bottom:8px; text-transform:uppercase;">Caption</div>' +
+            '<div style="font-size:0.9rem; color:#ddd; line-height:1.6; direction:rtl; text-align:right;">' + escHtml(caption) + '</div>' +
+        '</div>';
+    } else {
+        captionSection = '<div style="background:#161616; padding:16px; border-radius:8px; border:1px solid #2a2a2a;">' +
+            '<div style="font-size:0.7rem; color:#666; margin-bottom:8px; text-transform:uppercase;">Caption</div>' +
+            '<div style="font-size:0.85rem; color:#888; line-height:1.6; text-align:center;">' +
+                '📝 No caption generated yet. Run the <strong>Generate</strong> step to create captions.' +
+            '</div>' +
+        '</div>';
+    }
+    
+    let actionButtons = '<div style="display:flex; gap:12px; justify-content:center; padding:10px;">' +
+        '<button class="primary" style="padding:10px 24px; font-size:0.9rem;" onclick="publishToZapier()">📤 Publish Now</button>';
+    
+    if (hasContent) {
+        actionButtons += '<button onclick="switchTab(' + "'content'" + ')">✏️ Edit Caption</button>';
+    } else {
+        actionButtons += '<button onclick="runStep(' + "'generate'" + ')">📝 Generate Caption</button>';
+    }
+    actionButtons += '</div>';
+    
     previewDiv.innerHTML = 
-        '<div style="display:flex; flex-direction:column; gap:16px; height:100%;">' +
-            '<div style="flex:1; background:#000; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center;">' +
-                '<video controls style="max-width:100%; max-height:400px;" src="' + videoSrc + '"></video>' +
+        '<div style="display:flex; flex-direction:column; gap:16px; height:100%; max-height:calc(100vh - 300px);">' +
+            '<div style="flex:1; background:#000; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; min-height:0;">' +
+                '<video controls playsinline style="max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain;" src="' + videoSrc + '"></video>' +
             '</div>' +
-            '<div style="background:#161616; padding:16px; border-radius:8px; border:1px solid #2a2a2a;">' +
-                '<div style="font-size:0.7rem; color:#666; margin-bottom:8px; text-transform:uppercase;">Caption</div>' +
-                '<div style="font-size:0.9rem; color:#ddd; line-height:1.6; direction:rtl; text-align:right;">' + escHtml(caption) + '</div>' +
-            '</div>' +
-            '<div style="display:flex; gap:12px; justify-content:center; padding:10px;">' +
-                '<button class="primary" style="padding:10px 24px; font-size:0.9rem;" onclick="publishToZapier()">📤 Publish Now</button>' +
-                '<button onclick="switchTab(' + "'content'" + ')">✏️ Edit Caption</button>' +
-            '</div>' +
+            captionSection +
+            actionButtons +
         '</div>';
 }
 
@@ -1342,11 +2320,28 @@ function copyField(fieldPath) {
 }
 
 // Text Editor
+let audioSyncInterval = null;
+
 async function loadTextEditor() {
     if (!currentSlug) return;
     switchTab('text');
     document.getElementById('editor-file').textContent = 'transcript.json — Segment Editor';
     document.getElementById('save-text-btn').disabled = false;
+
+    // Clear any existing sync
+    if (audioSyncInterval) {
+        clearInterval(audioSyncInterval);
+        audioSyncInterval = null;
+    }
+
+    // Load and show audio player
+    const audioPlayer = document.getElementById('transcript-audio-player');
+    const audioEl = document.getElementById('transcript-audio');
+    audioEl.src = '/api/video?slug=' + currentSlug + '&type=raw';
+    audioPlayer.style.display = '';
+
+    // Setup audio sync
+    setupAudioSync();
 
     try {
         const res = await fetch('/api/file?slug=' + currentSlug + '&file=transcript.json');
@@ -1361,13 +2356,55 @@ async function loadTextEditor() {
     list.innerHTML = textEditorData.segments.map((seg, i) => {
         const mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
         const secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
-        return '<div class="seg-row">' +
-            '<span class="seg-ts">' + mins + ':' + secs + '</span>' +
-            '<textarea class="seg-input" rows="2" data-idx="' + i + '" oninput="autoResize(this)">' + escHtml(seg.text) + '</textarea>' +
+        const duration = seg.end - seg.start;
+        return '<div class="seg-row" id="seg-row-' + i + '" data-start="' + seg.start + '" data-end="' + seg.end + '">' +
+            '<span class="seg-ts" onclick="seekAudio(' + seg.start + ')" title="Click to jump to ' + mins + ':' + secs + '">' + mins + ':' + secs + '</span>' +
+            '<textarea class="seg-input" rows="2" data-idx="' + i + '" data-start="' + seg.start + '" oninput="autoResize(this)">' + escHtml(seg.text) + '</textarea>' +
         '</div>';
     }).join('');
     
     list.querySelectorAll('.seg-input').forEach(autoResize);
+}
+
+// Setup audio timeupdate listener to highlight current segment
+function setupAudioSync() {
+    const audioEl = document.getElementById('transcript-audio');
+    if (!audioEl) return;
+
+    audioEl.ontimeupdate = function() {
+        const syncEnabled = document.getElementById('sync-transcript')?.checked;
+        if (!syncEnabled) return;
+
+        const currentTime = audioEl.currentTime;
+        const rows = document.querySelectorAll('.seg-row');
+        
+        rows.forEach(row => {
+            const start = parseFloat(row.dataset.start);
+            const end = parseFloat(row.dataset.end);
+            const isActive = currentTime >= start && currentTime < end;
+            
+            if (isActive) {
+                row.classList.add('playing');
+                // Auto-scroll if needed (only if not manually scrolling)
+                const rect = row.getBoundingClientRect();
+                const listRect = document.getElementById('seg-list').getBoundingClientRect();
+                if (rect.top < listRect.top || rect.bottom > listRect.bottom) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } else {
+                row.classList.remove('playing');
+            }
+        });
+    };
+}
+
+// Seek audio to specific timestamp
+function seekAudio(seconds) {
+    const audioEl = document.getElementById('transcript-audio');
+    if (audioEl) {
+        audioEl.currentTime = seconds;
+        audioEl.play();
+    }
 }
 
 async function saveTextEditor() {

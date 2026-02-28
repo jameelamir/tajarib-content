@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tajarib Pipeline</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="/socket.io/socket.io.js"></script>
     <style>
         :root { --bg: #0a0a0a; --panel: #141414; --border: #2a2a2a; --accent: #a855f7; --text: #eee; --sub: #777; --success: #4ade80; --error: #ef4444; --warning: #f59e0b; }
@@ -218,6 +219,21 @@
         </div>
     </div>
 
+    <!-- Transcription Settings -->
+    <div class="buffer-config" id="transcription-config">
+        <h4>🎙️ Transcription</h4>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+            <span id="api-status-dot" style="width:8px; height:8px; border-radius:50%; background:#333;"></span>
+            <span id="api-status-text" style="font-size:0.7rem; color:#666;">Checking...</span>
+        </div>
+        <button onclick="openTranscriptionModal()" style="font-size:0.7rem; padding:6px 10px; width:100%;">
+            Configure API Key
+        </button>
+        <div style="color:#666; font-size:0.65rem; margin-top:8px;">
+            Use Haimaker API for faster transcription of long episodes
+        </div>
+    </div>
+
     <!-- Episode List -->
     <div class="ep-list" id="ep-list"></div>
 </div>
@@ -233,6 +249,9 @@
             <div>
                 <h2 id="ep-title"></h2>
                 <div id="ep-type-display" style="font-size:0.75rem; color:#666; margin-top:4px;"></div>
+                <div id="ai-title-prompt" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">
+                    🎙️ AI can generate a proper title from transcript <button class="primary" style="background:var(--accent); padding:4px 10px; font-size:0.7rem;" onclick="generateAiTitle()">Generate Now</button>
+                </div>
             </div>
             <div class="header-meta" id="ep-meta"></div>
         </div>
@@ -297,8 +316,8 @@
     <div class="modal-box">
         <h3>📁 Upload Episode</h3>
         <div class="field">
-            <label>Episode Slug (URL-safe name)</label>
-            <input type="text" id="upload-slug" placeholder="e.g. muhannad-siemens">
+            <label>Episode Slug <span style="font-weight:normal; color:#666; font-size:0.75rem;">(optional — AI generates from transcript if empty)</span></label>
+            <input type="text" id="upload-slug" placeholder="Leave empty for AI title, or type e.g. muhannad-siemens">
         </div>
         
         <!-- Guest Selection -->
@@ -322,13 +341,16 @@
             <label>Transcription Method</label>
             <div style="display:flex; gap:8px; margin-top:6px;">
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
-                    <input type="radio" name="transcribe-method" value="local" checked>
+                    <input type="radio" name="transcribe-method" value="local" id="radio-local" checked>
                     🏠 Local (Good, Free)
                 </label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
-                    <input type="radio" name="transcribe-method" value="api">
-                    ⚡ API (Fast, Costs $)
+                    <input type="radio" name="transcribe-method" value="api" id="radio-api">
+                    ⚡ API (Fast, Paid)
                 </label>
+            </div>
+            <div id="api-key-warning" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">
+                ⚠️ No API key configured. <a href="#" onclick="closeUploadModal(); openTranscriptionModal(); return false;" style="color:var(--accent);">Add key first →</a>
             </div>
         </div>
         
@@ -359,6 +381,38 @@
     </div>
 </div>
 
+<!-- Transcription Config Modal -->
+<div class="modal" id="transcription-modal">
+    <div class="modal-box">
+        <h3>🎙️ Transcription Settings</h3>
+        <div style="background:#161616; padding:12px; border-radius:6px; margin-bottom:16px;">
+            <div style="font-size:0.75rem; color:#888; margin-bottom:8px;">
+                <strong>Local (Free)</strong> — Uses your server's CPU. Good for short clips.
+            </div>
+            <div style="font-size:0.75rem; color:#888;">
+                <strong>API (Paid)</strong> — Uses Haimaker's Whisper Large. Fast, handles long episodes well.
+            </div>
+        </div>
+        <div style="background:#0f2d0f; padding:12px; border-radius:6px; margin-bottom:16px; border:1px solid #166534;">
+            <div style="font-size:0.75rem; color:#4ade80;">
+                ✅ Using same API key as main Jassim agent (haimaker)
+            </div>
+        </div>
+        <div class="field">
+            <label>Default Method</label>
+            <select id="transcription-default-method">
+                <option value="local">🏠 Local (Free)</option>
+                <option value="api">⚡ API (Fast, Paid)</option>
+            </select>
+        </div>
+        <div id="api-key-status" style="font-size:0.75rem; padding:8px; border-radius:4px; display:none;"></div>
+        <div class="modal-actions">
+            <button onclick="closeTranscriptionModal()">Close</button>
+            <button class="primary" onclick="saveTranscriptionConfig()">Save Default</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const socket = io();
 let episodes = [];
@@ -376,10 +430,92 @@ let guestHistory = [];
 async function init() {
     console.log('🚀 init() starting...');
     await loadGuestHistory();
+    await loadTranscriptionConfig();
     console.log('✅ loadGuestHistory done, calling refresh...');
     await refresh();
     console.log('✅ refresh done, episodes:', episodes.length);
     setInterval(refresh, 5000);
+}
+
+// Transcription Config
+let transcriptionConfig = { hasApiKey: false, defaultMethod: 'local' };
+
+async function loadTranscriptionConfig() {
+    try {
+        const res = await fetch('/api/transcription-config');
+        transcriptionConfig = await res.json();
+        updateTranscriptionUI();
+    } catch (e) {
+        console.error('Failed to load transcription config:', e);
+    }
+}
+
+function updateTranscriptionUI() {
+    const dot = document.getElementById('api-status-dot');
+    const text = document.getElementById('api-status-text');
+    
+    if (transcriptionConfig.hasApiKey) {
+        dot.style.background = 'var(--success)';
+        text.textContent = transcriptionConfig.defaultMethod === 'api' ? 'API Ready (Default)' : 'API Key Set';
+        text.style.color = '#4ade80';
+    } else {
+        dot.style.background = '#f59e0b';
+        text.textContent = 'Local Only';
+        text.style.color = '#fbbf24';
+    }
+}
+
+function openTranscriptionModal() {
+    document.getElementById('transcription-modal').classList.add('open');
+    document.getElementById('transcription-api-key').value = '';
+    document.getElementById('transcription-default-method').value = transcriptionConfig.defaultMethod || 'local';
+    document.getElementById('api-key-status').style.display = 'none';
+}
+
+function closeTranscriptionModal() {
+    document.getElementById('transcription-modal').classList.remove('open');
+}
+
+async function saveTranscriptionConfig() {
+    const apiKey = document.getElementById('transcription-api-key').value.trim();
+    const defaultMethod = document.getElementById('transcription-default-method').value;
+    const statusDiv = document.getElementById('api-key-status');
+    
+    const payload = { defaultMethod };
+    if (apiKey) payload.apiKey = apiKey;
+    
+    try {
+        const res = await fetch('/api/transcription-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            transcriptionConfig.hasApiKey = data.hasApiKey;
+            transcriptionConfig.defaultMethod = defaultMethod;
+            updateTranscriptionUI();
+            
+            // Also update the default in upload modal
+            const radio = document.querySelector(`input[name="transcribe-method"][value="${defaultMethod}"]`);
+            if (radio) radio.checked = true;
+            
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#064e3b';
+            statusDiv.style.color = '#6ee7b7';
+            statusDiv.textContent = '✓ Settings saved successfully';
+            
+            setTimeout(() => {
+                closeTranscriptionModal();
+            }, 1000);
+        }
+    } catch (err) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = '#7f1d1d';
+        statusDiv.style.color = '#fca5a5';
+        statusDiv.textContent = '✗ Failed to save: ' + err.message;
+    }
 }
 
 init();
@@ -400,6 +536,20 @@ socket.on('process-end', ({slug}) => {
     refresh();
 });
 socket.on('toast', ({type, message}) => showToast(message, type));
+socket.on('episode-renamed', ({oldSlug, newSlug}) => {
+    // If we're viewing the old slug, switch to the new one
+    if (currentSlug === oldSlug) {
+        currentSlug = newSlug;
+        // Transfer logs
+        if (logs[oldSlug]) {
+            logs[newSlug] = (logs[newSlug] || '') + logs[oldSlug];
+            delete logs[oldSlug];
+        }
+    }
+    refresh().then(() => {
+        if (currentSlug === newSlug) selectEp(newSlug);
+    });
+});
 
 // Guest History
 async function loadGuestHistory() {
@@ -504,8 +654,9 @@ document.body.ondrop = function(e) {
 
 function startUploadFlow(file) {
     pendingFile = file;
-    const autoSlug = file.name.replace(/\\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    document.getElementById('upload-slug').value = autoSlug;
+    // Leave slug empty by default — AI will generate from transcript
+    // User can still type their own if they want
+    document.getElementById('upload-slug').value = '';
     
     // Reset guest inputs
     document.getElementById('upload-guest-select').value = '';
@@ -513,6 +664,30 @@ function startUploadFlow(file) {
     document.getElementById('upload-guest-input').style.display = 'none';
     document.getElementById('upload-guest-select').style.display = 'block';
     document.getElementById('upload-role').value = '';
+    
+    // Set default transcription method from config
+    const defaultMethod = transcriptionConfig.defaultMethod || 'local';
+    document.getElementById('radio-local').checked = defaultMethod === 'local';
+    document.getElementById('radio-api').checked = defaultMethod === 'api';
+    
+    // Show warning if API selected but no key
+    const apiWarning = document.getElementById('api-key-warning');
+    if (defaultMethod === 'api' && !transcriptionConfig.hasApiKey) {
+        apiWarning.style.display = 'block';
+    } else {
+        apiWarning.style.display = 'none';
+    }
+    
+    // Update warning when selection changes
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(radio => {
+        radio.onchange = () => {
+            if (radio.value === 'api' && !transcriptionConfig.hasApiKey) {
+                apiWarning.style.display = 'block';
+            } else {
+                apiWarning.style.display = 'none';
+            }
+        };
+    });
     
     const typeLabels = {episode: 'Full Episode', reel_cut: 'Reel (cut, no subs)', reel_full: 'Reel (fully done)'};
     document.getElementById('upload-media-type-display').textContent = typeLabels[selectedMediaType];
@@ -533,13 +708,12 @@ function confirmUpload() {
     // Get transcription method
     const transcribeMethod = document.querySelector('input[name="transcribe-method"]:checked')?.value || 'local';
     
-    if (!slug) return alert('Slug is required');
     if (!pendingFile) return;
 
     document.getElementById('upload-modal').classList.remove('open');
 
     const formData = new FormData();
-    formData.append('slug', slug);
+    formData.append('slug', slug); // empty string = AI will generate title after transcription
     formData.append('video', pendingFile);
     formData.append('mediaType', selectedMediaType);
     formData.append('transcribeMethod', transcribeMethod);
@@ -642,8 +816,14 @@ function stepsForType(mediaType) {
     ];
     
     if (mediaType === 'reel_full') {
-        return all.map(s => Object.assign({}, s, {applicable: s.id === 'generate'}));
+        // reel_full = fully produced reel with subs already burned in
+        // Still needs: transcribe (for AI content), generate (captions/copy)
+        // Skip: cut (already cut), subtitle (already has subs), analyze (not needed)
+        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate'].includes(s.id)}));
     } else if (mediaType === 'reel_cut') {
+        // reel_cut = pre-cut reel, no subs
+        // Needs: transcribe, generate, subtitle
+        // Skip: cut (already cut), analyze
         return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'subtitle'].includes(s.id)}));
     }
     return all.map(s => Object.assign({}, s, {applicable: true}));
@@ -688,6 +868,15 @@ function renderMain(slug) {
             '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
         '</select>';
 
+    // Show AI title prompt if episode has transcript but temp/placeholder slug
+    const aiTitlePrompt = document.getElementById('ai-title-prompt');
+    const isTempSlug = slug.startsWith('temp-') || slug.startsWith('pending-');
+    if (isTempSlug && ep.steps.transcribed) {
+        aiTitlePrompt.style.display = 'block';
+    } else {
+        aiTitlePrompt.style.display = 'none';
+    }
+
     document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
 
     const steps = stepsForType(ep.mediaType);
@@ -704,20 +893,19 @@ function renderMain(slug) {
         const canRun = !ep.isRunning;
         const needGuest = s.id === 'generate' && (!ep.guest || !ep.role);
         
-        // Model selector for generate step - advanced autocomplete
+        // Model selector for generate step - free text with validation
         let modelSelector = '';
         if (s.id === 'generate' && !done && !needGuest) {
             modelSelector = '<div style="margin:6px 0; position:relative;">' +
                 '<input type="text" ' +
                     'id="model-select-' + s.id + '" ' +
-                    'list="model-list" ' +
-                    'placeholder="🤖 Auto (type to search models...)" ' +
+                    'placeholder="🤖 Auto (or type model name...)" ' +
                     'style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.7rem; width:100%;" ' +
-                    'oninput="validateModel(this)" ' +
-                    'onfocus="loadModelList()" ' +
-                '>' +
-                '<datalist id="model-list"></datalist>' +
-                '<div id="model-validation-' + s.id + '" style="font-size:0.65rem; margin-top:4px; color:#666;">Type model name or select from list</div>' +
+                    'oninput="debouncedValidateModel(this)" ' +
+                    'autocomplete="off" ' +
+                    'spellcheck="false" ' +
+                '/>' +
+                '<div id="model-validation-' + s.id + '" style="font-size:0.65rem; margin-top:4px; color:#666;">Type model alias (e.g., claude, gpt-4o) or leave empty for Auto</div>' +
             '</div>';
         }
         
@@ -735,6 +923,7 @@ function renderMain(slug) {
                 '</button>' +
                 (needGuest ? '<button onclick="editMeta()">Set Guest</button>' : '') +
                 (s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
+                (s.id === 'transcribe' && done ? '<button onclick="generateAiTitle()" style="background:var(--accent); color:#fff; border-color:var(--accent);">🤖 AI Title</button>' : '') +
                 (s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
                 (s.id !== 'cut' && s.id !== 'subtitle' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
                 (s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
@@ -980,6 +1169,26 @@ async function loadPreview() {
         '</div>';
 }
 
+// Generate AI title from transcript
+async function generateAiTitle() {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/generate-title', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Renamed: ${data.newSlug}`, 'success');
+        } else {
+            showToast(data.error || 'Failed to generate title', 'error');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
 // Generate clip from topic
 async function generateTopicClip() {
     if (!currentSlug) return;
@@ -1072,72 +1281,119 @@ const KNOWN_MODEL_ALIASES = {
     'openrouter/openai/gpt-4o': 'OpenRouter GPT-4o',
 };
 
-async function loadModelList() {
-    if (modelListLoaded) return;
+async function populateModelSelect(selectEl) {
+    if (selectEl.dataset.populated) return;
     
-    const datalist = document.getElementById('model-list');
-    if (!datalist) return;
+    // Keep the Auto option and add model groups
+    let options = '<option value="">🤖 Auto (HAI Maker picks best)</option>';
+    options += '<optgroup label="Claude">' +
+        '<option value="claude">claude</option>' +
+        '<option value="claude-sonnet">claude-sonnet</option>' +
+        '<option value="claude-opus">claude-opus</option>' +
+        '<option value="claude-haiku">claude-haiku</option>' +
+    '</optgroup>';
+    options += '<optgroup label="OpenAI">' +
+        '<option value="openai">openai</option>' +
+        '<option value="gpt-4o">gpt-4o</option>' +
+        '<option value="gpt-4o-mini">gpt-4o-mini</option>' +
+        '<option value="gpt-4">gpt-4</option>' +
+        '<option value="gpt-4-turbo">gpt-4-turbo</option>' +
+    '</optgroup>';
+    options += '<optgroup label="Gemini">' +
+        '<option value="gemini">gemini</option>' +
+        '<option value="gemini-1.5-pro">gemini-1.5-pro</option>' +
+        '<option value="gemini-1.5-flash">gemini-1.5-flash</option>' +
+    '</optgroup>';
+    options += '<optgroup label="HAI Maker">' +
+        '<option value="haimaker/auto">haimaker/auto</option>' +
+        '<option value="haimaker/claude-sonnet">haimaker/claude-sonnet</option>' +
+        '<option value="haimaker/gpt-4o">haimaker/gpt-4o</option>' +
+    '</optgroup>';
+    options += '<optgroup label="OpenRouter">' +
+        '<option value="openrouter/auto">openrouter/auto</option>' +
+        '<option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>' +
+        '<option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>' +
+    '</optgroup>';
     
-    // Build options from known aliases
-    let options = '<option value="auto">🤖 Auto (default - HAI Maker picks best)</option>';
-    
-    // Add categorized options
-    const categories = {
-        'Claude': ['claude', 'claude-sonnet', 'claude-opus', 'claude-haiku'],
-        'OpenAI': ['openai', 'gpt-4o', 'gpt-4o-mini', 'gpt-4', 'gpt-4-turbo'],
-        'Gemini': ['gemini', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-        'HAI Maker': ['haimaker/auto', 'haimaker/claude-sonnet', 'haimaker/gpt-4o'],
-        'OpenRouter': ['openrouter/auto', 'openrouter/anthropic/claude-3.5-sonnet', 'openrouter/openai/gpt-4o']
-    };
-    
-    for (const [category, models] of Object.entries(categories)) {
-        models.forEach(model => {
-            const label = KNOWN_MODEL_ALIASES[model] || model;
-            options += `<option value="${model}">${label}</option>`;
+    // Add custom models from localStorage
+    const customModels = JSON.parse(localStorage.getItem('customModels') || '[]');
+    if (customModels.length > 0) {
+        options += '<optgroup label="Custom">';
+        customModels.forEach(m => {
+            options += `<option value="${m.id}">${m.name}</option>`;
         });
+        options += '</optgroup>';
     }
     
-    // Add any custom models from localStorage
-    const customModels = JSON.parse(localStorage.getItem('customModels') || '[]');
-    customModels.forEach(m => {
-        options += `<option value="${m.id}">⭐ ${m.name}</option>`;
-    });
-    
-    datalist.innerHTML = options;
-    modelListLoaded = true;
+    selectEl.innerHTML = options;
+    selectEl.dataset.populated = 'true';
 }
 
-function validateModel(input) {
+let modelValidationTimer = null;
+
+function debouncedValidateModel(input) {
     const value = input.value.trim();
     const validationDiv = document.getElementById('model-validation-generate');
     if (!validationDiv) return;
-    
-    if (!value || value === 'auto') {
+
+    // Clear previous timer
+    if (modelValidationTimer) {
+        clearTimeout(modelValidationTimer);
+    }
+
+    // Empty = Auto
+    if (!value) {
         validationDiv.textContent = '✓ Auto (HAI Maker will pick the best model)';
         validationDiv.style.color = '#4ade80';
         return;
     }
-    
-    // Check if it's a known alias
+
+    // Show checking state immediately
+    validationDiv.textContent = '⏳ Checking...';
+    validationDiv.style.color = '#888';
+
+    // Debounce the actual validation
+    modelValidationTimer = setTimeout(() => {
+        validateModelWithApi(value, validationDiv);
+    }, 500);
+}
+
+async function validateModelWithApi(value, validationDiv) {
     const normalizedValue = value.toLowerCase();
+
+    // Check known aliases first (instant)
     if (KNOWN_MODEL_ALIASES[normalizedValue]) {
         validationDiv.textContent = '✓ ' + KNOWN_MODEL_ALIASES[normalizedValue];
         validationDiv.style.color = '#4ade80';
         return;
     }
-    
-    // Check if it looks like a valid model identifier
-    // Valid patterns: provider/model, provider:model, or simple model names
-    const validPattern = /^[a-z0-9]+([\/:._-][a-z0-9-]+)*$/i;
-    if (validPattern.test(value)) {
-        validationDiv.textContent = '✓ Custom model: ' + value + ' (will be passed to API)';
-        validationDiv.style.color = '#60a5fa';
-        
-        // Save to custom models for future
-        saveCustomModel(value);
-    } else {
-        validationDiv.textContent = '⚠ Invalid format. Use: provider/model or model-name';
-        validationDiv.style.color = '#f87171';
+
+    // Try to validate against Haimaker API
+    try {
+        const res = await fetch('/api/validate-model?model=' + encodeURIComponent(value));
+        const data = await res.json();
+
+        if (data.valid) {
+            validationDiv.textContent = '✓ ' + (data.displayName || value);
+            validationDiv.style.color = '#4ade80';
+            // Save valid custom models
+            if (!KNOWN_MODEL_ALIASES[normalizedValue]) {
+                saveCustomModel(value);
+            }
+        } else {
+            validationDiv.textContent = '⚠ ' + (data.error || 'Unknown model - will try anyway');
+            validationDiv.style.color = '#f59e0b';
+        }
+    } catch (e) {
+        // Offline/fallback - accept anything that looks like a model identifier
+        const validPattern = /^[a-z0-9]+([\/:._-][a-z0-9-]+)*$/i;
+        if (validPattern.test(value)) {
+            validationDiv.textContent = '✓ Custom: ' + value + ' (offline validation)';
+            validationDiv.style.color = '#60a5fa';
+        } else {
+            validationDiv.textContent = '⚠ Invalid format';
+            validationDiv.style.color = '#f87171';
+        }
     }
 }
 
