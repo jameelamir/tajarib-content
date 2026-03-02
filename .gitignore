@@ -15,6 +15,11 @@ cookies/
 service-account.json
 config.json
 agent.json
+bot-config.json
+auth.json
+buffer-config.json
+transcription-config.json
+.uploads-state.json
 
 # Backups (keep only latest)
 *-backup.js

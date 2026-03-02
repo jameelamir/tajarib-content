@@ -14,12 +14,12 @@
         .sidebar { width: 320px; border-right: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar-header { padding: 16px 20px; font-weight: 700; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .ep-list { overflow-y: auto; flex: 1; }
-        .ep-item { padding: 14px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.15s; position: relative; }
+        .ep-item { padding: 8px 12px 10px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.15s; position: relative; }
         .ep-item:hover { background: #1e1e1e; }
         .ep-item.active { background: #1e1e1e; border-left: 3px solid var(--accent); }
-        .ep-slug { font-weight: 600; color: #fff; margin-bottom: 4px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
-        .ep-info { font-size: 0.75rem; color: var(--sub); display: flex; justify-content: space-between; }
-        .ep-type-badge { font-size: 0.6rem; padding: 2px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; }
+        .ep-slug { font-weight: 600; color: #fff; margin-bottom: 2px; font-size: 0.82rem; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ep-info { font-size: 0.68rem; color: var(--sub); display: flex; justify-content: space-between; align-items: center; }
+        .ep-type-badge { font-size: 0.55rem; padding: 2px 5px; border-radius: 3px; font-weight: 700; text-transform: uppercase; flex-shrink: 0; }
         .ep-type-badge.episode { background: #1e1b4b; color: #818cf8; }
         .ep-type-badge.reel_full { background: #0f2d0f; color: #4ade80; }
         .ep-type-badge.reel_cut { background: #2d1b0f; color: #fb923c; }
@@ -28,10 +28,19 @@
         .ep-item.running .running-dot { display: block; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-        .media-type-row { display: flex; gap: 8px; margin: 12px; }
-        .media-type-btn { flex: 1; padding: 10px 8px; border-radius: 6px; border: 2px solid #333; background: #161616; color: #888; cursor: pointer; text-align: center; transition: all 0.15s; font-size: 0.75rem; user-select: none; }
-        .media-type-btn:hover { border-color: var(--accent); color: #ccc; }
-        .media-type-btn.selected { border-color: var(--accent); background: #1a102b; color: #c084fc; }
+        .media-default-row { margin: 8px 12px; }
+        .media-default-btn { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background: #161616; color: #999; cursor: pointer; text-align: center; transition: all 0.15s; font-size: 0.72rem; user-select: none; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .media-default-btn:hover { border-color: var(--accent); color: #ccc; }
+
+        .sidebar-section { margin: 0 12px 4px; }
+        .sidebar-section-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 8px; cursor: pointer; font-size: 0.7rem; color: #666; border-radius: 4px; user-select: none; }
+        .sidebar-section-header:hover { background: #1a1a1a; color: #888; }
+        .sidebar-section-body { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
+        .sidebar-section.open .sidebar-section-body { max-height: 200px; }
+        .sidebar-section .chevron { transition: transform 0.2s; font-size: 0.6rem; }
+        .sidebar-section.open .chevron { transform: rotate(90deg); }
+
+        .ep-list-divider { height: 1px; background: var(--border); margin: 4px 12px; }
 
         .upload-zone { margin: 12px; padding: 16px; border: 2px dashed #333; border-radius: 8px; text-align: center; cursor: pointer; transition: 0.2s; color: #555; font-size: 0.8rem; }
         .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); color: var(--accent); background: rgba(168,85,247,0.05); }
@@ -152,8 +161,7 @@
             .modal-box { width: 92%; padding: 20px; }
             .modal { align-items: flex-start; padding-top: 60px; }
             .upload-zone { padding: 20px 12px; }
-            .media-type-row { flex-wrap: wrap; }
-            .media-type-btn { min-width: 100px; }
+            .media-default-row { margin: 6px 10px; }
             .guest-select-row { flex-wrap: wrap; }
         }
         @media (max-width: 480px) {
@@ -171,7 +179,7 @@
             .modal-actions button { width: 100%; }
         }
         @media (hover: none) and (pointer: coarse) {
-            button, .ep-item, .editor-tab, .media-type-btn { min-height: 44px; }
+            button, .ep-item, .editor-tab, .media-default-btn { min-height: 44px; }
             .upload-zone { min-height: 80px; display: flex; align-items: center; justify-content: center; }
         }
     </style>
@@ -184,24 +192,20 @@
         <span style="font-size:0.65rem; color:#555;">v7 Mobile</span>
     </div>
 
-    <!-- Media Type Selector -->
-    <div class="media-type-row" id="mediaTypeRow">
-        <div class="media-type-btn selected" data-type="episode" id="btn-episode">
-            📺 Episode
-        </div>
-        <div class="media-type-btn" data-type="reel_cut" id="btn-reel-cut">
-            ✂️ Reel
-        </div>
-        <div class="media-type-btn" data-type="reel_full" id="btn-reel-full">
-            ✅ Reel
+    <!-- Default Media Type -->
+    <div class="media-default-row">
+        <div class="media-default-btn" id="media-default-btn" onclick="cycleMediaType()">
+            <span id="media-default-icon">📺</span>
+            <span id="media-default-label">Episode</span>
+            <span style="color:#555; margin-left:4px;">&#9662;</span>
         </div>
     </div>
 
     <!-- Upload Zone -->
     <div class="upload-zone" id="upload-zone">
-        <div style="font-size:1.5rem; margin-bottom:6px;">📁</div>
+        <div style="font-size:1.3rem; margin-bottom:4px;">📁</div>
         <div>Drop video or <strong>click to upload</strong></div>
-        <div style="font-size:0.7rem; margin-top:4px; color:#444;">MP4, MKV, MOV — up to 10 GB</div>
+        <div style="font-size:0.65rem; margin-top:3px; color:#444;">MP4, MKV, MOV — up to 10 GB</div>
         <input type="file" id="file-input" accept=".mp4,.mkv,.mov,.avi">
     </div>
 
@@ -211,28 +215,79 @@
         <div class="progress-text" id="progress-text">Uploading...</div>
     </div>
 
-    <!-- Zapier Integration Info -->
-    <div class="buffer-config">
-        <h4>🔗 Zapier Connected</h4>
-        <div style="color:#666; font-size:0.7rem;">
-            Reels will be sent to your Zapier webhook for posting to TikTok, Instagram, etc.
+    <!-- Collapsible: Zapier -->
+    <div class="sidebar-section" id="section-zapier">
+        <div class="sidebar-section-header" onclick="toggleSection('zapier')">
+            <span>🔗 Zapier Connected</span>
+            <span class="chevron">&#9656;</span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:6px 8px; color:#666; font-size:0.65rem;">
+                Reels sent to Zapier webhook for TikTok, Instagram, etc.
+            </div>
         </div>
     </div>
 
-    <!-- Transcription Settings -->
-    <div class="buffer-config" id="transcription-config">
-        <h4>🎙️ Transcription</h4>
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-            <span id="api-status-dot" style="width:8px; height:8px; border-radius:50%; background:#333;"></span>
-            <span id="api-status-text" style="font-size:0.7rem; color:#666;">Checking...</span>
+    <!-- Collapsible: Transcription -->
+    <div class="sidebar-section" id="section-transcription">
+        <div class="sidebar-section-header" onclick="toggleSection('transcription')">
+            <span>🎙️ Transcription</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="api-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
         </div>
-        <button onclick="openTranscriptionModal()" style="font-size:0.7rem; padding:6px 10px; width:100%;">
-            Configure API Key
-        </button>
-        <div style="color:#666; font-size:0.65rem; margin-top:8px;">
-            Use Haimaker API for faster transcription of long episodes
+        <div class="sidebar-section-body">
+            <div style="padding:6px 8px;">
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                    <span id="api-status-text" style="font-size:0.65rem; color:#666;">Checking...</span>
+                </div>
+                <button onclick="openTranscriptionModal()" style="font-size:0.65rem; padding:5px 8px; width:100%;">
+                    Configure API Key
+                </button>
+            </div>
         </div>
     </div>
+
+    <!-- Collapsible: Generation (API Key + Model) -->
+    <div class="sidebar-section" id="section-generation">
+        <div class="sidebar-section-header" onclick="toggleSection('generation')">
+            <span>🤖 Generation</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="gen-key-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:6px 8px;">
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Anthropic API Key</label>
+                <div style="display:flex; gap:4px;">
+                    <input type="password"
+                        id="gen-api-key"
+                        placeholder="sk-ant-..."
+                        style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; flex:1; font-family:monospace;"
+                        autocomplete="off"
+                        spellcheck="false"
+                    />
+                    <button onclick="saveGenApiKey()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap;">Save</button>
+                </div>
+                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Model</label>
+                <input type="text"
+                    id="sidebar-model-select"
+                    placeholder="Auto (or type model name...)"
+                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%;"
+                    oninput="debouncedValidateSidebarModel(this)"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for Auto</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ep-list-divider"></div>
 
     <!-- Episode List -->
     <div class="ep-list" id="ep-list"></div>
@@ -354,7 +409,52 @@
             </div>
         </div>
         
-        <div class="hint-text">Media type: <span id="upload-media-type-display">Episode</span></div>
+        <div class="field" id="srt-upload-field">
+            <label>Upload SRT <span style="font-size:0.7rem; color:#666;">(skip transcription)</span></label>
+            <div id="srt-drop-zone" style="border:1px dashed #333; border-radius:8px; padding:10px 14px; margin-top:6px; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:0.75rem; color:#666;" onclick="document.getElementById('upload-srt-input').click()">
+                <span>📄</span>
+                <span id="srt-filename">Choose .srt or .vtt file (optional)</span>
+                <input type="file" id="upload-srt-input" accept=".srt,.vtt" style="display:none" onchange="onSrtFileSelect(this)">
+            </div>
+            <button id="srt-clear-btn" onclick="clearSrtFile()" style="display:none; margin-top:6px; font-size:0.65rem; background:none; border:1px solid #444; color:#888; padding:2px 8px; border-radius:4px; cursor:pointer;">✕ Remove SRT</button>
+        </div>
+
+        <div class="field">
+            <label>Media Type</label>
+            <div style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
+                <label style="display:flex; align-items:center; gap:5px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="upload-media-type" value="episode" id="upload-type-episode"> 📺 Episode
+                </label>
+                <label style="display:flex; align-items:center; gap:5px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="upload-media-type" value="reel_cut" id="upload-type-reel-cut"> ✂️ Reel (no subs)
+                </label>
+                <label style="display:flex; align-items:center; gap:5px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="upload-media-type" value="reel_full" id="upload-type-reel-full"> ✅ Reel (done)
+                </label>
+            </div>
+        </div>
+
+        <!-- Multi-Track Toggle (episode only) -->
+        <div class="field" id="multi-track-field" style="display:none;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="upload-multi-track" onchange="toggleMultiTrackUpload()">
+                <span style="font-size:0.8rem; color:#888;">🎥 Multi-Track (Speaker + Guest cameras)</span>
+            </label>
+            <div id="multi-track-zones" style="display:none; margin-top:10px;">
+                <div style="display:flex; gap:10px;">
+                    <div class="upload-zone" id="track-speaker-zone" style="flex:1; margin:0; padding:12px; font-size:0.7rem;" onclick="document.getElementById('track-speaker-input').click()">
+                        <div>🎤 Speaker Track</div>
+                        <div id="track-speaker-name" style="color:var(--accent); margin-top:4px; font-size:0.65rem;"></div>
+                        <input type="file" id="track-speaker-input" accept=".mp4,.mkv,.mov" style="display:none" onchange="onTrackFileSelect('speaker', this)">
+                    </div>
+                    <div class="upload-zone" id="track-guest-zone" style="flex:1; margin:0; padding:12px; font-size:0.7rem;" onclick="document.getElementById('track-guest-input').click()">
+                        <div>🎙️ Guest Track</div>
+                        <div id="track-guest-name" style="color:var(--accent); margin-top:4px; font-size:0.65rem;"></div>
+                        <input type="file" id="track-guest-input" accept=".mp4,.mkv,.mov" style="display:none" onchange="onTrackFileSelect('guest', this)">
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="modal-actions">
             <button onclick="closeUploadModal()">Cancel</button>
             <button class="primary" onclick="confirmUpload()">Upload</button>
@@ -413,24 +513,110 @@
     </div>
 </div>
 
+<!-- Switch Point Editor Modal -->
+<div class="modal" id="switch-modal">
+    <div class="modal-box" style="width:560px;">
+        <h3>🎬 Camera Switch Points</h3>
+        <div style="font-size:0.7rem; color:#666; margin-bottom:12px;">
+            Set when to switch between dual-view, speaker-only, and guest-only.
+        </div>
+        <div id="switch-list" style="max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;"></div>
+        <div style="margin-top:10px;">
+            <button onclick="addSwitchPoint()" style="font-size:0.7rem;">+ Add Switch Point</button>
+        </div>
+        <div class="modal-actions">
+            <button onclick="closeSwitchModal()">Cancel</button>
+            <button class="primary" onclick="saveSwitchPoints()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Manual LLM Modal -->
+<div class="modal" id="llm-modal">
+    <div class="modal-box" style="width:680px; max-height:90vh; overflow-y:auto;">
+        <h3 id="llm-modal-title">📋 Manual LLM — Analyze</h3>
+        <div style="font-size:0.7rem; color:#888; margin-bottom:12px;">
+            Copy the prompt below, paste it into Claude, then paste the response back here.
+        </div>
+
+        <div style="margin-bottom:10px;">
+            <label style="font-size:0.7rem; color:#666; display:block; margin-bottom:4px;">System Prompt</label>
+            <div id="llm-system" style="background:#111; border:1px solid #333; border-radius:6px; padding:8px 10px; font-size:0.65rem; color:#aaa; max-height:120px; overflow-y:auto; white-space:pre-wrap; direction:auto;"></div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+            <label style="font-size:0.7rem; color:#666; display:block; margin-bottom:4px;">User Message</label>
+            <div id="llm-user" style="background:#111; border:1px solid #333; border-radius:6px; padding:8px 10px; font-size:0.65rem; color:#aaa; max-height:200px; overflow-y:auto; white-space:pre-wrap; direction:auto;"></div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-bottom:14px;">
+            <button onclick="copyLlmPrompt()" style="font-size:0.7rem; flex:1; padding:6px; background:#333; border:1px solid #555; color:#fff; border-radius:6px; cursor:pointer;">
+                📋 Copy Full Prompt
+            </button>
+            <button onclick="copyLlmSystem()" style="font-size:0.65rem; padding:6px 10px; background:#222; border:1px solid #444; color:#aaa; border-radius:6px; cursor:pointer;">
+                Copy System
+            </button>
+            <button onclick="copyLlmUser()" style="font-size:0.65rem; padding:6px 10px; background:#222; border:1px solid #444; color:#aaa; border-radius:6px; cursor:pointer;">
+                Copy User
+            </button>
+        </div>
+
+        <div style="margin-bottom:10px;">
+            <label style="font-size:0.7rem; color:#666; display:block; margin-bottom:4px;">
+                Paste Claude's Response <span id="llm-format-hint" style="color:var(--accent);"></span>
+            </label>
+            <textarea id="llm-response" rows="8" style="width:100%; background:#0a0a0a; border:1px solid #333; border-radius:6px; padding:8px; font-size:0.7rem; color:#eee; resize:vertical; direction:auto;" placeholder="Paste Claude's response here..."></textarea>
+        </div>
+
+        <div class="modal-actions">
+            <button onclick="closeLlmModal()">Cancel</button>
+            <button class="primary" onclick="submitLlmResponse()">Submit Response</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="reel-selection-modal">
+    <div class="modal-box" style="width:780px; max-height:90vh; overflow-y:auto;">
+        <h3>🎬 Select Reels</h3>
+        <div style="font-size:0.7rem; color:#888; margin-bottom:12px;">
+            Choose which reels to include in the pipeline. Unselected reels will be skipped.
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <button onclick="toggleAllReels(true)" style="font-size:0.7rem;">Select All</button>
+            <button onclick="toggleAllReels(false)" style="font-size:0.7rem;">Deselect All</button>
+        </div>
+        <div id="reel-selection-list" style="display:flex; flex-direction:column; gap:12px;">
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button onclick="closeReelSelectionModal()">Cancel</button>
+            <button class="primary" onclick="confirmReelSelection()">Confirm Selection</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const socket = io();
 let episodes = [];
 let currentSlug = null;
 let currentFile = null;
 let logs = {};
+let runningStep = {};  // slug -> step name currently running
 let pendingRun = null;
 let pendingFile = null;
 let selectedMediaType = 'episode';
 let contentEditorData = null;
 let textEditorData = null;
 let guestHistory = [];
+let pendingSpeakerFile = null;
+let pendingGuestFile = null;
+let pendingSrtFile = null;
 
 // Initialize
 async function init() {
     console.log('🚀 init() starting...');
     await loadGuestHistory();
     await loadTranscriptionConfig();
+    await loadGenKeyStatus();
     console.log('✅ loadGuestHistory done, calling refresh...');
     await refresh();
     console.log('✅ refresh done, episodes:', episodes.length);
@@ -518,6 +704,59 @@ async function saveTranscriptionConfig() {
     }
 }
 
+// Generation API Key
+async function loadGenKeyStatus() {
+    try {
+        const res = await fetch('/api/gen-key-status');
+        const data = await res.json();
+        const dot = document.getElementById('gen-key-dot');
+        const status = document.getElementById('gen-key-status');
+        if (data.hasKey) {
+            dot.style.background = 'var(--success)';
+            status.textContent = '✓ API key configured';
+            status.style.color = '#4ade80';
+        } else {
+            dot.style.background = '#f59e0b';
+            status.textContent = 'No API key — generation will need manual LLM mode';
+            status.style.color = '#fbbf24';
+        }
+    } catch (e) {
+        console.error('Failed to load gen key status:', e);
+    }
+}
+
+async function saveGenApiKey() {
+    const input = document.getElementById('gen-api-key');
+    const status = document.getElementById('gen-key-status');
+    const key = input.value.trim();
+    if (!key) {
+        status.textContent = '⚠ Enter an API key';
+        status.style.color = '#f59e0b';
+        return;
+    }
+    status.textContent = 'Saving...';
+    status.style.color = '#888';
+    try {
+        const res = await fetch('/api/gen-key', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ apiKey: key })
+        });
+        const data = await res.json();
+        if (data.success) {
+            input.value = '';
+            status.textContent = '✓ API key saved!';
+            status.style.color = '#4ade80';
+            document.getElementById('gen-key-dot').style.background = 'var(--success)';
+        } else {
+            throw new Error(data.error || 'Save failed');
+        }
+    } catch (err) {
+        status.textContent = '✗ ' + err.message;
+        status.style.color = '#ef4444';
+    }
+}
+
 init();
 
 socket.on('connect', () => console.log('Socket connected'));
@@ -527,15 +766,37 @@ socket.on('log', ({slug, text}) => {
     logs[slug] += text;
     if (currentSlug === slug) updateLogs();
 });
-socket.on('process-start', ({slug}) => {
+socket.on('process-start', ({slug, step}) => {
+    runningStep[slug] = step;
     if (currentSlug === slug) document.getElementById('stop-btn').style.display = '';
     refresh();
 });
-socket.on('process-end', ({slug}) => {
+socket.on('process-end', ({slug, step, code}) => {
+    delete runningStep[slug];
     if (currentSlug === slug) document.getElementById('stop-btn').style.display = 'none';
     refresh();
+    // Auto-open reel selection after analyze completes successfully
+    if (step === 'analyze' && code === 0 && currentSlug === slug) {
+        setTimeout(() => openReelSelectionModal(), 500);
+    }
+    // Auto-show cut reels after cut completes successfully
+    if (step === 'cut' && code === 0 && currentSlug === slug) {
+        setTimeout(() => showCutReels(), 500);
+    }
+    // Auto-show cropped reels after crop completes successfully
+    if (step === 'crop' && code === 0 && currentSlug === slug) {
+        setTimeout(() => showCutReels(), 500);
+    }
 });
 socket.on('toast', ({type, message}) => showToast(message, type));
+
+// Manual LLM mode
+let pendingLlmData = null;
+socket.on('llm-prompt', (data) => {
+    console.log('📋 LLM prompt received:', data.step);
+    pendingLlmData = data;
+    openLlmModal(data);
+});
 socket.on('episode-renamed', ({oldSlug, newSlug}) => {
     // If we're viewing the old slug, switch to the new one
     if (currentSlug === oldSlug) {
@@ -606,16 +867,45 @@ function getSelectedGuest() {
     return input.style.display !== 'none' ? input.value.trim() : select.value;
 }
 
-// Media Type Selection
-document.getElementById('btn-episode').onclick = function() { setMediaType('episode', this); };
-document.getElementById('btn-reel-cut').onclick = function() { setMediaType('reel_cut', this); };
-document.getElementById('btn-reel-full').onclick = function() { setMediaType('reel_full', this); };
+// Media Type Selection — simplified cycle-through default
+const mediaTypeOrder = ['episode', 'reel_cut', 'reel_full'];
+const mediaTypeLabels = { episode: 'Episode', reel_cut: 'Reel (no subs)', reel_full: 'Reel (done)' };
+const mediaTypeIcons = { episode: '📺', reel_cut: '✂️', reel_full: '✅' };
 
-function setMediaType(type, btn) {
-    selectedMediaType = type;
-    document.querySelectorAll('.media-type-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
+function cycleMediaType() {
+    const idx = mediaTypeOrder.indexOf(selectedMediaType);
+    const next = mediaTypeOrder[(idx + 1) % mediaTypeOrder.length];
+    setMediaType(next);
 }
+
+function setMediaType(type) {
+    selectedMediaType = type;
+    document.getElementById('media-default-icon').textContent = mediaTypeIcons[type] || '📺';
+    document.getElementById('media-default-label').textContent = mediaTypeLabels[type] || 'Episode';
+    localStorage.setItem('tajarib-default-media', type);
+}
+
+// Collapsible sidebar sections
+function toggleSection(name) {
+    const el = document.getElementById('section-' + name);
+    if (!el) return;
+    el.classList.toggle('open');
+    localStorage.setItem('tajarib-section-' + name, el.classList.contains('open'));
+}
+// Restore collapsed state
+['zapier','transcription'].forEach(function(name) {
+    const saved = localStorage.getItem('tajarib-section-' + name);
+    if (saved === 'true') {
+        const el = document.getElementById('section-' + name);
+        if (el) el.classList.add('open');
+    }
+});
+
+// Restore saved default media type on load
+(function restoreMediaType() {
+    const saved = localStorage.getItem('tajarib-default-media');
+    if (saved) setMediaType(saved);
+})();
 
 // Upload Zone
 document.getElementById('upload-zone').onclick = function(e) {
@@ -689,15 +979,80 @@ function startUploadFlow(file) {
         };
     });
     
-    const typeLabels = {episode: 'Full Episode', reel_cut: 'Reel (cut, no subs)', reel_full: 'Reel (fully done)'};
-    document.getElementById('upload-media-type-display').textContent = typeLabels[selectedMediaType];
-    
+    // Pre-select media type radio based on current default
+    const typeRadio = document.getElementById('upload-type-' + (selectedMediaType === 'reel_cut' ? 'reel-cut' : selectedMediaType === 'reel_full' ? 'reel-full' : 'episode'));
+    if (typeRadio) typeRadio.checked = true;
+
+    // Show multi-track toggle only for episodes
+    updateMultiTrackVisibility();
+    document.querySelectorAll('input[name="upload-media-type"]').forEach(r => {
+        r.onchange = updateMultiTrackVisibility;
+    });
+
+    // Reset multi-track state
+    document.getElementById('upload-multi-track').checked = false;
+    document.getElementById('multi-track-zones').style.display = 'none';
+    document.getElementById('track-speaker-name').textContent = '';
+    document.getElementById('track-guest-name').textContent = '';
+    pendingSpeakerFile = null;
+    pendingGuestFile = null;
+
     document.getElementById('upload-modal').classList.add('open');
 }
 
 function closeUploadModal() {
     pendingFile = null;
     document.getElementById('upload-modal').classList.remove('open');
+}
+
+function updateMultiTrackVisibility() {
+    const selected = document.querySelector('input[name="upload-media-type"]:checked')?.value;
+    const mtField = document.getElementById('multi-track-field');
+    if (selected === 'episode') {
+        mtField.style.display = '';
+    } else {
+        mtField.style.display = 'none';
+        document.getElementById('upload-multi-track').checked = false;
+        document.getElementById('multi-track-zones').style.display = 'none';
+    }
+}
+
+function toggleMultiTrackUpload() {
+    const checked = document.getElementById('upload-multi-track').checked;
+    document.getElementById('multi-track-zones').style.display = checked ? '' : 'none';
+}
+
+function onTrackFileSelect(track, input) {
+    if (!input.files[0]) return;
+    if (track === 'speaker') {
+        pendingSpeakerFile = input.files[0];
+        document.getElementById('track-speaker-name').textContent = input.files[0].name;
+    } else {
+        pendingGuestFile = input.files[0];
+        document.getElementById('track-guest-name').textContent = input.files[0].name;
+    }
+}
+
+function onSrtFileSelect(input) {
+    if (!input.files[0]) return;
+    pendingSrtFile = input.files[0];
+    document.getElementById('srt-filename').textContent = pendingSrtFile.name;
+    document.getElementById('srt-drop-zone').style.borderColor = 'var(--accent)';
+    document.getElementById('srt-clear-btn').style.display = '';
+    // Grey out transcription method radios since SRT will be used
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(r => r.disabled = true);
+    document.querySelector('.field:has(#radio-local)').style.opacity = '0.4';
+}
+
+function clearSrtFile() {
+    pendingSrtFile = null;
+    document.getElementById('upload-srt-input').value = '';
+    document.getElementById('srt-filename').textContent = 'Choose .srt or .vtt file (optional)';
+    document.getElementById('srt-drop-zone').style.borderColor = '#333';
+    document.getElementById('srt-clear-btn').style.display = 'none';
+    // Re-enable transcription method radios
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(r => r.disabled = false);
+    document.querySelector('.field:has(#radio-local)').style.opacity = '1';
 }
 
 function confirmUpload() {
@@ -712,13 +1067,37 @@ function confirmUpload() {
 
     document.getElementById('upload-modal').classList.remove('open');
 
+    // Read media type from upload modal radio
+    const uploadMediaType = document.querySelector('input[name="upload-media-type"]:checked')?.value || selectedMediaType;
+    const isMultiTrack = document.getElementById('upload-multi-track').checked && uploadMediaType === 'episode';
+
+    if (isMultiTrack) {
+        if (!pendingSpeakerFile || !pendingGuestFile) {
+            alert('Multi-track requires both speaker and guest video files');
+            return;
+        }
+    } else {
+        if (!pendingFile) return;
+    }
+
     const formData = new FormData();
-    formData.append('slug', slug); // empty string = AI will generate title after transcription
-    formData.append('video', pendingFile);
-    formData.append('mediaType', selectedMediaType);
+    formData.append('slug', slug);
+    formData.append('mediaType', uploadMediaType);
     formData.append('transcribeMethod', transcribeMethod);
+    formData.append('multiTrack', isMultiTrack ? 'true' : 'false');
     if (guest) formData.append('guest', guest);
     if (role) formData.append('role', role);
+
+    if (pendingSrtFile) {
+        formData.append('srt', pendingSrtFile);
+    }
+
+    if (isMultiTrack) {
+        formData.append('speaker', pendingSpeakerFile);
+        formData.append('guestTrack', pendingGuestFile);
+    } else {
+        formData.append('video', pendingFile);
+    }
 
     const xhr = new XMLHttpRequest();
     const progressEl = document.getElementById('upload-progress');
@@ -748,6 +1127,7 @@ function confirmUpload() {
             showToast('Upload failed: ' + xhr.responseText, 'error');
         }
         pendingFile = null;
+        pendingSrtFile = null;
     };
 
     xhr.onerror = function() {
@@ -755,6 +1135,7 @@ function confirmUpload() {
         dropZone.style.display = '';
         showToast('Upload failed', 'error');
         pendingFile = null;
+        pendingSrtFile = null;
     };
 
     xhr.open('POST', '/api/upload');
@@ -786,45 +1167,53 @@ function renderSidebar() {
     }
 
     list.innerHTML = episodes.map(ep => {
-        const done = Object.values(ep.steps).filter(Boolean).length;
-        const total = stepsForType(ep.mediaType).length;
-        const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + ' MB' : '';
+        const steps = stepsForType(ep.mediaType, ep);
+        const applicableSteps = steps.filter(s => s.applicable);
+        const stepKeys = applicableSteps.map(s => s.id === 'transcribe' ? 'transcribed' : s.id === 'analyze' ? 'analyzed' : s.id === 'generate' ? 'generated' : s.id === 'compose' ? 'composed' : s.id === 'overlay' ? 'overlaid' : s.id);
+        const done = stepKeys.filter(k => ep.steps[k]).length;
+        const total = applicableSteps.length;
+        const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + 'MB' : '';
         const typeClass = ep.mediaType;
         const typeLabel = ep.mediaType === 'episode' ? 'EP' : ep.mediaType === 'reel_full' ? 'RF' : 'RC';
-        
-        return '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(' + "'" + ep.slug + "'" + ')">' +
+        const mtLabel = ep.multiTrack ? ' MT' : '';
+        const guestSnippet = ep.guest ? ' &middot; ' + ep.guest : '';
+        const hoverTitle = (ep.guest || '') + (ep.role ? ' (' + ep.role + ')' : '');
+
+        return '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" title="' + hoverTitle + '">' +
             '<div class="ep-slug">' +
-                '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + '</span>' +
+                '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
                 ep.slug +
             '</div>' +
             '<div class="ep-info">' +
-                '<span>' + (ep.guest || '—') + '</span>' +
-                '<span>' + done + '/' + total + (sizeMb ? ' · ' + sizeMb : '') + '</span>' +
+                '<span>' + done + '/' + total + guestSnippet + '</span>' +
+                (sizeMb ? '<span>' + sizeMb + '</span>' : '') +
             '</div>' +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
     }).join('');
 }
 
-function stepsForType(mediaType) {
+function stepsForType(mediaType, ep) {
     const all = [
-        {id: 'transcribe', label: '1. Transcribe', desc: 'Whisper ASR'},
-        {id: 'analyze', label: '2. Analyze', desc: 'AI analysis'},
-        {id: 'generate', label: '3. Generate', desc: 'Captions & copy'},
-        {id: 'cut', label: '4. Cut', desc: 'FFmpeg clips'},
-        {id: 'subtitle', label: '5. Subtitle', desc: 'Burn subs'},
+        {id: 'transcribe',   label: '1. Transcribe',   desc: 'Whisper ASR'},
+        {id: 'analyze',      label: '2. Analyze',      desc: 'AI analysis'},
+        {id: 'select-reels', label: '3. Select Reels', desc: 'Pick reels to process'},
+        {id: 'cut',          label: '4. Cut',          desc: 'FFmpeg clips'},
+        {id: 'crop',         label: '5. Crop',         desc: 'Aspect ratio crop (optional)'},
+        {id: 'generate',     label: '6. Generate',     desc: 'Captions & copy'},
+        {id: 'subtitle',     label: '7. Subtitle',     desc: 'Burn subs'},
+        {id: 'overlay',      label: '8. Overlay',      desc: 'CG & logos'},
     ];
-    
+
+    // Add compose step for multi-track episodes
+    if (ep && ep.multiTrack) {
+        all.splice(4, 0, {id: 'compose', label: '4b. Compose', desc: 'Multi-track mix'});
+    }
+
     if (mediaType === 'reel_full') {
-        // reel_full = fully produced reel with subs already burned in
-        // Still needs: transcribe (for AI content), generate (captions/copy)
-        // Skip: cut (already cut), subtitle (already has subs), analyze (not needed)
-        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate'].includes(s.id)}));
+        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'overlay'].includes(s.id)}));
     } else if (mediaType === 'reel_cut') {
-        // reel_cut = pre-cut reel, no subs
-        // Needs: transcribe, generate, subtitle
-        // Skip: cut (already cut), analyze
-        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'subtitle'].includes(s.id)}));
+        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'subtitle', 'overlay'].includes(s.id)}));
     }
     return all.map(s => Object.assign({}, s, {applicable: true}));
 }
@@ -845,8 +1234,23 @@ function updateLogs() {
     el.scrollTop = el.scrollHeight;
 }
 
-function clearLogs() { 
-    if (currentSlug) { logs[currentSlug] = ''; updateLogs(); } 
+function clearLogs() {
+    if (currentSlug) { logs[currentSlug] = ''; updateLogs(); }
+}
+
+async function deleteEpisode(slug) {
+    if (!confirm('Delete episode "' + slug + '"?\n\nThis will permanently remove all files (video, transcript, reels, etc). This cannot be undone.')) return;
+    try {
+        const res = await fetch('/api/episodes?slug=' + encodeURIComponent(slug), { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Delete failed');
+        currentSlug = null;
+        document.getElementById('episode-view').style.display = 'none';
+        document.getElementById('empty-state').style.display = '';
+        await refresh();
+    } catch (err) {
+        alert('Failed to delete: ' + err.message);
+    }
 }
 
 function renderMain(slug) {
@@ -858,7 +1262,7 @@ function renderMain(slug) {
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
     
-    document.getElementById('ep-meta').innerHTML = 
+    document.getElementById('ep-meta').innerHTML =
         '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
         '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
         '<button class="text-btn" onclick="editMeta()">Edit</button>' +
@@ -866,7 +1270,8 @@ function renderMain(slug) {
             '<option value="episode" ' + (ep.mediaType === 'episode' ? 'selected' : '') + '>Episode</option>' +
             '<option value="reel_full" ' + (ep.mediaType === 'reel_full' ? 'selected' : '') + '>Reel (Full)</option>' +
             '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
-        '</select>';
+        '</select>' +
+        '<button class="text-btn" onclick="deleteEpisode(\'' + ep.slug + '\')" style="color:#ef4444; margin-left:auto;" title="Delete episode">🗑 Delete</button>';
 
     // Show AI title prompt if episode has transcript but temp/placeholder slug
     const aiTitlePrompt = document.getElementById('ai-title-prompt');
@@ -879,54 +1284,96 @@ function renderMain(slug) {
 
     document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
 
-    const steps = stepsForType(ep.mediaType);
-    
+    const steps = stepsForType(ep.mediaType, ep);
+
     let html = steps.filter(s => s.applicable).map(s => {
-        const done = ep.steps[s.id === 'transcribe' ? 'transcribed' : s.id === 'analyze' ? 'analyzed' : s.id === 'generate' ? 'generated' : s.id === 'cut' ? 'cut' : 'subtitled'];
+        const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', 'select-reels':'reelsSelected', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
+        const done = ep.steps[stepKeyMap[s.id] || s.id];
         const statusClass = done ? 'badge-done' : 'badge-pending';
         const statusText = done ? '✓ DONE' : 'PENDING';
-        
+
         let note = '';
+        if (s.id === 'select-reels' && done && ep.selectedReels) note = '<div class="stage-note">' + ep.selectedReels.length + ' reels selected</div>';
         if (s.id === 'cut' && done) note = '<div class="stage-note">' + ep.counts.reels + ' clips</div>';
         if (s.id === 'subtitle' && done) note = '<div class="stage-note">' + ep.counts.final + ' videos</div>';
 
         const canRun = !ep.isRunning;
+        const isThisRunning = runningStep[slug] === s.id;
         const needGuest = s.id === 'generate' && (!ep.guest || !ep.role);
-        
-        // Model selector for generate step - free text with validation
-        let modelSelector = '';
-        if (s.id === 'generate' && !done && !needGuest) {
-            modelSelector = '<div style="margin:6px 0; position:relative;">' +
-                '<input type="text" ' +
-                    'id="model-select-' + s.id + '" ' +
-                    'placeholder="🤖 Auto (or type model name...)" ' +
-                    'style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.7rem; width:100%;" ' +
-                    'oninput="debouncedValidateModel(this)" ' +
-                    'autocomplete="off" ' +
-                    'spellcheck="false" ' +
-                '/>' +
-                '<div id="model-validation-' + s.id + '" style="font-size:0.65rem; margin-top:4px; color:#666;">Type model alias (e.g., claude, gpt-4o) or leave empty for Auto</div>' +
+
+        // Special card: Select Reels
+        if (s.id === 'select-reels') {
+            return '<div class="stage">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<h3>' + s.label + '</h3>' +
+                    '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
+                '</div>' +
+                '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
+                note +
+                '<div class="stage-actions">' +
+                    '<button class="primary" onclick="openReelSelectionModal()" ' + (!ep.steps.analyzed ? 'disabled title="Run Analyze first"' : '') + '>' +
+                        (done ? 'Re-select' : 'Select Reels') +
+                    '</button>' +
+                '</div>' +
             '</div>';
         }
-        
-        return '<div class="stage">' +
+
+        // Special card: Crop
+        if (s.id === 'crop') {
+            let cropNote = '';
+            if (done && ep.cropRatio) {
+                cropNote = '<div class="stage-note">Cropped to ' + ep.cropRatio + '</div>';
+            } else if (done) {
+                cropNote = '<div class="stage-note">Cropped</div>';
+            }
+            return '<div class="stage">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<h3>' + s.label + '</h3>' +
+                    '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
+                '</div>' +
+                '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
+                cropNote +
+                '<div style="margin:8px 0;">' +
+                    '<select id="crop-ratio-select" style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.75rem; width:100%;">' +
+                        '<option value="9:16"' + (ep.cropRatio === '9:16' ? ' selected' : '') + '>9:16 (Vertical / TikTok / Reels)</option>' +
+                        '<option value="1:1"' + (ep.cropRatio === '1:1' ? ' selected' : '') + '>1:1 (Square / Instagram)</option>' +
+                        '<option value="4:5"' + (ep.cropRatio === '4:5' ? ' selected' : '') + '>4:5 (Instagram Portrait)</option>' +
+                    '</select>' +
+                '</div>' +
+                '<div class="stage-actions">' +
+                    '<button class="primary" onclick="runCropStep()" ' + (!ep.steps.cut ? 'disabled title="Run Cut first"' : '') + '>' +
+                        (done ? 'Re-crop' : 'Run Crop') +
+                    '</button>' +
+                    '<button onclick="skipCropStep()">Skip</button>' +
+                    (done ? '<button onclick="showCutReels()">View Reels</button>' : '') +
+                '</div>' +
+            '</div>';
+        }
+
+        const runBadge = isThisRunning ? '<span class="badge" style="background:#92400e; color:#fbbf24; animation:pulse 1.5s infinite;">⏳ RUNNING</span>' : '<span class="badge ' + statusClass + '">' + statusText + '</span>';
+
+        return '<div class="stage" ' + (isThisRunning ? 'style="border-color:#f59e0b;"' : '') + '>' +
             '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                 '<h3>' + s.label + '</h3>' +
-                '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
+                runBadge +
             '</div>' +
             '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
             note +
-            modelSelector +
             '<div class="stage-actions">' +
-                '<button class="primary" onclick="runStep(' + "'" + s.id + "'" + ')" ' + (!canRun || needGuest ? 'disabled' : '') + '>' +
-                    (needGuest ? 'Set guest first' : (done ? 'Re-run' : 'Run')) +
-                '</button>' +
-                (needGuest ? '<button onclick="editMeta()">Set Guest</button>' : '') +
-                (s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
-                (s.id === 'transcribe' && done ? '<button onclick="generateAiTitle()" style="background:var(--accent); color:#fff; border-color:var(--accent);">🤖 AI Title</button>' : '') +
-                (s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
-                (s.id !== 'cut' && s.id !== 'subtitle' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
-                (s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
+                (isThisRunning
+                    ? '<button class="stop-btn" onclick="socket.emit(\'stop-step\', {slug: currentSlug})" style="width:100%;">⏹ Stop ' + s.label.split('. ')[1] + '</button>'
+                    : '<button class="primary" onclick="runStep(' + "'" + s.id + "'" + ')" ' + (!canRun || needGuest ? 'disabled' : '') + '>' +
+                        (needGuest ? 'Set guest first' : (done ? 'Re-run' : 'Run')) +
+                      '</button>'
+                ) +
+                (!isThisRunning && needGuest ? '<button onclick="editMeta()">Set Guest</button>' : '') +
+                (!isThisRunning && s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
+                (!isThisRunning && s.id === 'transcribe' && done ? '<button onclick="generateAiTitle()" style="background:var(--accent); color:#fff; border-color:var(--accent);">🤖 AI Title</button>' : '') +
+                (!isThisRunning && s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
+                (!isThisRunning && s.id !== 'cut' && s.id !== 'crop' && s.id !== 'select-reels' && s.id !== 'subtitle' && s.id !== 'overlay' && s.id !== 'compose' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
+                (!isThisRunning && s.id === 'cut' && done ? '<button onclick="showCutReels()">View Reels</button>' : '') +
+                (!isThisRunning && s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
+                (!isThisRunning && s.id === 'compose' ? '<button onclick="openSwitchEditor()">Edit Switches</button>' : '') +
             '</div>' +
         '</div>';
     }).join('');
@@ -934,9 +1381,9 @@ function renderMain(slug) {
     // Add Publish button for reels when ready
     // reel_full: ready after generate (already has subtitles)
     // reel_cut: ready after subtitle step
-    const canPublish = (ep.mediaType === 'reel_full' && ep.steps.generated) || 
+    const canPublish = (ep.mediaType === 'reel_full' && ep.steps.generated) ||
                        (ep.mediaType === 'reel_cut' && ep.steps.subtitled);
-    
+
     if (canPublish && !ep.steps.published) {
         html += '<div class="stage" style="border-color:var(--success);">' +
             '<div style="display:flex; justify-content:space-between; align-items:center;">' +
@@ -949,7 +1396,7 @@ function renderMain(slug) {
             '</div>' +
         '</div>';
     }
-    
+
     // Show published status
     if (ep.steps.published) {
         html += '<div class="stage" style="border-color:var(--success); opacity:0.7;">' +
@@ -1008,12 +1455,12 @@ async function runStep(step) {
         return;
     }
 
-    // Get selected model for generate step
+    // Get selected model from sidebar
     let model = null;
     if (step === 'generate') {
-        const modelSelect = document.getElementById('model-select-generate');
-        if (modelSelect) {
-            model = modelSelect.value;
+        const sidebarModel = document.getElementById('sidebar-model-select');
+        if (sidebarModel) {
+            model = sidebarModel.value.trim() || null;
         }
     }
 
@@ -1084,6 +1531,391 @@ async function confirmMeta() {
     }
 }
 
+// Switch Point Editor
+let switchPointsData = [];
+
+async function openSwitchEditor() {
+    if (!currentSlug) return;
+    // Load existing switches
+    try {
+        const res = await fetch('/api/file?slug=' + currentSlug + '&file=switches.json');
+        if (res.ok) {
+            const data = await res.json();
+            switchPointsData = data.switches || [];
+        } else {
+            switchPointsData = [{ time: 0, view: 'dual', reason: 'Opening' }];
+        }
+    } catch (e) {
+        switchPointsData = [{ time: 0, view: 'dual', reason: 'Opening' }];
+    }
+    renderSwitchList();
+    document.getElementById('switch-modal').classList.add('open');
+}
+
+function closeSwitchModal() {
+    document.getElementById('switch-modal').classList.remove('open');
+}
+
+function renderSwitchList() {
+    const list = document.getElementById('switch-list');
+    list.innerHTML = switchPointsData.map((sw, i) => {
+        const mins = Math.floor(sw.time / 60);
+        const secs = Math.floor(sw.time % 60);
+        return '<div style="display:flex; gap:6px; align-items:center; padding:6px 8px; background:#111; border-radius:4px;">' +
+            '<input type="number" value="' + mins + '" min="0" style="width:45px; background:#0a0a0a; border:1px solid #333; color:#ddd; padding:4px; border-radius:3px; font-size:0.75rem;" onchange="updateSwitch(' + i + ',\'min\',this.value)" placeholder="min">' +
+            '<span style="color:#555; font-size:0.7rem;">:</span>' +
+            '<input type="number" value="' + secs + '" min="0" max="59" style="width:45px; background:#0a0a0a; border:1px solid #333; color:#ddd; padding:4px; border-radius:3px; font-size:0.75rem;" onchange="updateSwitch(' + i + ',\'sec\',this.value)" placeholder="sec">' +
+            '<select onchange="updateSwitch(' + i + ',\'view\',this.value)" style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:4px; border-radius:3px; font-size:0.7rem; flex:1;">' +
+                '<option value="dual" ' + (sw.view === 'dual' ? 'selected' : '') + '>Dual (50/50)</option>' +
+                '<option value="speaker" ' + (sw.view === 'speaker' ? 'selected' : '') + '>Speaker Only</option>' +
+                '<option value="guest" ' + (sw.view === 'guest' ? 'selected' : '') + '>Guest Only</option>' +
+            '</select>' +
+            '<button onclick="removeSwitch(' + i + ')" style="background:none; border:none; color:#666; cursor:pointer; font-size:0.8rem; padding:2px 6px;">&times;</button>' +
+        '</div>';
+    }).join('');
+}
+
+function addSwitchPoint() {
+    const lastTime = switchPointsData.length > 0 ? switchPointsData[switchPointsData.length - 1].time + 30 : 0;
+    switchPointsData.push({ time: lastTime, view: 'dual', reason: '' });
+    renderSwitchList();
+}
+
+function removeSwitch(idx) {
+    switchPointsData.splice(idx, 1);
+    renderSwitchList();
+}
+
+function updateSwitch(idx, field, value) {
+    if (field === 'min') {
+        const secs = switchPointsData[idx].time % 60;
+        switchPointsData[idx].time = parseInt(value) * 60 + secs;
+    } else if (field === 'sec') {
+        const mins = Math.floor(switchPointsData[idx].time / 60);
+        switchPointsData[idx].time = mins * 60 + parseInt(value);
+    } else if (field === 'view') {
+        switchPointsData[idx].view = value;
+    }
+}
+
+async function saveSwitchPoints() {
+    if (!currentSlug) return;
+    // Sort by time
+    switchPointsData.sort((a, b) => a.time - b.time);
+    try {
+        await fetch('/api/file?slug=' + currentSlug + '&file=switches.json', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ generatedBy: 'manual', createdAt: new Date().toISOString(), switches: switchPointsData })
+        });
+        showToast('Switch points saved', 'success');
+        closeSwitchModal();
+    } catch (e) {
+        showToast('Failed to save: ' + e.message, 'error');
+    }
+}
+
+// ── Manual LLM Modal Functions ─────────────────────────────────────────────
+
+function openLlmModal(data) {
+    const stepNames = {
+        analyze: 'Analyze',
+        generate: 'Generate',
+        compose: 'Camera Switching',
+        'reel-01': 'Reel Caption',
+        'reel-1': 'Reel Caption',
+        youtube: 'YouTube Content',
+    };
+    const stepName = stepNames[data.step] || data.step;
+    document.getElementById('llm-modal-title').textContent = `📋 Manual LLM — ${stepName}`;
+    document.getElementById('llm-system').textContent = data.system || '';
+    document.getElementById('llm-user').textContent = data.user || '';
+    document.getElementById('llm-response').value = '';
+    document.getElementById('llm-format-hint').textContent =
+        data.expectedFormat === 'json' ? '(expects JSON)' : '(expects plain text)';
+    document.getElementById('llm-modal').classList.add('open');
+}
+
+function closeLlmModal() {
+    document.getElementById('llm-modal').classList.remove('open');
+    pendingLlmData = null;
+}
+
+function copyLlmPrompt() {
+    const sys = document.getElementById('llm-system').textContent;
+    const usr = document.getElementById('llm-user').textContent;
+    const full = `System Prompt:\n${sys}\n\n---\n\nUser Message:\n${usr}`;
+    navigator.clipboard.writeText(full).then(() => showToast('Full prompt copied!', 'success'));
+}
+
+function copyLlmSystem() {
+    navigator.clipboard.writeText(document.getElementById('llm-system').textContent)
+        .then(() => showToast('System prompt copied', 'success'));
+}
+
+function copyLlmUser() {
+    navigator.clipboard.writeText(document.getElementById('llm-user').textContent)
+        .then(() => showToast('User message copied', 'success'));
+}
+
+async function submitLlmResponse() {
+    const response = document.getElementById('llm-response').value.trim();
+    if (!response) {
+        showToast('Please paste a response first', 'error');
+        return;
+    }
+    if (!pendingLlmData) {
+        showToast('No pending LLM request', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/llm-response', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                slug: pendingLlmData.slug,
+                step: pendingLlmData.step,
+                response: response,
+                round: pendingLlmData.round || 0
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Response submitted — resuming pipeline', 'success');
+            closeLlmModal();
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (e) {
+        showToast('Failed: ' + e.message, 'error');
+    }
+}
+
+// ── Reel Selection Modal ──────────────────────────────────────────────────
+let reelSelectionData = [];
+
+async function openReelSelectionModal() {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/analysis?slug=' + currentSlug);
+        if (!res.ok) { showToast('No analysis found. Run Analyze first.', 'error'); return; }
+        const analysis = await res.json();
+        reelSelectionData = (analysis.reels || []).map(r => ({...r, selected: true}));
+
+        // Restore prior selections if selected-reels.json exists
+        const ep = episodes.find(e => e.slug === currentSlug);
+        if (ep && ep.selectedReels) {
+            const selectedIds = new Set(ep.selectedReels.map(r => r.id));
+            reelSelectionData.forEach(r => {
+                r.selected = selectedIds.has(r.id);
+            });
+        }
+
+        renderReelSelectionList();
+        document.getElementById('reel-selection-modal').classList.add('open');
+    } catch (err) {
+        showToast('Failed to load analysis: ' + err.message, 'error');
+    }
+}
+
+function closeReelSelectionModal() {
+    document.getElementById('reel-selection-modal').classList.remove('open');
+}
+
+function renderReelSelectionList() {
+    const container = document.getElementById('reel-selection-list');
+    container.innerHTML = reelSelectionData.map((reel, idx) => {
+        const durationStr = reel.duration_seconds ? reel.duration_seconds + 's' : '';
+        return '<div style="background:#161616; border:1px solid ' +
+            (reel.selected ? 'var(--accent)' : '#2a2a2a') +
+            '; border-radius:8px; padding:14px; cursor:pointer; transition:border-color 0.15s;" onclick="toggleReelSelection(' + idx + ')">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+                '<div style="display:flex; align-items:center; gap:10px;">' +
+                    '<input type="checkbox" ' + (reel.selected ? 'checked' : '') +
+                    ' style="accent-color:var(--accent); width:16px; height:16px;"' +
+                    ' onclick="event.stopPropagation(); toggleReelSelection(' + idx + ')">' +
+                    '<strong style="color:#fff;">Reel ' + reel.id + '</strong>' +
+                    '<span style="font-size:0.7rem; color:#888; font-family:monospace;">' +
+                        reel.start + ' → ' + reel.end + (durationStr ? ' (' + durationStr + ')' : '') + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<div style="font-size:0.8rem; color:var(--accent); margin-bottom:6px; direction:rtl; text-align:right;">' +
+                escHtml(reel.hook || '') + '</div>' +
+            (reel.transcript_excerpt ? '<div style="font-size:0.7rem; color:#666; margin-bottom:6px; direction:rtl; text-align:right; max-height:60px; overflow:hidden;">' +
+                escHtml(reel.transcript_excerpt) + '</div>' : '') +
+            (reel.why ? '<div style="font-size:0.7rem; color:#555; direction:rtl; text-align:right; font-style:italic;">' +
+                escHtml(reel.why) + '</div>' : '') +
+        '</div>';
+    }).join('');
+}
+
+function toggleReelSelection(idx) {
+    reelSelectionData[idx].selected = !reelSelectionData[idx].selected;
+    renderReelSelectionList();
+}
+
+function toggleAllReels(selectAll) {
+    reelSelectionData.forEach(r => r.selected = selectAll);
+    renderReelSelectionList();
+}
+
+async function confirmReelSelection() {
+    const selected = reelSelectionData.filter(r => r.selected);
+    if (selected.length === 0) {
+        showToast('Select at least one reel', 'error');
+        return;
+    }
+    try {
+        const res = await fetch('/api/save-selected-reels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reels: reelSelectionData})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.count + ' reel(s) selected', 'success');
+            closeReelSelectionModal();
+            refresh();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed to save: ' + err.message, 'error');
+    }
+}
+
+// ── Crop Step ──────────────────────────────────────────────────────────────
+
+async function runCropStep() {
+    if (!currentSlug) return;
+    const ratioSelect = document.getElementById('crop-ratio-select');
+    const ratio = ratioSelect ? ratioSelect.value : '9:16';
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, step: 'crop', force: true, ratio: ratio})
+        });
+        const data = await res.json();
+        if (!data.success) showToast(data.error, 'error');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function skipCropStep() {
+    showToast('Crop skipped — proceeding with original aspect ratio', 'success');
+    showCutReels();
+}
+
+// ── Cut Reels Viewer ──────────────────────────────────────────────────────
+
+async function showCutReels() {
+    if (!currentSlug) return;
+    const ep = episodes.find(e => e.slug === currentSlug);
+    if (!ep || ep.counts.reels === 0) {
+        showToast('No cut reels yet.', 'error');
+        return;
+    }
+
+    // Determine reel IDs from selected-reels.json or analysis
+    let reelIds = [];
+    try {
+        const selRes = await fetch('/api/file?slug=' + currentSlug + '&file=selected-reels.json');
+        if (selRes.ok) {
+            const selText = await selRes.text();
+            const data = JSON.parse(selText);
+            reelIds = data.reels.map(r => String(r.id).padStart(2, '0'));
+        }
+    } catch (_) {}
+
+    if (reelIds.length === 0) {
+        try {
+            const aRes = await fetch('/api/analysis?slug=' + currentSlug);
+            if (aRes.ok) {
+                const analysis = await aRes.json();
+                reelIds = (analysis.reels || []).map(r => String(r.id).padStart(2, '0'));
+            }
+        } catch (_) {}
+    }
+
+    if (reelIds.length === 0) {
+        showToast('Could not determine reel IDs', 'error');
+        return;
+    }
+
+    // Fetch version info for labels
+    let versionMap = {};
+    try {
+        const vRes = await fetch('/api/reel-versions?slug=' + currentSlug);
+        if (vRes.ok) {
+            const vData = await vRes.json();
+            vData.reels.forEach(r => { versionMap[r.id] = r; });
+        }
+    } catch (_) {}
+
+    const cropRatio = ep.cropRatio;
+    let headerLabel = 'Cut Reels (' + reelIds.length + ')';
+    if (ep.steps.cropped && cropRatio) {
+        headerLabel = 'Cropped Reels — ' + cropRatio + ' (' + reelIds.length + ')';
+    } else if (ep.steps.cropped) {
+        headerLabel = 'Cropped Reels (' + reelIds.length + ')';
+    }
+
+    const cacheBust = '&t=' + Date.now();
+
+    // Build next-step guidance
+    let nextStepHtml = '';
+    if (ep.steps.cut && !ep.steps.cropped && !ep.steps.generated) {
+        nextStepHtml = '<div style="background:#1a1a2e; border:1px solid #333; border-radius:8px; padding:14px; text-align:center; margin-top:8px;">' +
+            '<div style="font-size:0.8rem; color:#999; margin-bottom:10px;">Next: Crop to a target format, or skip to generate captions</div>' +
+            '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
+                '<button class="primary" onclick="document.querySelector(\'.pipeline\').scrollIntoView({behavior:\'smooth\'})">⬆ Crop Reels</button>' +
+                '<button onclick="skipCropStep()">Skip Crop →</button>' +
+            '</div>' +
+        '</div>';
+    } else if (ep.steps.cut && !ep.steps.generated) {
+        nextStepHtml = '<div style="background:#1a2e1a; border:1px solid #333; border-radius:8px; padding:14px; text-align:center; margin-top:8px;">' +
+            '<div style="font-size:0.8rem; color:#999; margin-bottom:10px;">Reels look good? Generate captions next.</div>' +
+            '<div style="display:flex; gap:8px; justify-content:center;">' +
+                '<button class="primary" onclick="runStep(\'generate\')">▶ Run Generate</button>' +
+            '</div>' +
+        '</div>';
+    }
+
+    const previewDiv = document.getElementById('preview-content');
+    previewDiv.innerHTML =
+        '<div style="font-size:0.9rem; color:#aaa; margin-bottom:12px;">' + headerLabel + '</div>' +
+        reelIds.map(id => {
+            const v = versionMap[id];
+            let badge = '';
+            if (v) {
+                if (v.serving === 'cropped') {
+                    badge = '<span style="background:#2d1b4b; color:#c084fc; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">CROPPED' + (cropRatio ? ' ' + cropRatio : '') + '</span>';
+                } else if (v.serving === 'subtitled') {
+                    badge = '<span style="background:#1e3a5f; color:#60a5fa; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">SUBTITLED</span>';
+                } else {
+                    badge = '<span style="background:#1a2e1a; color:#4ade80; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">ORIGINAL CUT</span>';
+                }
+            }
+            return '<div style="background:#161616; border:1px solid #2a2a2a; border-radius:8px; padding:12px; margin-bottom:12px;">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+                    '<span style="font-size:0.8rem; color:#888;">Reel ' + id + '</span>' +
+                    badge +
+                '</div>' +
+                '<video controls preload="metadata" style="width:100%; max-height:300px; border-radius:6px; background:#000;" ' +
+                    'src="/api/video?slug=' + currentSlug + '&reel=' + id + cacheBust + '"></video>' +
+            '</div>';
+        }).join('') +
+        nextStepHtml;
+
+    document.getElementById('tab-preview').style.display = '';
+    switchTab('preview', true);
+}
+
+// ── Media Type ─────────────────────────────────────────────────────────────
+
 async function changeMediaType(slug, newType) {
     if (!slug || !newType) return;
     try {
@@ -1105,7 +1937,7 @@ async function changeMediaType(slug, newType) {
 }
 
 // Editor Tabs
-function switchTab(tab) {
+function switchTab(tab, skipPreviewLoad) {
     document.getElementById('tab-text').classList.toggle('active', tab === 'text');
     document.getElementById('tab-content').classList.toggle('active', tab === 'content');
     document.getElementById('tab-preview').classList.toggle('active', tab === 'preview');
@@ -1114,8 +1946,8 @@ function switchTab(tab) {
     document.getElementById('content-editor-wrap').style.display = tab === 'content' ? 'flex' : 'none';
     document.getElementById('preview-editor-wrap').style.display = tab === 'preview' ? 'flex' : 'none';
     document.getElementById('json-editor-wrap').style.display = tab === 'json' ? 'flex' : 'none';
-    
-    if (tab === 'preview') {
+
+    if (tab === 'preview' && !skipPreviewLoad) {
         loadPreview();
     }
 }
@@ -1281,78 +2113,25 @@ const KNOWN_MODEL_ALIASES = {
     'openrouter/openai/gpt-4o': 'OpenRouter GPT-4o',
 };
 
-async function populateModelSelect(selectEl) {
-    if (selectEl.dataset.populated) return;
-    
-    // Keep the Auto option and add model groups
-    let options = '<option value="">🤖 Auto (HAI Maker picks best)</option>';
-    options += '<optgroup label="Claude">' +
-        '<option value="claude">claude</option>' +
-        '<option value="claude-sonnet">claude-sonnet</option>' +
-        '<option value="claude-opus">claude-opus</option>' +
-        '<option value="claude-haiku">claude-haiku</option>' +
-    '</optgroup>';
-    options += '<optgroup label="OpenAI">' +
-        '<option value="openai">openai</option>' +
-        '<option value="gpt-4o">gpt-4o</option>' +
-        '<option value="gpt-4o-mini">gpt-4o-mini</option>' +
-        '<option value="gpt-4">gpt-4</option>' +
-        '<option value="gpt-4-turbo">gpt-4-turbo</option>' +
-    '</optgroup>';
-    options += '<optgroup label="Gemini">' +
-        '<option value="gemini">gemini</option>' +
-        '<option value="gemini-1.5-pro">gemini-1.5-pro</option>' +
-        '<option value="gemini-1.5-flash">gemini-1.5-flash</option>' +
-    '</optgroup>';
-    options += '<optgroup label="HAI Maker">' +
-        '<option value="haimaker/auto">haimaker/auto</option>' +
-        '<option value="haimaker/claude-sonnet">haimaker/claude-sonnet</option>' +
-        '<option value="haimaker/gpt-4o">haimaker/gpt-4o</option>' +
-    '</optgroup>';
-    options += '<optgroup label="OpenRouter">' +
-        '<option value="openrouter/auto">openrouter/auto</option>' +
-        '<option value="openrouter/anthropic/claude-3.5-sonnet">openrouter/anthropic/claude-3.5-sonnet</option>' +
-        '<option value="openrouter/openai/gpt-4o">openrouter/openai/gpt-4o</option>' +
-    '</optgroup>';
-    
-    // Add custom models from localStorage
-    const customModels = JSON.parse(localStorage.getItem('customModels') || '[]');
-    if (customModels.length > 0) {
-        options += '<optgroup label="Custom">';
-        customModels.forEach(m => {
-            options += `<option value="${m.id}">${m.name}</option>`;
-        });
-        options += '</optgroup>';
-    }
-    
-    selectEl.innerHTML = options;
-    selectEl.dataset.populated = 'true';
-}
 
 let modelValidationTimer = null;
 
-function debouncedValidateModel(input) {
+function debouncedValidateSidebarModel(input) {
     const value = input.value.trim();
-    const validationDiv = document.getElementById('model-validation-generate');
+    const validationDiv = document.getElementById('sidebar-model-validation');
     if (!validationDiv) return;
 
-    // Clear previous timer
-    if (modelValidationTimer) {
-        clearTimeout(modelValidationTimer);
-    }
+    if (modelValidationTimer) clearTimeout(modelValidationTimer);
 
-    // Empty = Auto
     if (!value) {
-        validationDiv.textContent = '✓ Auto (HAI Maker will pick the best model)';
-        validationDiv.style.color = '#4ade80';
+        validationDiv.textContent = 'Auto (HAI Maker picks best)';
+        validationDiv.style.color = '#666';
         return;
     }
 
-    // Show checking state immediately
-    validationDiv.textContent = '⏳ Checking...';
+    validationDiv.textContent = 'Checking...';
     validationDiv.style.color = '#888';
 
-    // Debounce the actual validation
     modelValidationTimer = setTimeout(() => {
         validateModelWithApi(value, validationDiv);
     }, 500);

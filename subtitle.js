@@ -162,8 +162,17 @@ async function subtitle(slug, force = false, titleCard = false) {
   console.log(`   📊 Found ${transcript.words?.length || 0} words in transcript`);
 
   const analysis = fs.existsSync(analysisPath) ? JSON.parse(fs.readFileSync(analysisPath, "utf8")) : null;
-  const reels = analysis?.reels || [];
-  console.log(`   📊 Found ${reels.length} reels in analysis`);
+  let reels = analysis?.reels || [];
+
+  // Filter by selected reels if available
+  const selectedReelsPath = path.join(dir, "selected-reels.json");
+  if (fs.existsSync(selectedReelsPath)) {
+    const selectedData = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
+    const selectedIds = new Set(selectedData.reels.map(r => r.id));
+    reels = reels.filter(r => selectedIds.has(r.id));
+    console.log(`   📋 Processing ${reels.length} selected reels`);
+  }
+  console.log(`   📊 Found ${reels.length} reels to subtitle`);
 
   // Get source video path
   let sourceVideo = path.join(dir, "raw.mov");
@@ -239,7 +248,10 @@ async function subtitle(slug, force = false, titleCard = false) {
     const reelId = String(reel.id).padStart(2, "0");
     const subtitleExt = titleCard ? "ass" : "srt";
     const subtitlePath = path.join(reelsDir, `reel-${reelId}.${subtitleExt}`);
-    const videoPath = path.join(reelsDir, `reel-${reelId}.mp4`);
+    // Prefer cropped reel as input, fall back to raw cut
+    const croppedPath = path.join(reelsDir, `reel-${reelId}-cropped.mp4`);
+    const rawReelPath = path.join(reelsDir, `reel-${reelId}.mp4`);
+    const videoPath = fs.existsSync(croppedPath) ? croppedPath : rawReelPath;
     const subtitledPath = path.join(reelsDir, `reel-${reelId}-subtitled.mp4`);
 
     console.log(`\n📼 Reel ${reel.id} (${reel.start} → ${reel.end})`);

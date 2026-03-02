@@ -10,9 +10,10 @@ const path = require("path");
 const { spawn } = require("child_process");
 const socketIo = require("socket.io");
 const { formidable } = require("formidable");
+const Anthropic = require("@anthropic-ai/sdk");
 
-const PORT = 7430;
-const WORKSPACE_DIR = "/root/.openclaw/workspace/tajarib";
+const PORT = process.env.PORT || 7430;
+const WORKSPACE_DIR = __dirname;
 const EPISODES_DIR = path.join(WORKSPACE_DIR, "episodes");
 const UPLOADS_DIR = path.join(WORKSPACE_DIR, "uploads");
 const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
@@ -20,6 +21,14 @@ const BUFFER_CONFIG_FILE = path.join(WORKSPACE_DIR, "buffer-config.json");
 
 // Ensure dirs exist
 [EPISODES_DIR, UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+
+// Prevent server crashes from uncaught errors
+process.on("uncaughtException", (err) => {
+  console.error("[UNCAUGHT]", err.message, err.stack?.split("\n")[1]);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("[UNHANDLED REJECTION]", err?.message || err);
+});
 
 const PYTHON_BIN = path.join(WORKSPACE_DIR, ".venv", "bin", "python3");
 const NODE_BIN = process.execPath;
@@ -37,6 +46,36 @@ function saveJSON(p, data) {
 
 function loadMeta(slug) {
   return loadJSON(path.join(EPISODES_DIR, slug, "meta.json")) || {};
+}
+
+function parseSrt(srtContent) {
+  const blocks = srtContent.trim().split(/\n\n+/);
+  const segments = [];
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    if (lines.length < 2) continue;
+    // Find the timestamp line (could be line 0 or 1 depending on whether cue number is present)
+    let timeLine = -1;
+    for (let i = 0; i < Math.min(lines.length, 2); i++) {
+      if (lines[i].includes('-->')) { timeLine = i; break; }
+    }
+    if (timeLine < 0) continue;
+    const timeMatch = lines[timeLine].match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/);
+    if (!timeMatch) continue;
+    const start = +timeMatch[1]*3600 + +timeMatch[2]*60 + +timeMatch[3] + +timeMatch[4]/1000;
+    const end = +timeMatch[5]*3600 + +timeMatch[6]*60 + +timeMatch[7] + +timeMatch[8]/1000;
+    const text = lines.slice(timeLine + 1).join(' ').replace(/<[^>]*>/g, '').trim();
+    if (text) segments.push({ id: segments.length, start, end, text });
+  }
+  const full_text = segments.map(s => s.text).join(' ');
+  return {
+    model: 'uploaded-srt',
+    full_text,
+    segments,
+    segment_count: segments.length,
+    word_count: full_text.split(/\s+/).filter(Boolean).length,
+    duration_seconds: segments.length ? segments[segments.length - 1].end : 0,
+  };
 }
 
 function saveMeta(slug, data) {
@@ -61,6 +100,42 @@ function addGuestToHistory(guest, role) {
     existing.lastUsed = new Date().toISOString();
   }
   saveJSON(GUESTS_FILE, guests);
+}
+
+// ─── Claude AI Helper ──────────────────────────────────────────────────────
+
+function getAnthropicKey() {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  const authPaths = [
+    path.join(WORKSPACE_DIR, "auth.json"),
+    "/root/.openclaw/agents/main/agent/auth.json",
+    "/root/.openclaw/agents/main/agent/models.json",
+  ];
+  for (const p of authPaths) {
+    try {
+      const data = loadJSON(p);
+      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
+      if (key) return key;
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function callClaude(systemPrompt, userMessage, maxTokens = 1024) {
+  const apiKey = getAnthropicKey();
+  if (!apiKey) throw new Error("No API key configured. Add ANTHROPIC_API_KEY environment variable or use manual LLM mode for pipeline steps.");
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+  });
+  return response.content[0].text.trim();
+}
+
+function hasApiKey() {
+  return !!getAnthropicKey();
 }
 
 // Buffer config
@@ -88,16 +163,14 @@ function getEpisodes() {
       const transcript = fs.existsSync(path.join(dir, "transcript.json"));
       const analysis = fs.existsSync(path.join(dir, "analysis.json"));
       const content = loadJSON(path.join(dir, "content.json"));
+      const selectedReels = loadJSON(path.join(dir, "selected-reels.json"));
 
       const reelsDir = path.join(dir, "reels");
-      const reelCount = fs.existsSync(reelsDir) 
-        ? fs.readdirSync(reelsDir).filter(f => f.endsWith(".mp4") && !f.includes("-subtitled")).length 
-        : 0;
+      const reelFiles = fs.existsSync(reelsDir) ? fs.readdirSync(reelsDir) : [];
+      const reelCount = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).length;
       
       // Count final videos: subtitled reels in reels/ OR full-subtitled.mp4 in main dir
-      let finalCount = fs.existsSync(reelsDir) 
-        ? fs.readdirSync(reelsDir).filter(f => f.endsWith("-subtitled.mp4")).length 
-        : 0;
+      let finalCount = reelFiles.filter(f => f.endsWith("-subtitled.mp4")).length;
       // Also check for full-subtitled.mp4 (when no reels, just full video)
       if (fs.existsSync(path.join(dir, "full-subtitled.mp4"))) {
         finalCount += 1;
@@ -106,11 +179,22 @@ function getEpisodes() {
       const mediaType = meta.mediaType || "episode";
       const guest = meta.guest || "";
       const role = meta.role || "";
+      const multiTrack = meta.multiTrack || false;
 
       let videoSize = null;
       if (rawVideo) {
         try { videoSize = fs.statSync(path.join(dir, rawVideo)).size; } catch (e) {}
       }
+
+      // Check for overlay/final videos
+      const hasOverlay = fs.existsSync(path.join(dir, "full-final.mp4")) ||
+        reelFiles.some(f => f.endsWith("-final.mp4"));
+
+      // Check for composed video (multi-track)
+      const hasComposed = fs.existsSync(path.join(dir, "composed.mp4"));
+
+      // Check for cropped reels (per-reel crop)
+      const hasCropped = reelFiles.some(f => f.includes("-cropped") && f.endsWith(".mp4"));
 
       return {
         slug,
@@ -119,16 +203,23 @@ function getEpisodes() {
         videoSize,
         guest,
         role,
-        steps: { 
-          transcribed: transcript, 
-          analyzed: analysis, 
-          generated: !!content, 
-          cut: reelCount > 0, 
+        multiTrack,
+        steps: {
+          transcribed: transcript,
+          analyzed: analysis,
+          reelsSelected: !!selectedReels,
+          generated: !!content,
+          cut: reelCount > 0,
           subtitled: finalCount > 0,
+          overlaid: hasOverlay,
+          composed: hasComposed,
+          cropped: hasCropped,
           published: meta.published || false
         },
+        selectedReels: selectedReels ? selectedReels.reels : null,
         content,
-        counts: { reels: reelCount, final: finalCount }
+        counts: { reels: reelCount, final: finalCount },
+        cropRatio: meta.cropRatio || null
       };
     })
     .sort((a, b) => {
@@ -141,29 +232,9 @@ function getEpisodes() {
 // ─── Model API for Feedback Loop ─────────────────────────────────────────────
 
 async function callModelForRevision(originalContent, feedback, transcriptText = null) {
-  const AUTH_FILE = "/root/.openclaw/agents/main/agent/models.json";
-  const AUTH_FALLBACK = "/root/.openclaw/agents/main/agent/auth.json";
-  const BASE_URL = "https://api.haimaker.ai/v1";
-  const MODEL = "auto";
-
-  let apiKey;
-  try {
-    const m = loadJSON(AUTH_FILE);
-    apiKey = m?.providers?.haimaker?.apiKey;
-  } catch (_) {}
-  if (!apiKey) {
-    const auth = loadJSON(AUTH_FALLBACK);
-    apiKey = auth?.haimaker?.key || auth?.anthropic?.key;
-  }
-
-  // Build prompt with transcript context if available
   let transcriptSection = '';
   if (transcriptText) {
-    transcriptSection = `
-
----FULL TRANSCRIPT (for context on what was actually said)---
-${transcriptText.substring(0, 8000)}${transcriptText.length > 8000 ? '...' : ''}
----END TRANSCRIPT---`;
+    transcriptSection = `\n\n---FULL TRANSCRIPT (for context on what was actually said)---\n${transcriptText.substring(0, 8000)}${transcriptText.length > 8000 ? '...' : ''}\n---END TRANSCRIPT---`;
   }
 
   const prompt = `You generated the following Arabic content for the Tajarib podcast:
@@ -177,29 +248,7 @@ The user has provided this feedback:
 
 Please return a revised version that incorporates the feedback exactly, keeping the same format and language style (Iraqi white Arabic). Use the transcript as reference for what was actually said in the audio. Output only the revised content — no explanations, no extra text.`;
 
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 2048,
-      messages: [
-        { role: "system", content: "أنت كاتب محتوى لبودكاست تجارب. راجع المحتوى بناءً على ملاحظات المستخدم." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() ?? "";
+  return callClaude("أنت كاتب محتوى لبودكاست تجارب. راجع المحتوى بناءً على ملاحظات المستخدم.", prompt, 2048);
 }
 
 // ─── Zapier Webhook Integration ─────────────────────────────────────────────
@@ -235,22 +284,6 @@ function cleanupUploadState(uploadId) {
  * Returns { title: "...", slug: "..." }
  */
 async function generateTitleFromTranscript(transcriptText, guest, role) {
-  const AUTH_FILE = "/root/.openclaw/agents/main/agent/models.json";
-  const AUTH_FALLBACK = "/root/.openclaw/agents/main/agent/auth.json";
-  const BASE_URL = "https://api.haimaker.ai/v1";
-  const MODEL = "auto";
-
-  let apiKey;
-  try {
-    const m = loadJSON(AUTH_FILE);
-    apiKey = m?.providers?.haimaker?.apiKey;
-  } catch (_) {}
-  if (!apiKey) {
-    const auth = loadJSON(AUTH_FALLBACK);
-    apiKey = auth?.haimaker?.key || auth?.anthropic?.key;
-  }
-  if (!apiKey) throw new Error("No API key available for title generation");
-
   const snippet = transcriptText.substring(0, 4000);
   const guestInfo = guest ? `Guest: ${guest}${role ? ' (' + role + ')' : ''}` : '';
 
@@ -261,36 +294,13 @@ ${snippet}
 
 Rules:
 - The slug should be in English transliteration (lowercase, hyphens only, no special chars)
-- Keep it short: 2-4 words max (e.g. "muhannad-siemens", "energy-crisis-iraq", "startup-journey")  
+- Keep it short: 2-4 words max (e.g. "muhannad-siemens", "energy-crisis-iraq", "startup-journey")
 - If a guest name is provided, include a transliteration of their first name
 - Focus on the main topic discussed
 - Output ONLY the slug, nothing else — no quotes, no explanation`;
 
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 100,
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: "You generate short URL-safe slugs for podcast episodes. Output only the slug." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Title generation API ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  const rawSlug = (data.choices?.[0]?.message?.content || "").trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  
+  const result = await callClaude("You generate short URL-safe slugs for podcast episodes. Output only the slug.", prompt, 100);
+  const rawSlug = result.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return rawSlug || "untitled-episode";
 }
 
@@ -556,6 +566,7 @@ const io = socketIo(server, { maxHttpBufferSize: 5e9 });
 const activeProcesses = {};
 
 async function handler(req, res) {
+  try {
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   // CORS headers
@@ -637,18 +648,87 @@ async function handler(req, res) {
     return;
   }
 
+  // ── Generation API Key ───────────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/gen-key-status") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ hasKey: hasApiKey() }));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/gen-key") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { apiKey } = JSON.parse(body);
+        if (!apiKey || apiKey.length < 10) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
+          return;
+        }
+        const authPath = path.join(WORKSPACE_DIR, "auth.json");
+        const existing = loadJSON(authPath) || {};
+        existing.anthropic = existing.anthropic || {};
+        existing.anthropic.key = apiKey;
+        saveJSON(authPath, existing);
+        console.log("[GEN KEY] Anthropic API key saved to auth.json");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        io.emit("toast", { type: "success", message: "API key saved" });
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Reel Version Info API ─────────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/reel-versions") {
+    const slug = url.searchParams.get("slug");
+    if (!slug) { res.writeHead(400); res.end("Missing slug"); return; }
+    const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+    if (!fs.existsSync(reelsDir)) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ reels: [] }));
+      return;
+    }
+    const files = fs.readdirSync(reelsDir);
+    const reelIdSet = new Set();
+    files.forEach(f => { const m = f.match(/^reel-(\d+)/); if (m) reelIdSet.add(m[1]); });
+    const reels = [...reelIdSet].sort().map(id => {
+      const hasCut = files.includes(`reel-${id}.mp4`);
+      const hasCropped = files.includes(`reel-${id}-cropped.mp4`);
+      const hasSubtitled = files.includes(`reel-${id}-subtitled.mp4`);
+      const serving = hasCropped ? "cropped" : hasSubtitled ? "subtitled" : "cut";
+      return { id, hasCut, hasCropped, hasSubtitled, serving };
+    });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ reels }));
+    return;
+  }
+
   // ── Video Serving API ──────────────────────────────────────────────────────
   if (req.method === "GET" && url.pathname === "/api/video") {
     const slug = url.searchParams.get("slug");
     const type = url.searchParams.get("type"); // 'raw' or 'subtitled'
-    console.log(`[Video API] slug=${slug}, type=${type}`);
+    const reelParam = url.searchParams.get("reel"); // e.g. "01", "02"
+    console.log(`[Video API] slug=${slug}, type=${type}, reel=${reelParam}`);
     if (!slug) { res.writeHead(400); res.end("Missing slug"); return; }
-    
+
     const dir = path.join(EPISODES_DIR, slug);
     console.log(`[Video API] dir=${dir}, exists=${fs.existsSync(dir)}`);
     let videoPath;
-    
-    if (type === 'compressed') {
+
+    if (reelParam) {
+      // Serve individual reel: prefer cropped, then subtitled, then raw cut
+      const reelsDir = path.join(dir, "reels");
+      const croppedPath = path.join(reelsDir, `reel-${reelParam}-cropped.mp4`);
+      const subtitledPath = path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`);
+      const cutPath = path.join(reelsDir, `reel-${reelParam}.mp4`);
+      videoPath = fs.existsSync(croppedPath) ? croppedPath :
+                  fs.existsSync(subtitledPath) ? subtitledPath : cutPath;
+    } else if (type === 'compressed') {
       // Serve the publish-compressed version
       videoPath = path.join(dir, "publish-compressed.mp4");
       console.log(`[Video API] Using publish-compressed.mp4`);
@@ -682,9 +762,12 @@ async function handler(req, res) {
     if (!fs.existsSync(videoPath)) {
       res.writeHead(404); res.end("Video not found"); return;
     }
-    
+
     // Stream the video
     const stat = fs.statSync(videoPath);
+    if (stat.size === 0) {
+      res.writeHead(204); res.end(); return;
+    }
     const range = req.headers.range;
     
     if (range) {
@@ -727,27 +810,12 @@ async function handler(req, res) {
         const transcript = loadJSON(transcriptPath);
         
         // Call AI to find relevant segments for the topic
-        const AUTH_FILE = "/root/.openclaw/agents/main/agent/models.json";
-        const AUTH_FALLBACK = "/root/.openclaw/agents/main/agent/auth.json";
-        const BASE_URL = "https://api.haimaker.ai/v1";
-        const MODEL = "auto";
-
-        let apiKey;
-        try {
-          const m = loadJSON(AUTH_FILE);
-          apiKey = m?.providers?.haimaker?.apiKey;
-        } catch (_) {}
-        if (!apiKey) {
-          const auth = loadJSON(AUTH_FALLBACK);
-          apiKey = auth?.haimaker?.key || auth?.anthropic?.key;
-        }
-
         const prompt = `I have a podcast transcript and I want to extract a clip about: "${topic}"
 
 Transcript:
 ${transcript.full_text || transcript.segments.map(s => s.text).join(' ')}
 
-Find the most relevant continuous segment (30-90 seconds) that discusses "${topic}". 
+Find the most relevant continuous segment (30-90 seconds) that discusses "${topic}".
 Return ONLY a JSON object with this format:
 {
   "start_time": <seconds>,
@@ -758,25 +826,8 @@ Return ONLY a JSON object with this format:
 
 The hook should be attention-grabbing and the caption should be ready for Instagram/TikTok.`;
 
-        const aiRes = await fetch(`${BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            max_tokens: 1024,
-            messages: [
-              { role: "system", content: "You are a video editor for the Tajarib podcast. Extract the best clips based on topics." },
-              { role: "user", content: prompt },
-            ],
-          }),
-        });
-
-        if (!aiRes.ok) throw new Error("AI request failed");
-        const data = await aiRes.json();
-        const clipData = JSON.parse(data.choices[0].message.content);
+        const aiResult = await callClaude("You are a video editor for the Tajarib podcast. Extract the best clips based on topics.", prompt, 1024);
+        const clipData = JSON.parse(aiResult.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
         
         // Create content.json for this topic clip
         const content = {
@@ -868,21 +919,7 @@ The hook should be attention-grabbing and the caption should be ready for Instag
         
         const transcript = loadJSON(transcriptPath);
         
-        // Get API key
-        const AUTH_FILE = "/root/.openclaw/agents/main/agent/models.json";
-        const AUTH_FALLBACK = "/root/.openclaw/agents/main/agent/auth.json";
-        const BASE_URL = "https://api.haimaker.ai/v1";
-        
-        let apiKey;
-        try {
-          const m = loadJSON(AUTH_FILE);
-          apiKey = m?.providers?.haimaker?.apiKey;
-        } catch (_) {}
-        if (!apiKey) {
-          const auth = loadJSON(AUTH_FALLBACK);
-          apiKey = auth?.haimaker?.key || auth?.anthropic?.key;
-        }
-        
+        // Call Claude for reel suggestions
         const prompt = `You are a video editor for the Tajarib podcast. Analyze this transcript and identify the 3-5 best clips for social media reels.
 
 Guest: ${guest || "Unknown"}
@@ -923,31 +960,12 @@ Choose clips that:
 - Have emotional impact or valuable insights
 - Have natural speech boundaries`;
 
-        const aiRes = await fetch(`${BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: "auto",
-            max_tokens: 2048,
-            messages: [
-              { role: "system", content: "You are an expert video editor and social media strategist for the Tajarib Arabic podcast." },
-              { role: "user", content: prompt }
-            ]
-          })
-        });
-        
-        if (!aiRes.ok) throw new Error("AI analysis failed");
-        
-        const data = await aiRes.json();
-        const content = data.choices[0].message.content;
-        
+        const aiContent = await callClaude("You are an expert video editor and social media strategist for the Tajarib Arabic podcast.", prompt, 2048);
+
         // Extract JSON
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("Could not parse AI response");
-        
+
         const result = JSON.parse(jsonMatch[0]);
         
         // Save suggestions
@@ -1060,6 +1078,49 @@ Choose clips that:
     return;
   }
 
+  // ── Assets API (overlay files: sponsor.mov, logo.mov) ──────────────────────
+  const ASSETS_DIR = path.join(WORKSPACE_DIR, "assets");
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+
+  if (req.method === "GET" && url.pathname === "/api/assets") {
+    const assets = {};
+    for (const name of ["sponsor.mov", "logo.mov"]) {
+      const p = path.join(ASSETS_DIR, name);
+      if (fs.existsSync(p)) {
+        const stat = fs.statSync(p);
+        assets[name.replace(".mov", "")] = { file: name, size: stat.size, sizeMb: (stat.size / 1024 / 1024).toFixed(1) };
+      }
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(assets));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/upload-asset") {
+    const form = formidable({ uploadDir: UPLOADS_DIR, keepExtensions: true, maxFileSize: 500 * 1024 * 1024 });
+    form.parse(req, (err, fields, files) => {
+      if (err) { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); return; }
+      try {
+        const assetType = Array.isArray(fields.type) ? fields.type[0] : (fields.type || ""); // "sponsor" or "logo"
+        const file = files.file?.[0] || files.file;
+        if (!assetType || !file) throw new Error("type and file required");
+        if (!["sponsor", "logo"].includes(assetType)) throw new Error("type must be 'sponsor' or 'logo'");
+
+        const destPath = path.join(ASSETS_DIR, `${assetType}.mov`);
+        fs.renameSync(file.filepath, destPath);
+
+        const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, file: `${assetType}.mov`, sizeMb }));
+        io.emit("toast", { type: "success", message: `${assetType} overlay uploaded (${sizeMb} MB)` });
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   // ── Simple Upload API (for direct file uploads) ────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/upload") {
     const form = formidable({
@@ -1076,70 +1137,125 @@ Choose clips that:
       }
 
       try {
-        const rawSlug = (fields.slug?.[0] || fields.slug || "").trim();
+        // Helper: formidable v3 returns fields as arrays, safely extract string
+        const field = (v, fallback = "") => {
+          const val = Array.isArray(v) ? v[0] : v;
+          return (val != null ? String(val) : fallback);
+        };
+        const rawSlug = field(fields.slug).trim();
         const pendingAiTitle = !rawSlug; // empty slug = AI will generate title after transcription
         const slug = pendingAiTitle
           ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}`
           : rawSlug.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
-        const guest = fields.guest?.[0] || fields.guest || "";
-        const role = fields.role?.[0] || fields.role || "";
-        const mediaType = fields.mediaType?.[0] || fields.mediaType || "episode";
-        const transcribeMethod = fields.transcribeMethod?.[0] || fields.transcribeMethod || "local";
+        const guest = field(fields.guest);
+        const role = field(fields.role);
+        const mediaType = field(fields.mediaType, "episode");
+        const transcribeMethod = field(fields.transcribeMethod, "local");
+        const multiTrack = field(fields.multiTrack) === "true";
         const videoFile = files.video?.[0] || files.video;
+        const speakerFile = files.speaker?.[0] || files.speaker;
+        const guestFile = files.guestTrack?.[0] || files.guestTrack;
+        const srtFile = files.srt?.[0] || files.srt;
 
-        if (!videoFile) {
+        if (!videoFile && !multiTrack) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: false, error: "No video file provided" }));
+          return;
+        }
+
+        if (multiTrack && (!speakerFile || !guestFile)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Multi-track requires both speaker and guest video files" }));
           return;
         }
 
         const epDir = path.join(EPISODES_DIR, slug);
         fs.mkdirSync(epDir, { recursive: true });
 
-        // Determine file extension
-        const ext = path.extname(videoFile.originalFilename || videoFile.newFilename || "").toLowerCase() || ".mp4";
-        const finalPath = path.join(epDir, `raw${ext}`);
+        let finalPath;
+        let metaExtra = {};
 
-        // Move uploaded file to episode directory
-        fs.renameSync(videoFile.filepath, finalPath);
+        if (multiTrack) {
+          // Multi-track: save both files
+          const spkExt = path.extname(speakerFile.originalFilename || "").toLowerCase() || ".mp4";
+          const gstExt = path.extname(guestFile.originalFilename || "").toLowerCase() || ".mp4";
+          const speakerPath = path.join(epDir, `speaker${spkExt}`);
+          const guestPath = path.join(epDir, `guest${gstExt}`);
+
+          fs.renameSync(speakerFile.filepath, speakerPath);
+          fs.renameSync(guestFile.filepath, guestPath);
+
+          finalPath = speakerPath; // Use speaker track as primary for transcription
+          metaExtra = {
+            multiTrack: true,
+            tracks: { speaker: speakerPath, guest: guestPath }
+          };
+          io.emit("log", { slug, text: `\n📁 Multi-track uploaded: speaker + guest\n` });
+        } else {
+          // Single file upload
+          const ext = path.extname(videoFile.originalFilename || videoFile.newFilename || "").toLowerCase() || ".mp4";
+          finalPath = path.join(epDir, `raw${ext}`);
+          fs.renameSync(videoFile.filepath, finalPath);
+          io.emit("log", { slug, text: `\n📁 Uploaded: ${videoFile.originalFilename || videoFile.newFilename}\n` });
+        }
 
         // Save metadata
         saveMeta(slug, {
           mediaType,
-          originalFilename: videoFile.originalFilename || videoFile.newFilename,
+          originalFilename: multiTrack ? "multi-track" : (videoFile.originalFilename || videoFile.newFilename),
           createdAt: new Date().toISOString(),
           rawVideo: finalPath,
           guest,
           role,
           transcribeMethod,
-          ...(pendingAiTitle && { pendingAiTitle: true })
+          ...(pendingAiTitle && { pendingAiTitle: true }),
+          ...metaExtra
         });
 
         // Add guest to history
         if (guest) addGuestToHistory(guest, role);
 
-        // Start transcription automatically
-        io.emit("log", { slug, text: `\n📁 Uploaded: ${videoFile.originalFilename || videoFile.newFilename}\n` });
-        io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
+        console.log("[Upload] srtFile:", srtFile ? `yes (${srtFile.originalFilename})` : "none");
+        console.log("[Upload] files keys:", Object.keys(files));
 
-        const args = ["transcribe.py", "--input", finalPath, "--output", path.join(epDir, "transcript.json")];
-        if (transcribeMethod === "api") args.push("--api");
-
-        const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR });
-        activeProcesses[slug] = proc;
-
-        proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
-        proc.stderr.on("data", d => io.emit("log", { slug, text: d.toString() }));
-
-        proc.on("close", async (code) => {
-          delete activeProcesses[slug];
-          io.emit("log", { slug, text: `\nTranscription complete. Exit: ${code}\n` });
+        if (srtFile) {
+          // SRT uploaded — parse it and skip transcription
+          const srtContent = fs.readFileSync(srtFile.filepath, 'utf-8');
+          const transcriptData = parseSrt(srtContent);
+          transcriptData.slug = slug;
+          transcriptData.source_file = finalPath;
+          const transcriptPath = path.join(epDir, "transcript.json");
+          saveJSON(transcriptPath, transcriptData);
+          // Save raw SRT as backup
+          const srtExt = path.extname(srtFile.originalFilename || ".srt").toLowerCase();
+          fs.copyFileSync(srtFile.filepath, path.join(epDir, `uploaded${srtExt}`));
+          fs.unlinkSync(srtFile.filepath);
+          io.emit("log", { slug, text: `📄 SRT uploaded — transcription skipped (${transcriptData.segment_count} segments)\n` });
           io.emit("status-update", {});
-          // Post-transcription: AI title generation if pending
-          if (code === 0) {
-            await handlePostTranscription(slug);
-          }
-        });
+          // Still handle post-transcription (AI title etc.)
+          await handlePostTranscription(slug);
+        } else {
+          // No SRT — run transcription as usual
+          io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
+
+          const args = ["transcribe.py", finalPath, "--slug", slug];
+          if (transcribeMethod === "api") args.push("--api");
+
+          const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR });
+          activeProcesses[slug] = proc;
+
+          proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
+          proc.stderr.on("data", d => io.emit("log", { slug, text: d.toString() }));
+
+          proc.on("close", async (code) => {
+            delete activeProcesses[slug];
+            io.emit("log", { slug, text: `\nTranscription complete. Exit: ${code}\n` });
+            io.emit("status-update", {});
+            if (code === 0) {
+              await handlePostTranscription(slug);
+            }
+          });
+        }
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true, slug }));
@@ -1476,6 +1592,43 @@ Choose clips that:
     return;
   }
 
+  // ── Delete Episode API ─────────────────────────────────────────────────────
+  if (req.method === "DELETE" && url.pathname === "/api/episodes") {
+    const slug = url.searchParams.get("slug");
+    if (!slug) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Missing slug parameter" }));
+      return;
+    }
+    const epDir = path.join(EPISODES_DIR, slug);
+    if (!fs.existsSync(epDir)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Episode not found" }));
+      return;
+    }
+    try {
+      // Kill any running process for this episode
+      if (activeProcesses[slug]) {
+        try { activeProcesses[slug].kill("SIGTERM"); } catch (_) {}
+        delete activeProcesses[slug];
+      }
+      // Remove the episode directory
+      fs.rmSync(epDir, { recursive: true, force: true });
+      // Clean up logs
+      if (logs[slug]) delete logs[slug];
+      console.log(`[DELETE] Episode removed: ${slug}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+      io.emit("status-update", {});
+      io.emit("toast", { type: "success", message: `Deleted: ${slug}` });
+    } catch (err) {
+      console.error(`[DELETE] Error deleting ${slug}:`, err.message);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // ── File read API ─────────────────────────────────────────────────────────
   if (req.method === "GET" && url.pathname === "/api/file") {
     const slug = url.searchParams.get("slug");
@@ -1583,6 +1736,66 @@ Choose clips that:
         res.end(JSON.stringify({ success: true }));
         io.emit("toast", { type: "success", message: "Caption saved" });
         io.emit("status-update", {});
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Manual LLM Response API ──────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/llm-response") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const { slug, step, response: llmResponse, round } = JSON.parse(body);
+        if (!slug || !step || !llmResponse) {
+          throw new Error("slug, step, response all required");
+        }
+
+        const epDir = path.join(EPISODES_DIR, slug);
+        // Save the response for the script to read on resume
+        fs.writeFileSync(path.join(epDir, "llm-response.txt"), llmResponse, "utf8");
+        io.emit("log", { slug, text: `\n📋 Manual LLM response received — resuming ${step}...\n` });
+
+        // Re-run the step with --resume flag
+        const meta = loadMeta(slug);
+        const guest = meta.guest || "";
+        const role = meta.role || "";
+        const mediaType = meta.mediaType || "episode";
+
+        let cmd, args;
+        switch (step) {
+          case "analyze":
+            cmd = NODE_BIN;
+            args = ["analyze.js", "--slug", slug, "--resume", "--force"];
+            break;
+          case "generate":
+          case "reel-01":
+          case "reel-1":
+          case "youtube": {
+            cmd = NODE_BIN;
+            const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : [];
+            args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role,
+                    ...extraArgs, "--resume", "--resume-round", String(round || 0), "--force"];
+            break;
+          }
+          case "compose":
+            cmd = NODE_BIN;
+            args = ["compose.js", "--slug", slug, "--ai-switch", "--resume", "--force"];
+            break;
+          default:
+            throw new Error(`Unknown step for manual LLM: ${step}`);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+
+        // Spawn the resume process
+        const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : step;
+        runStep({ slug, step: actualStep, force: true, mediaType, guest, role, resume: true, resumeRound: round || 0 });
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -1866,20 +2079,23 @@ Choose clips that:
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, step, force, model } = JSON.parse(body);
+        const { slug, step, force, model, ratio } = JSON.parse(body);
         if (!slug || !step) throw new Error("slug + step required");
 
         const meta = loadMeta(slug);
         const mediaType = meta.mediaType || "episode";
 
-        if (mediaType === "reel_full" && !['generate', 'transcribe'].includes(step)) {
-          throw new Error(`Step '${step}' not applicable for fully-produced reel. Only transcribe and generate are available.`);
+        if (mediaType === "reel_full" && !['generate', 'transcribe', 'overlay'].includes(step)) {
+          throw new Error(`Step '${step}' not applicable for fully-produced reel.`);
         }
         if (mediaType === "reel_cut" && step === "cut") {
           throw new Error("Cut step not applicable — reel is already cut");
         }
         if (mediaType === "reel_cut" && step === "analyze") {
           throw new Error("Analyze step not applicable for pre-cut reels");
+        }
+        if (step === "compose" && !meta.multiTrack) {
+          throw new Error("Compose step requires a multi-track episode");
         }
         if (step === "generate" && (!meta.guest || !meta.role)) {
           throw new Error("Guest name and role required for generation");
@@ -1888,7 +2104,7 @@ Choose clips that:
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
 
-        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model });
+        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio });
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -1897,13 +2113,55 @@ Choose clips that:
     return;
   }
 
-  res.writeHead(404); 
+  // ── Save selected reels API ──────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/save-selected-reels") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, reels } = JSON.parse(body);
+        if (!slug || !reels) throw new Error("slug + reels required");
+        const selectedReelsPath = path.join(EPISODES_DIR, slug, "selected-reels.json");
+        const selected = reels.filter(r => r.selected);
+        saveJSON(selectedReelsPath, {
+          slug,
+          selected_at: new Date().toISOString(),
+          reels: selected
+        });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, count: selected.length }));
+        io.emit("status-update", {});
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Get analysis data API ──────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/analysis") {
+    const slug = url.searchParams.get("slug");
+    if (!slug) { res.writeHead(400); res.end("Missing slug"); return; }
+    const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+    if (!fs.existsSync(analysisPath)) { res.writeHead(404); res.end("No analysis"); return; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(fs.readFileSync(analysisPath, "utf8"));
+    return;
+  }
+
+  res.writeHead(404);
   res.end("Not Found");
+
+  } catch (err) {
+    console.error("[Request Error]", req.method, req.url, err.message);
+    try { res.writeHead(500); res.end("Internal Server Error"); } catch (_) {}
+  }
 }
 
 // ─── Run Pipeline Step ───────────────────────────────────────────────────────
 
-function runStep({ slug, step, force, mediaType, guest, role, model }) {
+function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resume, resumeRound }) {
   if (activeProcesses[slug]) {
     io.emit("toast", { type: "error", message: `${slug} is already running` });
     return;
@@ -1930,9 +2188,10 @@ function runStep({ slug, step, force, mediaType, guest, role, model }) {
       }
       break;
     case "analyze":
-      cmd = NODE_BIN; 
+      cmd = NODE_BIN;
       args = ["analyze.js", "--slug", slug];
       if (force) args.push("--force");
+      if (resume) args.push("--resume");
       break;
     case "generate":
       cmd = NODE_BIN;
@@ -1940,17 +2199,42 @@ function runStep({ slug, step, force, mediaType, guest, role, model }) {
       const modelArgs = model ? ["--model", model] : [];
       args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs];
       if (force) args.push("--force");
+      if (resume) { args.push("--resume"); args.push("--resume-round", String(resumeRound || 0)); }
       break;
     case "cut":
       if (!found) { io.emit("toast", { type: "error", message: `No video in ${slug}/` }); return; }
-      cmd = NODE_BIN; 
+      cmd = NODE_BIN;
       args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)];
+      if (fs.existsSync(path.join(dir, "selected-reels.json"))) {
+        args.push("--selected-only");
+      }
+      if (force) args.push("--force");
+      break;
+    case "crop":
+      cmd = NODE_BIN;
+      args = ["crop.js", "--slug", slug];
+      if (ratio) args.push("--ratio", ratio);
       if (force) args.push("--force");
       break;
     case "subtitle":
-      cmd = NODE_BIN; 
+      cmd = NODE_BIN;
       args = ["subtitle.js", "--slug", slug];
       if (force) args.push("--force");
+      break;
+    case "overlay":
+      cmd = NODE_BIN;
+      args = ["overlay.js", "--slug", slug, "--all"];
+      if (force) args.push("--force");
+      break;
+    case "compose":
+      cmd = NODE_BIN;
+      args = ["compose.js", "--slug", slug];
+      if (force) args.push("--force");
+      if (resume) args.push("--resume");
+      // Use AI switch points if no manual switches exist
+      if (!fs.existsSync(path.join(dir, "switches.json"))) {
+        args.push("--ai-switch");
+      }
       break;
     default:
       io.emit("toast", { type: "error", message: `Unknown step: ${step}` });
@@ -1966,9 +2250,10 @@ function runStep({ slug, step, force, mediaType, guest, role, model }) {
   console.log(`[Spawning] ${cmd} ${args.join(" ")} in ${WORKSPACE_DIR}`);
   console.log(`[DEBUG] slug=${slug}, step=${step}, io.connected sockets=${io.engine?.clientsCount || 'unknown'}`);
   
-  const proc = spawn(cmd, args, { 
+  const proc = spawn(cmd, args, {
     cwd: WORKSPACE_DIR,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true
   });
   activeProcesses[slug] = proc;
   
@@ -2030,7 +2315,26 @@ function runStep({ slug, step, force, mediaType, guest, role, model }) {
   proc.on("close", async (code) => {
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     delete activeProcesses[slug];
+
+    // Exit code 42 = manual LLM mode: read prompt file and emit to frontend
+    if (code === 42) {
+      const promptPath = path.join(EPISODES_DIR, slug, "llm-prompt.json");
+      if (fs.existsSync(promptPath)) {
+        const promptData = loadJSON(promptPath);
+        io.emit("log", { slug, text: `\n📋 Manual LLM mode — paste the response in the popup\n` });
+        io.emit("llm-prompt", { slug, step, ...promptData });
+      } else {
+        io.emit("log", { slug, text: `\n❌ Exit 42 but no llm-prompt.json found\n` });
+      }
+      io.emit("process-end", { slug, step, code: 42 });
+      return;
+    }
+
     io.emit("log", { slug, text: `\nExit code: ${code}\n${"─".repeat(40)}\n` });
+    // Save crop ratio to meta when crop completes successfully
+    if (step === "crop" && code === 0 && ratio) {
+      saveMeta(slug, { cropRatio: ratio });
+    }
     io.emit("process-end", { slug, step, code });
     io.emit("status-update", {});
     // Post-transcription: AI title generation if pending
@@ -2045,9 +2349,16 @@ function runStep({ slug, step, force, mediaType, guest, role, model }) {
 io.on("connection", (socket) => {
   socket.on("stop-step", ({ slug }) => {
     if (activeProcesses[slug]) {
-      activeProcesses[slug].kill();
+      const proc = activeProcesses[slug];
+      // Kill entire process tree (Whisper spawns child processes)
+      try {
+        process.kill(-proc.pid, "SIGKILL");
+      } catch (_) {
+        try { proc.kill("SIGKILL"); } catch (_2) {}
+      }
       delete activeProcesses[slug];
       io.emit("log", { slug, text: "\n🛑 Process stopped manually.\n" });
+      io.emit("process-end", { slug, step: "stopped", code: -1 });
       io.emit("status-update", {});
     }
   });

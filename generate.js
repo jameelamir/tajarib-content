@@ -12,25 +12,31 @@
 
 const fs   = require("fs");
 const path = require("path");
+const Anthropic = require("@anthropic-ai/sdk");
 
-const AUTH_FILE   = "/root/.openclaw/agents/main/agent/models.json";
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const FORMATS_DIR  = path.join(__dirname, "formats");
+const CLI_ARGS     = process.argv.slice(2);
 
 // ─── Config ─────────────────────────────────────────────────────
-const BASE_URL = "https://api.haimaker.ai/v1";
-let MODEL      = "auto"; // default, can be overridden via --model
+let MODEL = "claude-sonnet-4-20250514";
 
 function getApiKey() {
-  // Read from models.json (has inline apiKey) or fall back to auth.json
-  try {
-    const m = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
-    const key = m?.providers?.haimaker?.apiKey;
-    if (key) return key;
-  } catch (e) {}
-  // fallback
-  const auth = JSON.parse(fs.readFileSync("/root/.openclaw/agents/main/agent/auth.json", "utf8"));
-  return auth.haimaker.key;
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  // Fallback: check local auth files
+  const authPaths = [
+    path.join(__dirname, "auth.json"),
+    "/root/.openclaw/agents/main/agent/auth.json",
+    "/root/.openclaw/agents/main/agent/models.json",
+  ];
+  for (const p of authPaths) {
+    try {
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
+      if (key) return key;
+    } catch (_) {}
+  }
+  return null; // No key found — manual mode will be used
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -64,32 +70,54 @@ function extractReelText(transcript, startStr, endStr) {
     .trim();
 }
 
-// ─── LLM call (OpenAI-compatible) ────────────────────────────────
-async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024) {
-  const res = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: userMessage  },
-      ],
-    }),
-  });
+// ─── LLM call (Anthropic Claude) ─────────────────────────────────
+// Manual LLM round counter — each LLM call in the pipeline is a "round"
+let manualRound = 0;
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = null, stepLabel = "generate") {
+  const isResume = CLI_ARGS.includes("--resume");
+  const resumeRound = parseInt(CLI_ARGS[CLI_ARGS.indexOf("--resume-round") + 1] || "0", 10);
+
+  if (isResume && manualRound === resumeRound) {
+    // Resume mode: read response from file
+    const epDir = path.join(EPISODES_DIR, slug);
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      log("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    const text = fs.readFileSync(responsePath, "utf8").trim();
+    manualRound++;
+    log("📋 Using manually provided LLM response");
+    return { text, tokens: 0 };
   }
 
-  const data = await res.json();
-  const text   = data.choices?.[0]?.message?.content?.trim() ?? "";
-  const tokens = (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0);
+  if (!apiKey) {
+    // Manual mode: write prompt to file and exit with code 42
+    const epDir = path.join(EPISODES_DIR, slug);
+    log(`📋 No API key — manual LLM mode (round ${manualRound})`);
+    const promptData = {
+      step: stepLabel,
+      round: manualRound,
+      system: systemPrompt,
+      user: userMessage,
+      expectedFormat: stepLabel.includes("youtube") ? "json" : "text"
+    };
+    fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+    log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+    process.exit(42);
+  }
+
+  const client = new Anthropic({ apiKey });
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+  });
+  const text = response.content[0].text.trim();
+  const tokens = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+  manualRound++;
   return { text, tokens };
 }
 
@@ -133,7 +161,7 @@ const SYSTEM_YT = `أنت كاتب محتوى لبودكاست "تجارب" — 
 }`;
 
 // ─── Generate functions ───────────────────────────────────────────
-async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec) {
+async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec, slug) {
   const user = `فورمات الكابشن المطلوب:
 ${formatSpec}
 
@@ -151,10 +179,10 @@ ${reelText}
 
 اكتب الكابشن الآن:`;
 
-  return chat(apiKey, SYSTEM_REELS, user, 512);
+  return chat(apiKey, SYSTEM_REELS, user, 512, slug, `reel-${reel.id}`);
 }
 
-async function generateYouTubeContent(apiKey, transcript, analysis, guest, role, formatSpec) {
+async function generateYouTubeContent(apiKey, transcript, analysis, guest, role, formatSpec, slug) {
   const summary = transcript.segments
     .filter((_, i) => i < 5 || i >= transcript.segments.length - 3 ||
       analysis.chapters?.some(ch => {
@@ -193,7 +221,7 @@ ${summary}
 ---
 أخرج JSON فقط.`;
 
-  const result = await chat(apiKey, SYSTEM_YT, user, 2048);
+  const result = await chat(apiKey, SYSTEM_YT, user, 2048, slug, "youtube");
   const raw = result.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   return { content: JSON.parse(raw), tokens: result.tokens };
 }
@@ -223,7 +251,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   log(`✍️  Generating content for: ${slug}`);
   log(`   Guest: ${guest} — ${role}`);
   log(`   Mode: ${reelOnly ? "REEL ONLY (caption only)" : "FULL EPISODE"}`);
-  log(`   Model: ${MODEL} via Haimaker\n`);
+  log(`   Model: ${MODEL} via Anthropic\n`);
 
   let totalTokens = 0;
 
@@ -244,7 +272,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
     const fakeReel = { id: "reel-01", hook: "", start: "0:00", end: "1:00" };
 
     log(`   🎬 Generating reel caption…`);
-    const result = await generateReelCaption(apiKey, fakeReel, guest, role, reelText, reelFormat);
+    const result = await generateReelCaption(apiKey, fakeReel, guest, role, reelText, reelFormat, slug);
     totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
 
@@ -278,12 +306,21 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
 
   let totalTokens2 = 0; // separate var to avoid shadowing
 
-  // Reel captions (from analysis.reels)
+  // Reel captions — filter by selected reels if available
+  const selectedReelsPath = path.join(EPISODES_DIR, slug, "selected-reels.json");
+  let reelsToProcess = analysis.reels || [];
+  if (fs.existsSync(selectedReelsPath)) {
+    const selectedData = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
+    const selectedIds = new Set(selectedData.reels.map(r => r.id));
+    reelsToProcess = reelsToProcess.filter(r => selectedIds.has(r.id));
+    log(`📋 Using ${reelsToProcess.length} selected reels (of ${(analysis.reels || []).length} total)`);
+  }
+
   const reelCaptions = [];
-  for (const reel of (analysis.reels || [])) {
+  for (const reel of reelsToProcess) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
     log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
-    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat);
+    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat, slug);
     reelCaptions.push({
       id: reel.id, start: reel.start, end: reel.end,
       hook: reel.hook, reel_text: reelText, caption: result.text,
@@ -294,7 +331,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
 
   // YouTube + announcement
   log("   📺 Generating YouTube description + titles + announcement...");
-  const ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat);
+  const ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat, slug);
   totalTokens2 += ytResult.tokens;
   log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
 
@@ -314,13 +351,12 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
 }
 
 // ─── CLI ──────────────────────────────────────────────────────────
-const args     = process.argv.slice(2);
-const get      = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
+const get      = (flag) => { const i = CLI_ARGS.indexOf(flag); return i !== -1 ? CLI_ARGS[i + 1] : null; };
 const slug     = get("--slug");
 const guest    = get("--guest");
 const role     = get("--role");
-const force    = args.includes("--force");
-const reelOnly = args.includes("--reel-only");
+const force    = CLI_ARGS.includes("--force");
+const reelOnly = CLI_ARGS.includes("--reel-only");
 const modelArg = get("--model");
 
 if (modelArg) {
@@ -328,7 +364,7 @@ if (modelArg) {
 }
 
 if (!slug || !guest || !role) {
-  process.stderr.write("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model auto|claude|openai|gemini] [--force] [--reel-only]\n");
+  process.stderr.write("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model claude-sonnet-4-20250514] [--force] [--reel-only]\n");
   process.exit(1);
 }
 
