@@ -58,7 +58,21 @@ async function cut(slug, videoPath, force = false) {
 
   fs.mkdirSync(reelsDir, { recursive: true });
 
-  const reels = analysis.reels || [];
+  let reels = analysis.reels || [];
+
+  // Filter to selected reels if --selected-only and selected-reels.json exists
+  if (args.includes("--selected-only")) {
+    const selectedReelsPath = path.join(dir, "selected-reels.json");
+    if (fs.existsSync(selectedReelsPath)) {
+      const selectedData = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
+      const selectedIds = new Set(selectedData.reels.map(r => r.id));
+      reels = reels.filter(r => selectedIds.has(r.id));
+      console.log(`📋 Selected reels mode: ${reels.length} of ${(analysis.reels || []).length} reels`);
+    } else {
+      console.log("⚠️  --selected-only flag set but no selected-reels.json found. Cutting all reels.");
+    }
+  }
+
   console.log(`✂️  Cutting ${reels.length} reels from: ${videoPath}`);
 
   for (const reel of reels) {

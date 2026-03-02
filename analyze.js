@@ -13,12 +13,24 @@ const fs = require("fs");
 const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 
-const AUTH_FILE = "/root/.openclaw/agents/main/agent/auth.json";
 const EPISODES_DIR = path.join(__dirname, "episodes");
+const CLI_ARGS = process.argv.slice(2);
 
 function getApiKey() {
-  const auth = JSON.parse(fs.readFileSync(AUTH_FILE, "utf8"));
-  return auth.anthropic.key;
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  const authPaths = [
+    path.join(__dirname, "auth.json"),
+    "/root/.openclaw/agents/main/agent/auth.json",
+    "/root/.openclaw/agents/main/agent/models.json",
+  ];
+  for (const p of authPaths) {
+    try {
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
+      if (key) return key;
+    } catch (_) {}
+  }
+  return null;
 }
 
 function loadTranscript(slug) {
@@ -98,7 +110,6 @@ async function analyze(slug, force = false) {
   console.log(`📄 Transcript: ${transcript.segment_count} segments, ${Math.round(transcript.duration_seconds / 60)} min`);
 
   const formattedTranscript = formatTranscriptForPrompt(transcript);
-  const client = new Anthropic.default({ apiKey: getApiKey() });
 
   const userMessage = `فيما يلي نص حلقة بودكاست "تجارب" مع التوقيتات. حللها وأخرج JSON بالهيكل المطلوب:
 
@@ -108,18 +119,58 @@ async function analyze(slug, force = false) {
 ${formattedTranscript}
 ---`;
 
-  console.log("🤖 Sending to Claude for analysis...");
-  const startTime = Date.now();
+  const epDir = path.join(EPISODES_DIR, slug);
+  const isResume = CLI_ARGS.includes("--resume");
+  let rawContent;
+  let elapsed = "0";
+  let tokenInfo = { input: 0, output: 0, total: 0 };
+  let modelName = "manual";
 
-  const response = await client.messages.create({
-    model: "claude-opus-4-5",
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }]
-  });
+  if (isResume) {
+    // Resume mode: read response from file
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      console.error("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    rawContent = fs.readFileSync(responsePath, "utf8");
+    console.log("📋 Using manually provided LLM response");
+  } else {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      // Manual mode: write prompt to file and exit with code 42
+      console.log("📋 No API key found — entering manual LLM mode");
+      const promptData = {
+        step: "analyze",
+        system: SYSTEM_PROMPT,
+        user: userMessage,
+        expectedFormat: "json"
+      };
+      fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+      console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+      process.exit(42);
+    }
 
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  const rawContent = response.content[0].text;
+    console.log("🤖 Sending to Claude for analysis...");
+    const startTime = Date.now();
+    const client = new Anthropic.default({ apiKey });
+
+    const response = await client.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }]
+    });
+
+    elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    rawContent = response.content[0].text;
+    modelName = response.model;
+    tokenInfo = {
+      input: response.usage.input_tokens,
+      output: response.usage.output_tokens,
+      total: response.usage.input_tokens + response.usage.output_tokens
+    };
+  }
 
   // Parse JSON response
   let analysis;
@@ -137,12 +188,8 @@ ${formattedTranscript}
   const output = {
     slug,
     analyzed_at: new Date().toISOString(),
-    model: response.model,
-    tokens: {
-      input: response.usage.input_tokens,
-      output: response.usage.output_tokens,
-      total: response.usage.input_tokens + response.usage.output_tokens
-    },
+    model: modelName,
+    tokens: tokenInfo,
     duration_minutes: Math.round(transcript.duration_seconds / 60),
     ...analysis
   };
@@ -159,12 +206,11 @@ ${formattedTranscript}
 }
 
 // CLI
-const args = process.argv.slice(2);
-const slugIdx = args.indexOf("--slug");
-const force = args.includes("--force");
-if (slugIdx === -1 || !args[slugIdx + 1]) {
+const slugIdx = CLI_ARGS.indexOf("--slug");
+const force = CLI_ARGS.includes("--force");
+if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
   console.error("Usage: node analyze.js --slug <episode-slug> [--force]");
   process.exit(1);
 }
-const slug = args[slugIdx + 1];
+const slug = CLI_ARGS[slugIdx + 1];
 analyze(slug, force).catch(err => { console.error("❌", err.message); process.exit(1); });
