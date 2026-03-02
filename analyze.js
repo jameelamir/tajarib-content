@@ -11,27 +11,10 @@
 
 const fs = require("fs");
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
+const llm = require("./llm");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const CLI_ARGS = process.argv.slice(2);
-
-function getApiKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  const authPaths = [
-    path.join(__dirname, "auth.json"),
-    "/root/.openclaw/agents/main/agent/auth.json",
-    "/root/.openclaw/agents/main/agent/models.json",
-  ];
-  for (const p of authPaths) {
-    try {
-      const data = JSON.parse(fs.readFileSync(p, "utf8"));
-      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
-      if (key) return key;
-    } catch (_) {}
-  }
-  return null;
-}
 
 function loadTranscript(slug) {
   const p = path.join(EPISODES_DIR, slug, "transcript.json");
@@ -136,8 +119,7 @@ ${formattedTranscript}
     rawContent = fs.readFileSync(responsePath, "utf8");
     console.log("📋 Using manually provided LLM response");
   } else {
-    const apiKey = getApiKey();
-    if (!apiKey) {
+    if (!llm.hasKey()) {
       // Manual mode: write prompt to file and exit with code 42
       console.log("📋 No API key found — entering manual LLM mode");
       const promptData = {
@@ -151,25 +133,20 @@ ${formattedTranscript}
       process.exit(42);
     }
 
-    console.log("🤖 Sending to Claude for analysis...");
+    const config = llm.getConfig();
+    console.log(`🤖 Sending to ${config.model || 'default model'} for analysis...`);
     const startTime = Date.now();
-    const client = new Anthropic.default({ apiKey });
 
-    const response = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 4096,
+    const response = await llm.chat({
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }]
+      user: userMessage,
+      maxTokens: 4096,
     });
 
     elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    rawContent = response.content[0].text;
+    rawContent = response.text;
     modelName = response.model;
-    tokenInfo = {
-      input: response.usage.input_tokens,
-      output: response.usage.output_tokens,
-      total: response.usage.input_tokens + response.usage.output_tokens
-    };
+    tokenInfo = response.usage;
   }
 
   // Parse JSON response
@@ -179,7 +156,7 @@ ${formattedTranscript}
     const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     analysis = JSON.parse(cleaned);
   } catch (e) {
-    console.error("❌ Failed to parse Claude response as JSON:");
+    console.error("❌ Failed to parse LLM response as JSON:");
     console.error(rawContent.slice(0, 500));
     process.exit(1);
   }

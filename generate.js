@@ -12,32 +12,14 @@
 
 const fs   = require("fs");
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
+const llm  = require("./llm");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const FORMATS_DIR  = path.join(__dirname, "formats");
 const CLI_ARGS     = process.argv.slice(2);
 
 // ─── Config ─────────────────────────────────────────────────────
-let MODEL = "claude-sonnet-4-20250514";
-
-function getApiKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  // Fallback: check local auth files
-  const authPaths = [
-    path.join(__dirname, "auth.json"),
-    "/root/.openclaw/agents/main/agent/auth.json",
-    "/root/.openclaw/agents/main/agent/models.json",
-  ];
-  for (const p of authPaths) {
-    try {
-      const data = JSON.parse(fs.readFileSync(p, "utf8"));
-      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
-      if (key) return key;
-    } catch (_) {}
-  }
-  return null; // No key found — manual mode will be used
-}
+let MODEL = llm.getConfig().model || llm.DEFAULT_MODEL;
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function loadJSON(filePath) {
@@ -70,11 +52,12 @@ function extractReelText(transcript, startStr, endStr) {
     .trim();
 }
 
-// ─── LLM call (Anthropic Claude) ─────────────────────────────────
+// ─── LLM call (via shared llm.js — supports Haimaker, Anthropic, etc.) ──
 // Manual LLM round counter — each LLM call in the pipeline is a "round"
 let manualRound = 0;
 
 async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = null, stepLabel = "generate") {
+  // Note: apiKey param kept for call-site compat but is ignored — llm.js handles keys
   const isResume = CLI_ARGS.includes("--resume");
   const resumeRound = parseInt(CLI_ARGS[CLI_ARGS.indexOf("--resume-round") + 1] || "0", 10);
 
@@ -92,7 +75,7 @@ async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = 
     return { text, tokens: 0 };
   }
 
-  if (!apiKey) {
+  if (!llm.hasKey()) {
     // Manual mode: write prompt to file and exit with code 42
     const epDir = path.join(EPISODES_DIR, slug);
     log(`📋 No API key — manual LLM mode (round ${manualRound})`);
@@ -108,15 +91,14 @@ async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = 
     process.exit(42);
   }
 
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: maxTokens,
+  const response = await llm.chat({
     system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
+    user: userMessage,
+    maxTokens,
+    model: MODEL,
   });
-  const text = response.content[0].text.trim();
-  const tokens = (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+  const text = response.text;
+  const tokens = response.usage.total;
   manualRound++;
   return { text, tokens };
 }
@@ -246,12 +228,13 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   }
 
   const reelFormat = loadFormat("reel-caption");
-  const apiKey     = getApiKey();
+  const apiKey     = null; // handled by llm.js
+  const config     = llm.getConfig();
 
   log(`✍️  Generating content for: ${slug}`);
   log(`   Guest: ${guest} — ${role}`);
   log(`   Mode: ${reelOnly ? "REEL ONLY (caption only)" : "FULL EPISODE"}`);
-  log(`   Model: ${MODEL} via Anthropic\n`);
+  log(`   Model: ${MODEL}${config.baseUrl ? ' via ' + new URL(config.baseUrl).hostname : ' via Anthropic'}\n`);
 
   let totalTokens = 0;
 

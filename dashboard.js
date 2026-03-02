@@ -10,7 +10,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const socketIo = require("socket.io");
 const { formidable } = require("formidable");
-const Anthropic = require("@anthropic-ai/sdk");
+// Anthropic SDK now loaded via llm.js only when needed
 
 const PORT = process.env.PORT || 7430;
 const WORKSPACE_DIR = __dirname;
@@ -102,40 +102,18 @@ function addGuestToHistory(guest, role) {
   saveJSON(GUESTS_FILE, guests);
 }
 
-// ─── Claude AI Helper ──────────────────────────────────────────────────────
+// ─── LLM Helper (supports Haimaker / OpenAI-compatible + direct Anthropic) ──
 
-function getAnthropicKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  const authPaths = [
-    path.join(WORKSPACE_DIR, "auth.json"),
-    "/root/.openclaw/agents/main/agent/auth.json",
-    "/root/.openclaw/agents/main/agent/models.json",
-  ];
-  for (const p of authPaths) {
-    try {
-      const data = loadJSON(p);
-      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
-      if (key) return key;
-    } catch (_) {}
-  }
-  return null;
-}
+const llm = require("./llm");
 
 async function callClaude(systemPrompt, userMessage, maxTokens = 1024) {
-  const apiKey = getAnthropicKey();
-  if (!apiKey) throw new Error("No API key configured. Add ANTHROPIC_API_KEY environment variable or use manual LLM mode for pipeline steps.");
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-  });
-  return response.content[0].text.trim();
+  const result = await llm.chat({ system: systemPrompt, user: userMessage, maxTokens });
+  if (!result) throw new Error("No API key configured. Set up your LLM provider in the Generation settings.");
+  return result.text;
 }
 
 function hasApiKey() {
-  return !!getAnthropicKey();
+  return llm.hasKey();
 }
 
 // Buffer config
@@ -564,6 +542,30 @@ async function publishViaZapier(slug, caption, videoPath) {
 const server = http.createServer(handler);
 const io = socketIo(server, { maxHttpBufferSize: 5e9 });
 const activeProcesses = {};
+const activeSteps = {};     // slug -> step name currently running
+const serverLogs = {};      // slug -> buffered log text (persists across client refreshes)
+const MAX_LOG_SIZE = 100000; // Keep last ~100KB of logs per episode
+
+function appendServerLog(slug, text) {
+  if (!serverLogs[slug]) serverLogs[slug] = "";
+  serverLogs[slug] += text;
+  // Trim if too large (keep tail)
+  if (serverLogs[slug].length > MAX_LOG_SIZE) {
+    serverLogs[slug] = serverLogs[slug].slice(-MAX_LOG_SIZE);
+  }
+}
+
+// Monkey-patch io.emit to also buffer log messages server-side
+const _origIoEmit = null; // will be set after io is used
+function patchIoEmit() {
+  const origEmit = io.emit.bind(io);
+  io.emit = function(event, ...args) {
+    if (event === "log" && args[0] && args[0].slug && args[0].text) {
+      appendServerLog(args[0].slug, args[0].text);
+    }
+    return origEmit(event, ...args);
+  };
+}
 
 async function handler(req, res) {
   try {
@@ -648,13 +650,58 @@ async function handler(req, res) {
     return;
   }
 
-  // ── Generation API Key ───────────────────────────────────────────────────
+  // ── LLM Config (API key + base URL + model) ─────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/llm-config") {
+    const config = llm.getConfig();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      hasKey: !!config.key,
+      baseUrl: config.baseUrl || "",
+      model: config.model || "",
+    }));
+    return;
+  }
+
+  // Keep old endpoint as alias for backwards compat
   if (req.method === "GET" && url.pathname === "/api/gen-key-status") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ hasKey: hasApiKey() }));
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/llm-config") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { apiKey, baseUrl, model } = JSON.parse(body);
+        if (apiKey !== undefined && apiKey && apiKey.length < 10) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
+          return;
+        }
+        const authPath = path.join(WORKSPACE_DIR, "auth.json");
+        const existing = loadJSON(authPath) || {};
+        existing.llm = existing.llm || {};
+        if (apiKey !== undefined) existing.llm.key = apiKey || "";
+        if (baseUrl !== undefined) existing.llm.baseUrl = baseUrl || "";
+        if (model !== undefined) existing.llm.model = model || "";
+        // Clean up old format
+        if (existing.anthropic) delete existing.anthropic;
+        saveJSON(authPath, existing);
+        console.log("[LLM] Config saved:", { hasKey: !!existing.llm.key, baseUrl: existing.llm.baseUrl, model: existing.llm.model });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        io.emit("toast", { type: "success", message: "LLM settings saved" });
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Keep old endpoint as alias
   if (req.method === "POST" && url.pathname === "/api/gen-key") {
     let body = "";
     req.on("data", chunk => body += chunk);
@@ -668,10 +715,11 @@ async function handler(req, res) {
         }
         const authPath = path.join(WORKSPACE_DIR, "auth.json");
         const existing = loadJSON(authPath) || {};
-        existing.anthropic = existing.anthropic || {};
-        existing.anthropic.key = apiKey;
+        existing.llm = existing.llm || {};
+        existing.llm.key = apiKey;
+        if (existing.anthropic) delete existing.anthropic;
         saveJSON(authPath, existing);
-        console.log("[GEN KEY] Anthropic API key saved to auth.json");
+        console.log("[LLM] API key saved via legacy endpoint");
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
         io.emit("toast", { type: "success", message: "API key saved" });
@@ -2241,6 +2289,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
       return;
   }
 
+  activeSteps[slug] = step;
   io.emit("log", { slug, text: `\n▶ Running: ${step}\n` });
   io.emit("log", { slug, text: `   Command: ${cmd} ${args.join(" ")}\n` });
   io.emit("log", { slug, text: `   Working dir: ${WORKSPACE_DIR}\n` });
@@ -2315,6 +2364,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
   proc.on("close", async (code) => {
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     delete activeProcesses[slug];
+    delete activeSteps[slug];
 
     // Exit code 42 = manual LLM mode: read prompt file and emit to frontend
     if (code === 42) {
@@ -2347,6 +2397,12 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
 // ─── Socket Handler ──────────────────────────────────────────────────────────
 
 io.on("connection", (socket) => {
+  // Send current running state + buffered logs to reconnecting clients
+  socket.emit("restore-state", {
+    activeSteps,   // { slug: stepName } for any running processes
+    logs: serverLogs // { slug: logText } buffered output
+  });
+
   socket.on("stop-step", ({ slug }) => {
     if (activeProcesses[slug]) {
       const proc = activeProcesses[slug];
@@ -2357,6 +2413,7 @@ io.on("connection", (socket) => {
         try { proc.kill("SIGKILL"); } catch (_2) {}
       }
       delete activeProcesses[slug];
+      delete activeSteps[slug];
       io.emit("log", { slug, text: "\n🛑 Process stopped manually.\n" });
       io.emit("process-end", { slug, step: "stopped", code: -1 });
       io.emit("status-update", {});
@@ -2387,6 +2444,8 @@ function cleanupOrphanedUploads() {
     console.log(`[Cleanup] Removed ${cleaned} orphaned uploads`);
   }
 }
+
+patchIoEmit();
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log("🎙️  Tajarib Dashboard DEV → http://76.13.145.146:" + PORT);

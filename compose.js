@@ -13,7 +13,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync, spawn } = require("child_process");
-const Anthropic = require("@anthropic-ai/sdk");
+const llm = require("./llm");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 
@@ -28,23 +28,6 @@ function saveJSON(p, data) {
 
 // ── AI Switch Point Generation ──────────────────────────────────────────────
 
-function getAnthropicKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  const authPaths = [
-    path.join(__dirname, "auth.json"),
-    "/root/.openclaw/agents/main/agent/auth.json",
-    "/root/.openclaw/agents/main/agent/models.json",
-  ];
-  for (const p of authPaths) {
-    try {
-      const data = loadJSON(p);
-      const key = data?.anthropic?.key || data?.providers?.anthropic?.apiKey;
-      if (key) return key;
-    } catch (_) {}
-  }
-  return null;
-}
-
 async function generateAISwitchPoints(slug) {
   console.log("🤖 Generating AI camera switch points...");
 
@@ -56,8 +39,6 @@ async function generateAISwitchPoints(slug) {
     console.error("❌ No transcript found. Run transcription first.");
     process.exit(1);
   }
-
-  const apiKey = getAnthropicKey();
 
   // Build a condensed transcript for the AI
   const segmentText = transcript.segments
@@ -109,7 +90,7 @@ Return ONLY valid JSON:
     }
     text = fs.readFileSync(responsePath, "utf8").trim();
     console.log("📋 Using manually provided LLM response");
-  } else if (!apiKey) {
+  } else if (!llm.hasKey()) {
     // Manual mode
     console.log("📋 No API key — manual LLM mode for camera switching");
     const promptData = {
@@ -122,14 +103,12 @@ Return ONLY valid JSON:
     console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
     process.exit(42);
   } else {
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
+    const response = await llm.chat({
       system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      user: userPrompt,
+      maxTokens: 2048,
     });
-    text = response.content[0].text.trim();
+    text = response.text;
   }
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
