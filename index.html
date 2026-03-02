@@ -260,29 +260,42 @@
         </div>
         <div class="sidebar-section-body">
             <div style="padding:6px 8px;">
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Anthropic API Key</label>
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">API Key</label>
                 <div style="display:flex; gap:4px;">
                     <input type="password"
                         id="gen-api-key"
-                        placeholder="sk-ant-..."
+                        placeholder="sk-..."
                         style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; flex:1; font-family:monospace;"
                         autocomplete="off"
                         spellcheck="false"
                     />
-                    <button onclick="saveGenApiKey()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap;">Save</button>
                 </div>
-                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Base URL <span style="color:#555;">(optional)</span></label>
+                <input type="text"
+                    id="gen-base-url"
+                    placeholder="https://api.haimaker.ai/v1"
+                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%; font-family:monospace;"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div style="font-size:0.55rem; margin-top:3px; color:#555;">Leave empty for direct Anthropic API</div>
                 <div style="border-top:1px solid #222; margin:8px 0;"></div>
                 <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Model</label>
                 <input type="text"
                     id="sidebar-model-select"
-                    placeholder="Auto (or type model name...)"
+                    placeholder="haimaker/auto"
                     style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%;"
                     oninput="debouncedValidateSidebarModel(this)"
                     autocomplete="off"
                     spellcheck="false"
                 />
-                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for Auto</div>
+                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for default</div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                    <button onclick="saveLLMConfig()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap; flex:1;">Save All</button>
+                </div>
+                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
             </div>
         </div>
     </div>
@@ -704,50 +717,69 @@ async function saveTranscriptionConfig() {
     }
 }
 
-// Generation API Key
+// LLM Config (API key + base URL + model)
 async function loadGenKeyStatus() {
     try {
-        const res = await fetch('/api/gen-key-status');
+        const res = await fetch('/api/llm-config');
         const data = await res.json();
         const dot = document.getElementById('gen-key-dot');
         const status = document.getElementById('gen-key-status');
+        // Populate fields with current config (but not the key)
+        if (data.baseUrl) document.getElementById('gen-base-url').value = data.baseUrl;
+        if (data.model) document.getElementById('sidebar-model-select').value = data.model;
         if (data.hasKey) {
             dot.style.background = 'var(--success)';
-            status.textContent = '✓ API key configured';
+            const provider = data.baseUrl ? new URL(data.baseUrl).hostname : 'Anthropic direct';
+            status.innerHTML = '✓ Connected — <span style="color:#888;">' + provider + '</span>';
             status.style.color = '#4ade80';
         } else {
             dot.style.background = '#f59e0b';
-            status.textContent = 'No API key — generation will need manual LLM mode';
+            status.textContent = 'No API key — set up a provider to enable generation';
             status.style.color = '#fbbf24';
         }
     } catch (e) {
-        console.error('Failed to load gen key status:', e);
+        console.error('Failed to load LLM config:', e);
     }
 }
 
-async function saveGenApiKey() {
-    const input = document.getElementById('gen-api-key');
+async function saveLLMConfig() {
+    const keyInput = document.getElementById('gen-api-key');
+    const baseUrlInput = document.getElementById('gen-base-url');
+    const modelInput = document.getElementById('sidebar-model-select');
     const status = document.getElementById('gen-key-status');
-    const key = input.value.trim();
-    if (!key) {
-        status.textContent = '⚠ Enter an API key';
+
+    const payload = {};
+    const key = keyInput.value.trim();
+    const baseUrl = baseUrlInput.value.trim();
+    const model = modelInput.value.trim();
+
+    // Only send key if user typed one (don't overwrite existing with empty)
+    if (key) payload.apiKey = key;
+    if (baseUrl !== undefined) payload.baseUrl = baseUrl;
+    if (model !== undefined) payload.model = model;
+
+    if (!key && !baseUrl && !model) {
+        status.textContent = '⚠ Nothing to save';
         status.style.color = '#f59e0b';
         return;
     }
+
     status.textContent = 'Saving...';
     status.style.color = '#888';
     try {
-        const res = await fetch('/api/gen-key', {
+        const res = await fetch('/api/llm-config', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ apiKey: key })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
-            input.value = '';
-            status.textContent = '✓ API key saved!';
+            keyInput.value = '';
+            status.textContent = '✓ LLM settings saved!';
             status.style.color = '#4ade80';
             document.getElementById('gen-key-dot').style.background = 'var(--success)';
+            // Refresh to show updated provider info
+            setTimeout(loadGenKeyStatus, 500);
         } else {
             throw new Error(data.error || 'Save failed');
         }
@@ -760,6 +792,21 @@ async function saveGenApiKey() {
 init();
 
 socket.on('connect', () => console.log('Socket connected'));
+socket.on('restore-state', ({activeSteps: steps, logs: serverLogs}) => {
+    console.log('🔄 Restoring state:', Object.keys(steps).length, 'running,', Object.keys(serverLogs).length, 'log buffers');
+    // Restore running step indicators
+    Object.assign(runningStep, steps);
+    // Restore buffered logs (don't overwrite if we already have newer data)
+    for (const [slug, text] of Object.entries(serverLogs)) {
+        if (!logs[slug]) logs[slug] = text;
+    }
+    // Update UI if we're viewing a running episode
+    if (currentSlug && runningStep[currentSlug]) {
+        document.getElementById('stop-btn').style.display = '';
+    }
+    if (currentSlug) updateLogs();
+    refresh();
+});
 socket.on('status-update', refresh);
 socket.on('log', ({slug, text}) => {
     if (!logs[slug]) logs[slug] = '';
@@ -1200,9 +1247,9 @@ function stepsForType(mediaType, ep) {
         {id: 'select-reels', label: '3. Select Reels', desc: 'Pick reels to process'},
         {id: 'cut',          label: '4. Cut',          desc: 'FFmpeg clips'},
         {id: 'crop',         label: '5. Crop',         desc: 'Aspect ratio crop (optional)'},
-        {id: 'generate',     label: '6. Generate',     desc: 'Captions & copy'},
-        {id: 'subtitle',     label: '7. Subtitle',     desc: 'Burn subs'},
-        {id: 'overlay',      label: '8. Overlay',      desc: 'CG & logos'},
+        {id: 'overlay',      label: '6. Overlay',      desc: 'CG & logos'},
+        {id: 'generate',     label: '7. Generate',     desc: 'Captions & copy'},
+        {id: 'subtitle',     label: '8. Subtitle',     desc: 'Burn subs'},
     ];
 
     // Add compose step for multi-track episodes
