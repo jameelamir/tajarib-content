@@ -57,15 +57,69 @@
         .header h2 { font-size: 1.4rem; }
         .header-meta { font-size: 0.85rem; color: #888; display: flex; gap: 16px; align-items: center; }
 
-        .pipeline { display: flex; gap: 12px; width: 100%; overflow-x: auto; flex-shrink: 0; padding-bottom: 8px; }
-        .stage { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-width: 160px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
-        .stage h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; }
+        /* Episode pipeline bar (compact chips) */
+        .episode-pipeline-bar { display: flex; gap: 8px; padding: 8px 0; flex-shrink: 0; flex-wrap: wrap; align-items: center; }
+        .ep-step-chip { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--border); background: var(--panel); cursor: pointer; transition: 0.15s; }
+        .ep-step-chip:hover { background: #1e1e1e; }
+        .ep-step-chip.done { border-color: #064e3b; color: #34d399; }
+        .ep-step-chip.running { border-color: #f59e0b; color: #fbbf24; animation: pulse 1.5s infinite; }
+        .ep-step-chip.next { border-color: var(--accent); box-shadow: 0 0 8px rgba(168,85,247,0.2); }
+        .ep-step-chip .chip-icon { font-size: 0.7rem; }
         .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; width: fit-content; }
         .badge-done { background: #064e3b; color: #34d399; }
         .badge-pending { background: #222; color: #666; }
         .badge-na { background: #1a1a1a; color: #444; }
-        .stage-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
-        .stage-note { font-size: 0.7rem; color: #555; font-style: italic; }
+        /* Two-column reel layout */
+        .reel-two-col { display: flex; flex: 1; gap: 0; overflow: hidden; }
+        .reel-list-col { width: 260px; flex-shrink: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--panel); overflow: hidden; }
+        .reel-list-header { padding: 10px 14px; font-size: 0.8rem; font-weight: 600; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .reel-list { flex: 1; overflow-y: auto; }
+        .reel-list-item { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.15s; border-left: 3px solid transparent; }
+        .reel-list-item:hover { background: #1a1a1a; }
+        .reel-list-item.active { background: #1a1a1a; border-left-color: var(--accent); }
+        .reel-list-item-title { font-weight: 700; font-size: 0.82rem; margin-bottom: 2px; }
+        .reel-list-item-hook { font-size: 0.68rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; margin-bottom: 4px; }
+        .reel-list-item-chips { display: flex; gap: 3px; flex-wrap: wrap; }
+        .reel-list-item-chips .reel-chip { font-size: 0.55rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+        .reel-list-item-chips .reel-chip.done { background: #064e3b; color: #34d399; }
+        .reel-list-item-chips .reel-chip.pending { background: #1a1a1a; color: #555; }
+        .reel-list-bulk { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
+        .reel-list-bulk button { font-size: 0.6rem; padding: 3px 8px; }
+
+        .reel-detail-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .reel-detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 0.85rem; }
+        .reel-detail-scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .reel-preview video { width: 100%; max-height: 300px; border-radius: 8px; background: #000; }
+        .reel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+        .reel-actions-group { display: flex; gap: 4px; align-items: center; }
+        .reel-console { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; min-height: 200px; }
+        .reel-console .panel-header { padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .reel-console pre.logs { flex: 1; padding: 10px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.75rem; color: #aaa; white-space: pre-wrap; line-height: 1.4; }
+
+        /* Pre-cut full-width console */
+        .precut-console { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #111; }
+        .precut-console .panel-header { padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .precut-console pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.78rem; color: #aaa; white-space: pre-wrap; line-height: 1.5; }
+
+        /* Overlay config panel */
+        .overlay-config { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 100%; flex-shrink: 0; }
+        .overlay-config h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 12px; }
+        .overlay-canvas-wrap { position: relative; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 14px; aspect-ratio: 16/9; }
+        .overlay-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+        .overlay-elements { display: flex; flex-direction: column; gap: 10px; }
+        .overlay-el { background: #1a1a1a; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
+        .overlay-el-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .overlay-el-header label { font-size: 0.75rem; color: #ccc; font-weight: 600; }
+        .overlay-el-body { display: flex; flex-direction: column; gap: 8px; }
+        .overlay-row { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: #999; }
+        .overlay-row label { min-width: 50px; }
+        .overlay-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+        .overlay-row input[type="text"], .overlay-row input[type="color"] { background: #111; border: 1px solid #333; color: #ddd; padding: 4px 8px; border-radius: 4px; font-size: 0.72rem; }
+        .overlay-row input[type="text"] { flex: 1; }
+        .overlay-row input[type="color"] { width: 30px; height: 24px; padding: 0; border: none; cursor: pointer; }
+        .cta-mode-toggle { display: flex; gap: 0; border: 1px solid #333; border-radius: 4px; overflow: hidden; }
+        .cta-mode-toggle button { border: none; border-radius: 0; font-size: 0.7rem; padding: 4px 12px; }
+        .cta-mode-toggle button.active { background: var(--accent); color: #fff; }
 
         button { background: #222; border: 1px solid #333; color: #ccc; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: 0.15s; }
         button:hover { background: #333; color: #fff; }
@@ -78,7 +132,6 @@
         button.text-btn { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; font-size: 0.75rem; }
         button.stop-btn { background: #dc2626; border-color: #dc2626; color: #fff; font-size: 0.75rem; padding: 4px 10px; }
 
-        .panels { flex: 1; display: flex; gap: 16px; overflow: hidden; min-height: 200px; }
         .panel { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; background: #111; overflow: hidden; }
         .panel-header { padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
         pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.78rem; color: #aaa; white-space: pre-wrap; line-height: 1.5; }
@@ -149,10 +202,8 @@
             .header { flex-wrap: wrap; gap: 8px; }
             .header h2 { font-size: 1.1rem; }
             .header-meta { font-size: 0.75rem; flex-wrap: wrap; gap: 8px; }
-            .pipeline { flex-wrap: wrap; gap: 8px; }
-            .stage { min-width: 140px; flex: 1; }
-            .panels { flex-direction: column; gap: 12px; }
-            .panel { min-height: 200px; }
+            .reel-two-col { flex-direction: column; }
+            .reel-list-col { width: 100%; max-height: 200px; border-right: none; border-bottom: 1px solid var(--border); }
             .editor-tabs { flex-wrap: wrap; }
             .editor-tab { padding: 8px 12px; font-size: 0.7rem; }
             .content-editor-wrap { padding: 12px; }
@@ -169,8 +220,6 @@
             .ep-item { padding: 12px 14px; }
             .ep-slug { font-size: 0.85rem; }
             .main { padding: 12px; }
-            .stage { padding: 12px; min-width: 120px; }
-            .stage-title { font-size: 0.75rem; }
             button { padding: 8px 10px; font-size: 0.75rem; }
             .content-textarea { font-size: 0.8rem; min-height: 100px; }
             .seg-ts { min-width: 40px; font-size: 0.65rem; }
@@ -312,20 +361,22 @@
         <div>Upload a video or select an episode</div>
     </div>
 
-    <div id="episode-view" style="display:none; flex:1; flex-direction:column; gap:20px; overflow:hidden;">
+    <div id="episode-view" style="display:none; flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <!-- SHARED: Header -->
         <div class="header">
             <div>
                 <h2 id="ep-title"></h2>
                 <div id="ep-type-display" style="font-size:0.75rem; color:#666; margin-top:4px;"></div>
-                <div id="ai-title-prompt" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">
-                    🎙️ AI can generate a proper title from transcript <button class="primary" style="background:var(--accent); padding:4px 10px; font-size:0.7rem;" onclick="generateAiTitle()">Generate Now</button>
-                </div>
             </div>
             <div class="header-meta" id="ep-meta"></div>
         </div>
-        <div class="pipeline" id="pipeline"></div>
-        <div class="panels">
-            <div class="panel">
+
+        <!-- SHARED: Episode-level pipeline chips -->
+        <div class="episode-pipeline-bar" id="episode-pipeline-bar"></div>
+
+        <!-- MODE A: Pre-Cut (episode-level) -->
+        <div id="pre-cut-view" style="display:none; flex:1; display:flex; flex-direction:column; gap:12px; overflow:hidden;">
+            <div class="precut-console">
                 <div class="panel-header">
                     <span>Console</span>
                     <div style="display:flex; gap:8px;">
@@ -335,47 +386,57 @@
                 </div>
                 <pre class="logs" id="logs-output"></pre>
             </div>
-            <div class="panel">
-                <div class="panel-header">
-                    <span id="editor-file">No File Selected</span>
-                </div>
-                <div class="editor-tabs">
-                    <div class="editor-tab active" id="tab-content" onclick="switchTab('content')">📋 Content</div>
-                    <div class="editor-tab" id="tab-preview" onclick="switchTab('preview')" style="display:none">👁️ Preview</div>
-                    <div class="editor-tab" id="tab-text" onclick="switchTab('text')">✏️ Transcript</div>
-                    <div class="editor-tab" id="tab-json" onclick="switchTab('json')">{ } JSON</div>
-                </div>
-                
-                <div class="text-editor-wrap" id="content-editor-wrap">
-                    <div class="content-editor-wrap" id="content-editor-body">
-                        <div style="color:#555; font-size:0.8rem; padding:20px; text-align:center;">Select an episode with generated content to edit</div>
+        </div>
+
+        <!-- MODE B: Post-Cut (reel-centric two-column) -->
+        <div id="post-cut-view" style="display:none; flex:1; display:flex; overflow:hidden;">
+            <div class="reel-two-col">
+                <!-- Left: Reel List -->
+                <div class="reel-list-col">
+                    <div class="reel-list-header">
+                        <span>Reels</span>
+                        <span id="reel-list-count" style="font-size:0.7rem; color:#666;"></span>
+                    </div>
+                    <div class="reel-list-bulk" id="reel-list-bulk"></div>
+                    <div class="reel-list" id="reel-list"></div>
+                    <div id="topic-clip-section" style="display:none; padding:10px 14px; border-top:1px solid var(--border);">
+                        <div style="font-size:0.7rem; color:#f59e0b; margin-bottom:6px;">✂️ Topic Clip</div>
+                        <div style="display:flex; gap:6px;">
+                            <input type="text" id="clip-topic-input" placeholder="e.g., investment advice..." style="background:#111; border:1px solid #333; color:#ddd; padding:5px 8px; border-radius:4px; font-size:0.7rem; flex:1; min-width:0;">
+                            <button style="background:#f59e0b; color:#000; border-color:#f59e0b; padding:4px 10px; font-size:0.7rem;" onclick="generateTopicClip()">Go</button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="text-editor-wrap" id="text-editor-wrap" style="display:none;">
-                    <div class="seg-list" id="seg-list">
-                        <div style="color:#555; font-size:0.8rem; padding:20px; text-align:center;">Click "Edit Transcript" to edit segment by segment</div>
+                <!-- Right: Reel Detail -->
+                <div class="reel-detail-col">
+                    <div class="reel-detail-empty" id="reel-detail-empty">
+                        <span>&larr; Select a reel</span>
                     </div>
-                    <div style="padding:10px 14px; background:#1a1a1a; border-top:1px solid var(--border); display:flex; justify-content:flex-end;">
-                        <button onclick="saveTextEditor()" id="save-text-btn" class="primary" style="padding:4px 12px; font-size:0.75rem" disabled>Save</button>
-                    </div>
-                </div>
-
-                <div class="text-editor-wrap" id="json-editor-wrap" style="display:none;">
-                    <textarea class="editor" id="file-editor" disabled placeholder="Click 'Edit JSON' on a step to inspect and modify..."></textarea>
-                    <div style="padding:10px 14px; background:#1a1a1a; border-top:1px solid var(--border); display:flex; justify-content:flex-end;">
-                        <button id="save-json-btn" class="primary" style="padding:4px 12px; font-size:0.75rem" onclick="saveJsonEditor()" disabled>Save</button>
-                    </div>
-                </div>
-
-                <!-- Preview Tab -->
-                <div class="text-editor-wrap" id="preview-editor-wrap" style="display:none;">
-                    <div id="preview-content" style="flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:16px;">
-                        <div style="color:#555; font-size:0.8rem; text-align:center; padding:40px;">Generating preview...</div>
+                    <div id="reel-detail" style="display:none; flex:1; display:flex; flex-direction:column; overflow:hidden;">
+                        <div class="reel-detail-scroll">
+                            <div class="reel-preview" id="reel-preview"></div>
+                            <div class="reel-actions" id="reel-actions"></div>
+                            <div id="reel-caption-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div id="reel-subtitle-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div class="reel-console">
+                                <div class="panel-header">
+                                    <span id="reel-console-title">Console</span>
+                                    <div style="display:flex; gap:8px;">
+                                        <button id="stop-btn-reel" class="stop-btn" style="display:none">⏹ Stop</button>
+                                        <button class="text-btn" onclick="clearLogs()">Clear</button>
+                                    </div>
+                                </div>
+                                <pre class="logs" id="logs-output-reel"></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Overlay config section (rendered by JS) -->
+        <div id="overlay-config-section" style="display:none;"></div>
     </div>
 </div>
 
@@ -623,6 +684,8 @@ let guestHistory = [];
 let pendingSpeakerFile = null;
 let pendingGuestFile = null;
 let pendingSrtFile = null;
+let selectedReelId = null;
+let reelLogs = {};
 
 // Initialize
 async function init() {
@@ -633,6 +696,20 @@ async function init() {
     console.log('✅ loadGuestHistory done, calling refresh...');
     await refresh();
     console.log('✅ refresh done, episodes:', episodes.length);
+
+    // Restore selected episode and reel from localStorage
+    var savedSlug = localStorage.getItem('tajarib-selected-slug');
+    var savedReel = localStorage.getItem('tajarib-selected-reel');
+    if (savedSlug && episodes.find(function(e) { return e.slug === savedSlug; })) {
+        selectEp(savedSlug);
+        if (savedReel) {
+            var ep = episodes.find(function(e) { return e.slug === savedSlug; });
+            if (ep && ep.reelStatuses && ep.reelStatuses.find(function(r) { return r.id === savedReel; })) {
+                selectReel(savedReel);
+            }
+        }
+    }
+
     setInterval(refresh, 5000);
 }
 
@@ -802,37 +879,48 @@ socket.on('restore-state', ({activeSteps: steps, logs: serverLogs}) => {
     }
     // Update UI if we're viewing a running episode
     if (currentSlug && runningStep[currentSlug]) {
-        document.getElementById('stop-btn').style.display = '';
+        var stopBtn = document.getElementById('stop-btn');
+        if (stopBtn) stopBtn.style.display = '';
     }
     if (currentSlug) updateLogs();
     refresh();
 });
 socket.on('status-update', refresh);
-socket.on('log', ({slug, text}) => {
-    if (!logs[slug]) logs[slug] = '';
-    logs[slug] += text;
-    if (currentSlug === slug) updateLogs();
+socket.on('log', function(data) {
+    if (!logs[data.slug]) logs[data.slug] = '';
+    logs[data.slug] += data.text;
+    if (data.reelId) {
+        var key = data.slug + ':' + data.reelId;
+        if (!reelLogs[key]) reelLogs[key] = '';
+        reelLogs[key] += data.text;
+    }
+    if (currentSlug === data.slug) updateLogs();
 });
-socket.on('process-start', ({slug, step}) => {
-    runningStep[slug] = step;
-    if (currentSlug === slug) document.getElementById('stop-btn').style.display = '';
-    refresh();
+socket.on('process-start', function(data) {
+    runningStep[data.slug] = data.step;
+    if (currentSlug === data.slug) renderMain(currentSlug);
 });
-socket.on('process-end', ({slug, step, code}) => {
-    delete runningStep[slug];
-    if (currentSlug === slug) document.getElementById('stop-btn').style.display = 'none';
+socket.on('process-end', function(data) {
+    delete runningStep[data.slug];
     refresh();
     // Auto-open reel selection after analyze completes successfully
-    if (step === 'analyze' && code === 0 && currentSlug === slug) {
-        setTimeout(() => openReelSelectionModal(), 500);
+    if (data.step === 'analyze' && data.code === 0 && currentSlug === data.slug) {
+        setTimeout(function() { openReelSelectionModal(); }, 500);
     }
-    // Auto-show cut reels after cut completes successfully
-    if (step === 'cut' && code === 0 && currentSlug === slug) {
-        setTimeout(() => showCutReels(), 500);
+    if (data.step === 'cut' && data.code === 0 && currentSlug === data.slug) {
+        setTimeout(function() { selectedReelId = null; renderMain(currentSlug); }, 500);
     }
-    // Auto-show cropped reels after crop completes successfully
-    if (step === 'crop' && code === 0 && currentSlug === slug) {
-        setTimeout(() => showCutReels(), 500);
+    // Auto-refresh video preview when a reel processing step completes
+    if (data.code === 0 && currentSlug === data.slug && data.reelId && selectedReelId === data.reelId) {
+        setTimeout(function() {
+            var previewEl = document.getElementById('reel-preview');
+            if (previewEl) {
+                // Force video reload by clearing cached reel ID
+                previewEl.dataset.reelId = '';
+                var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+                if (ep) renderReelDetail(ep, selectedReelId);
+            }
+        }, 600);
     }
 });
 socket.on('toast', ({type, message}) => showToast(message, type));
@@ -1246,10 +1334,10 @@ function stepsForType(mediaType, ep) {
         {id: 'analyze',      label: '2. Analyze',      desc: 'AI analysis'},
         {id: 'select-reels', label: '3. Select Reels', desc: 'Pick reels to process'},
         {id: 'cut',          label: '4. Cut',          desc: 'FFmpeg clips'},
-        {id: 'crop',         label: '5. Crop',         desc: 'Aspect ratio crop (optional)'},
-        {id: 'overlay',      label: '6. Overlay',      desc: 'CG & logos'},
-        {id: 'generate',     label: '7. Generate',     desc: 'Captions & copy'},
-        {id: 'subtitle',     label: '8. Subtitle',     desc: 'Burn subs'},
+        {id: 'generate',     label: '5. Caption',      desc: 'Generate captions & copy'},
+        {id: 'crop',         label: '6. Crop',         desc: 'Aspect ratio crop (optional)'},
+        {id: 'subtitle',     label: '7. Subtitle',     desc: 'Burn subs'},
+        {id: 'overlay',      label: '8. Overlay',      desc: 'CG, logos & CTA'},
     ];
 
     // Add compose step for multi-track episodes
@@ -1267,6 +1355,9 @@ function stepsForType(mediaType, ep) {
 
 function selectEp(slug) {
     currentSlug = slug;
+    selectedReelId = null;
+    localStorage.setItem('tajarib-selected-slug', slug);
+    localStorage.removeItem('tajarib-selected-reel');
     document.getElementById('empty-state').style.display = 'none';
     document.getElementById('episode-view').style.display = 'flex';
     renderSidebar();
@@ -1276,13 +1367,32 @@ function selectEp(slug) {
 }
 
 function updateLogs() {
-    const el = document.getElementById('logs-output');
-    el.textContent = logs[currentSlug] || '';
-    el.scrollTop = el.scrollHeight;
+    // Pre-cut console
+    var el = document.getElementById('logs-output');
+    if (el) {
+        el.textContent = logs[currentSlug] || '';
+        el.scrollTop = el.scrollHeight;
+    }
+    // Per-reel console
+    if (selectedReelId) {
+        var reelEl = document.getElementById('logs-output-reel');
+        var reelKey = currentSlug + ':' + selectedReelId;
+        if (reelEl) {
+            reelEl.textContent = reelLogs[reelKey] || logs[currentSlug] || '';
+            reelEl.scrollTop = reelEl.scrollHeight;
+        }
+    }
 }
 
 function clearLogs() {
-    if (currentSlug) { logs[currentSlug] = ''; updateLogs(); }
+    if (currentSlug) {
+        logs[currentSlug] = '';
+        if (selectedReelId) {
+            var reelKey = currentSlug + ':' + selectedReelId;
+            reelLogs[reelKey] = '';
+        }
+        updateLogs();
+    }
 }
 
 async function deleteEpisode(slug) {
@@ -1304,11 +1414,10 @@ function renderMain(slug) {
     const ep = episodes.find(e => e.slug === slug);
     if (!ep) return;
 
+    // Header
     document.getElementById('ep-title').textContent = slug;
-    
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
-    
     document.getElementById('ep-meta').innerHTML =
         '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
         '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
@@ -1320,173 +1429,583 @@ function renderMain(slug) {
         '</select>' +
         '<button class="text-btn" onclick="deleteEpisode(\'' + ep.slug + '\')" style="color:#ef4444; margin-left:auto;" title="Delete episode">🗑 Delete</button>';
 
-    // Show AI title prompt if episode has transcript but temp/placeholder slug
-    const aiTitlePrompt = document.getElementById('ai-title-prompt');
-    const isTempSlug = slug.startsWith('temp-') || slug.startsWith('pending-');
-    if (isTempSlug && ep.steps.transcribed) {
-        aiTitlePrompt.style.display = 'block';
+    // Episode pipeline bar
+    renderEpisodePipelineBar(ep);
+
+    // Mode switch
+    const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
+
+    if (isCut) {
+        document.getElementById('pre-cut-view').style.display = 'none';
+        document.getElementById('post-cut-view').style.display = 'flex';
+        renderReelList(ep);
+        if (selectedReelId) {
+            renderReelDetail(ep, selectedReelId);
+        } else {
+            document.getElementById('reel-detail-empty').style.display = 'flex';
+            document.getElementById('reel-detail').style.display = 'none';
+        }
+        // Topic clip
+        var tcSection = document.getElementById('topic-clip-section');
+        if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';
     } else {
-        aiTitlePrompt.style.display = 'none';
+        document.getElementById('pre-cut-view').style.display = 'flex';
+        document.getElementById('post-cut-view').style.display = 'none';
+        document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
     }
+}
 
-    document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
-
+function renderEpisodePipelineBar(ep) {
+    const bar = document.getElementById('episode-pipeline-bar');
     const steps = stepsForType(ep.mediaType, ep);
+    const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', 'select-reels':'reelsSelected', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
+    const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
 
-    let html = steps.filter(s => s.applicable).map(s => {
-        const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', 'select-reels':'reelsSelected', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
-        const done = ep.steps[stepKeyMap[s.id] || s.id];
-        const statusClass = done ? 'badge-done' : 'badge-pending';
-        const statusText = done ? '✓ DONE' : 'PENDING';
+    // For reels, all applicable steps are shown in the pipeline bar (no per-reel breakdown)
+    // For episodes, only episode-level steps; per-reel steps appear in reel detail
+    const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
+    const episodeLevelSteps = ['transcribe', 'analyze', 'select-reels', 'cut', 'compose'];
+    const stepsToShow = steps.filter(function(s) {
+        return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
+    });
 
-        let note = '';
-        if (s.id === 'select-reels' && done && ep.selectedReels) note = '<div class="stage-note">' + ep.selectedReels.length + ' reels selected</div>';
-        if (s.id === 'cut' && done) note = '<div class="stage-note">' + ep.counts.reels + ' clips</div>';
-        if (s.id === 'subtitle' && done) note = '<div class="stage-note">' + ep.counts.final + ' videos</div>';
+    var nextFound = false;
+    bar.innerHTML = stepsToShow.map(function(s) {
+        var done = ep.steps[stepKeyMap[s.id] || s.id];
+        var isRunning = runningStep[ep.slug] === s.id;
+        var cls = 'ep-step-chip';
+        if (isRunning) cls += ' running';
+        else if (done) cls += ' done';
+        else if (!nextFound && !ep.isRunning) { cls += ' next'; nextFound = true; }
 
-        const canRun = !ep.isRunning;
-        const isThisRunning = runningStep[slug] === s.id;
-        const needGuest = s.id === 'generate' && (!ep.guest || !ep.role);
+        var icon = done ? '✓' : (isRunning ? '⏳' : '○');
+        var label = s.label.replace(/^\d+[b]?\.\s*/, '');
 
-        // Special card: Select Reels
-        if (s.id === 'select-reels') {
-            return '<div class="stage">' +
-                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                    '<h3>' + s.label + '</h3>' +
-                    '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
-                '</div>' +
-                '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
-                note +
-                '<div class="stage-actions">' +
-                    '<button class="primary" onclick="openReelSelectionModal()" ' + (!ep.steps.analyzed ? 'disabled title="Run Analyze first"' : '') + '>' +
-                        (done ? 'Re-select' : 'Select Reels') +
-                    '</button>' +
-                '</div>' +
-            '</div>';
-        }
+        // For select-reels, use a special onclick
+        var onclick = s.id === 'select-reels' ? 'openReelSelectionModal()' : 'runStep(\'' + s.id + '\')';
 
-        // Special card: Crop
-        if (s.id === 'crop') {
-            let cropNote = '';
-            if (done && ep.cropRatio) {
-                cropNote = '<div class="stage-note">Cropped to ' + ep.cropRatio + '</div>';
-            } else if (done) {
-                cropNote = '<div class="stage-note">Cropped</div>';
-            }
-            return '<div class="stage">' +
-                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                    '<h3>' + s.label + '</h3>' +
-                    '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
-                '</div>' +
-                '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
-                cropNote +
-                '<div style="margin:8px 0;">' +
-                    '<select id="crop-ratio-select" style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.75rem; width:100%;">' +
-                        '<option value="9:16"' + (ep.cropRatio === '9:16' ? ' selected' : '') + '>9:16 (Vertical / TikTok / Reels)</option>' +
-                        '<option value="1:1"' + (ep.cropRatio === '1:1' ? ' selected' : '') + '>1:1 (Square / Instagram)</option>' +
-                        '<option value="4:5"' + (ep.cropRatio === '4:5' ? ' selected' : '') + '>4:5 (Instagram Portrait)</option>' +
-                    '</select>' +
-                '</div>' +
-                '<div class="stage-actions">' +
-                    '<button class="primary" onclick="runCropStep()" ' + (!ep.steps.cut ? 'disabled title="Run Cut first"' : '') + '>' +
-                        (done ? 'Re-crop' : 'Run Crop') +
-                    '</button>' +
-                    '<button onclick="skipCropStep()">Skip</button>' +
-                    (done ? '<button onclick="showCutReels()">View Reels</button>' : '') +
-                '</div>' +
-            '</div>';
-        }
-
-        const runBadge = isThisRunning ? '<span class="badge" style="background:#92400e; color:#fbbf24; animation:pulse 1.5s infinite;">⏳ RUNNING</span>' : '<span class="badge ' + statusClass + '">' + statusText + '</span>';
-
-        return '<div class="stage" ' + (isThisRunning ? 'style="border-color:#f59e0b;"' : '') + '>' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>' + s.label + '</h3>' +
-                runBadge +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">' + s.desc + '</div>' +
-            note +
-            '<div class="stage-actions">' +
-                (isThisRunning
-                    ? '<button class="stop-btn" onclick="socket.emit(\'stop-step\', {slug: currentSlug})" style="width:100%;">⏹ Stop ' + s.label.split('. ')[1] + '</button>'
-                    : '<button class="primary" onclick="runStep(' + "'" + s.id + "'" + ')" ' + (!canRun || needGuest ? 'disabled' : '') + '>' +
-                        (needGuest ? 'Set guest first' : (done ? 'Re-run' : 'Run')) +
-                      '</button>'
-                ) +
-                (!isThisRunning && needGuest ? '<button onclick="editMeta()">Set Guest</button>' : '') +
-                (!isThisRunning && s.id === 'transcribe' && done ? '<button onclick="loadTextEditor()">Edit</button>' : '') +
-                (!isThisRunning && s.id === 'transcribe' && done ? '<button onclick="generateAiTitle()" style="background:var(--accent); color:#fff; border-color:var(--accent);">🤖 AI Title</button>' : '') +
-                (!isThisRunning && s.id === 'generate' && done ? '<button onclick="loadContentEditor(); switchTab(' + "'content'" + ')">Edit Content</button>' : '') +
-                (!isThisRunning && s.id !== 'cut' && s.id !== 'crop' && s.id !== 'select-reels' && s.id !== 'subtitle' && s.id !== 'overlay' && s.id !== 'compose' && done ? '<button onclick="loadJsonFile(' + "'" + s.id + '.json' + "'" + ')">JSON</button>' : '') +
-                (!isThisRunning && s.id === 'cut' && done ? '<button onclick="showCutReels()">View Reels</button>' : '') +
-                (!isThisRunning && s.id === 'subtitle' && done ? '<button onclick="showReels()">View Reels</button>' : '') +
-                (!isThisRunning && s.id === 'compose' ? '<button onclick="openSwitchEditor()">Edit Switches</button>' : '') +
-            '</div>' +
+        return '<div class="' + cls + '" onclick="' + onclick + '" title="' + s.desc + '">' +
+            '<span class="chip-icon">' + icon + '</span>' +
+            '<span>' + label + '</span>' +
         '</div>';
     }).join('');
+}
 
-    // Add Publish button for reels when ready
-    // reel_full: ready after generate (already has subtitles)
-    // reel_cut: ready after subtitle step
-    const canPublish = (ep.mediaType === 'reel_full' && ep.steps.generated) ||
-                       (ep.mediaType === 'reel_cut' && ep.steps.subtitled);
+function renderReelList(ep) {
+    var listEl = document.getElementById('reel-list');
+    document.getElementById('reel-list-count').textContent = ep.reelStatuses.length + ' reels';
 
-    if (canPublish && !ep.steps.published) {
-        html += '<div class="stage" style="border-color:var(--success);">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>📤 Publish</h3>' +
-                '<span class="badge badge-pending">READY</span>' +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">Send to Zapier</div>' +
-            '<div class="stage-actions">' +
-                '<button class="success" onclick="publishToZapier()">Publish Now</button>' +
-            '</div>' +
+    // Bulk actions
+    var bulkEl = document.getElementById('reel-list-bulk');
+    bulkEl.innerHTML =
+        '<button onclick="runStep(\'generate\')">Caption All</button>' +
+        '<button onclick="runStep(\'crop\')">Crop All</button>' +
+        '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
+        '<button onclick="runStep(\'overlay\')">Overlay All</button>';
+
+    listEl.innerHTML = ep.reelStatuses.map(function(r) {
+        var isActive = selectedReelId === r.id;
+        var chipDefs = [
+            {key: 'generated', label: 'CAP'},
+            {key: 'cropped', label: 'CROP'},
+            {key: 'subtitled', label: 'SUB'},
+            {key: 'final', label: 'OVR'}
+        ];
+        var chips = chipDefs.map(function(c) {
+            return '<span class="reel-chip ' + (r[c.key] ? 'done' : 'pending') + '">' + c.label + '</span>';
+        }).join('');
+
+        return '<div class="reel-list-item ' + (isActive ? 'active' : '') + '" onclick="selectReel(\'' + r.id + '\')">' +
+            '<div class="reel-list-item-title">Reel ' + r.id + '</div>' +
+            (r.hook ? '<div class="reel-list-item-hook">' + r.hook + '</div>' : '') +
+            '<div class="reel-list-item-chips">' + chips + '</div>' +
         '</div>';
+    }).join('');
+}
+
+function selectReel(reelId) {
+    selectedReelId = reelId;
+    localStorage.setItem('tajarib-selected-reel', reelId);
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (ep) {
+        renderReelList(ep);
+        renderReelDetail(ep, reelId);
+    }
+}
+
+function renderReelDetail(ep, reelId) {
+    document.getElementById('reel-detail-empty').style.display = 'none';
+    document.getElementById('reel-detail').style.display = 'flex';
+
+    var r = ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    if (!r) return;
+
+    // Video preview — only recreate if reel changed to avoid interrupting playback
+    var previewEl = document.getElementById('reel-preview');
+    if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now();
+        previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
+        previewEl.dataset.reelId = reelId;
+        previewEl.dataset.slug = ep.slug;
     }
 
-    // Show published status
-    if (ep.steps.published) {
-        html += '<div class="stage" style="border-color:var(--success); opacity:0.7;">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>✅ Published</h3>' +
-                '<span class="badge" style="background:#064e3b; color:#34d399;">DONE</span>' +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">Published</div>' +
-        '</div>';
+    // Per-reel action buttons
+    var actionsEl = document.getElementById('reel-actions');
+    actionsEl.innerHTML = buildReelActions(ep, r);
+
+    // Caption editor — show generated caption if available
+    var captionEl = document.getElementById('reel-caption-editor');
+    if (captionEl) {
+        var reelContent = null;
+        if (ep.content && ep.content.reels) {
+            var reelNum = parseInt(reelId, 10);
+            reelContent = ep.content.reels.find(function(rc) { return rc.id === reelNum || String(rc.id).padStart(2, '0') === reelId; });
+        }
+        if (reelContent && reelContent.caption) {
+            captionEl.style.display = '';
+            captionEl.innerHTML =
+                '<div style="font-size:0.7rem; color:#666; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;">' + escHtml(reelContent.caption) + '</textarea>' +
+                '<div style="display:flex; gap:6px; margin-top:6px;">' +
+                    '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
+                    '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
+                '</div>';
+        } else {
+            captionEl.style.display = 'none';
+            captionEl.innerHTML = '';
+        }
     }
 
-    // Preview button for reels
-    if (ep.mediaType.includes('reel') && ep.steps.generated) {
-        html += '<div class="stage" style="border-color:var(--accent);">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>👁️ Preview</h3>' +
-                '<span class="badge badge-pending">NEW</span>' +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">Review before publishing</div>' +
-            '<div class="stage-actions">' +
-                '<button class="primary" style="background:var(--accent);" onclick="showPreviewTab()">View Reel</button>' +
-            '</div>' +
-        '</div>';
+    // Subtitle editor — show if ASS/SRT file exists
+    var subEditorEl = document.getElementById('reel-subtitle-editor');
+    if (subEditorEl) {
+        if (r.subtitled) {
+            subEditorEl.style.display = '';
+            subEditorEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Subtitles</div>' +
+                    '<button onclick="loadReelSubtitles(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                '</div>' +
+                '<div id="reel-subtitle-content" style="display:none;">' +
+                    '<textarea id="reel-subtitle-text" class="content-textarea" rows="8" style="font-family:monospace; font-size:0.72rem; direction:ltr;"></textarea>' +
+                    '<div style="display:flex; gap:6px; margin-top:6px;">' +
+                        '<button onclick="saveReelSubtitles(\'' + reelId + '\')" style="font-size:0.7rem;">Save & Re-burn</button>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            subEditorEl.style.display = 'none';
+            subEditorEl.innerHTML = '';
+        }
     }
 
-    // Clip from topic (for episodes with transcript)
-    if (ep.mediaType === 'episode' && ep.steps.transcribed) {
-        html += '<div class="stage" style="border-color:#f59e0b;">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>✂️ Topic Clip</h3>' +
-                '<span class="badge" style="background:#451a03; color:#fbbf24;">EXTRACT</span>' +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">Create reel from specific topic</div>' +
-            '<div style="margin:8px 0;">' +
-                '<input type="text" id="clip-topic-input" placeholder="e.g., investment advice, startup story..." style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.75rem; width:100%;">' +
-            '</div>' +
-            '<div class="stage-actions">' +
-                '<button class="primary" style="background:#f59e0b; color:#000; border-color:#f59e0b;" onclick="generateTopicClip()">Generate Clip</button>' +
-            '</div>' +
-        '</div>';
+    // Console
+    document.getElementById('reel-console-title').textContent = 'Console — Reel ' + reelId;
+    var reelKey = currentSlug + ':' + reelId;
+    document.getElementById('logs-output-reel').textContent = reelLogs[reelKey] || logs[currentSlug] || '';
+    var logsEl = document.getElementById('logs-output-reel');
+    logsEl.scrollTop = logsEl.scrollHeight;
+}
+
+function buildReelActions(ep, reel) {
+    var reelId = reel.id;
+    var html = '';
+
+    // Caption
+    html += '<button class="' + (reel.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')">' +
+        (reel.generated ? '↻ Caption' : '▶ Caption') + '</button>';
+
+    // Crop group
+    html += '<div class="reel-actions-group">' +
+        '<button class="' + (reel.cropped ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'crop\')">' +
+        (reel.cropped ? '↻ Crop' : '▶ Crop') + '</button>' +
+        '<select id="reel-crop-ratio" style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.7rem;">' +
+            '<option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:5">4:5</option>' +
+        '</select>' +
+        '<label style="font-size:0.68rem; color:#888; display:flex; align-items:center; gap:3px; cursor:pointer;">' +
+            '<input type="checkbox" id="reel-face-track" style="accent-color:var(--accent);" checked>' +
+            'Face' +
+        '</label>' +
+    '</div>';
+
+    // Subtitle
+    html += '<button class="' + (reel.subtitled ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'subtitle\')">' +
+        (reel.subtitled ? '↻ Subtitle' : '▶ Subtitle') + '</button>';
+
+    // Overlay
+    html += '<button class="' + (reel.final ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'overlay\')">' +
+        (reel.final ? '↻ Overlay' : '▶ Overlay') + '</button>';
+
+    return html;
+}
+
+async function loadReelSubtitles(reelId) {
+    if (!currentSlug) return;
+    var padded = String(reelId).padStart(2, '0');
+    try {
+        var res = await fetch('/api/file?slug=' + currentSlug + '&file=reels/reel-' + padded + '.ass');
+        if (res.ok) {
+            var text = await res.text();
+            document.getElementById('reel-subtitle-content').style.display = '';
+            document.getElementById('reel-subtitle-text').value = text;
+        } else {
+            showToast('No subtitle file found for reel ' + reelId, 'error');
+        }
+    } catch (err) {
+        showToast('Failed to load subtitles: ' + err.message, 'error');
+    }
+}
+
+async function saveReelSubtitles(reelId) {
+    if (!currentSlug) return;
+    var padded = String(reelId).padStart(2, '0');
+    var textEl = document.getElementById('reel-subtitle-text');
+    if (!textEl) return;
+    var content = textEl.value;
+    try {
+        // Save the subtitle file
+        var res = await fetch('/api/file?slug=' + currentSlug + '&file=reels/reel-' + padded + '.ass', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, file: 'reels/reel-' + padded + '.ass', content: content})
+        });
+        var data = await res.json();
+        if (data.success) {
+            showToast('Subtitles saved. Re-burning...', 'success');
+            // Re-run subtitle burn for this reel
+            await runReelStep(reelId, 'subtitle');
+        } else {
+            showToast(data.error || 'Save failed', 'error');
+        }
+    } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+    }
+}
+
+async function saveReelCaption(reelId) {
+    if (!currentSlug) return;
+    var textEl = document.getElementById('reel-caption-text');
+    if (!textEl) return;
+    var caption = textEl.value;
+    try {
+        var res = await fetch('/api/save-reel-caption', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reelId: reelId, caption: caption})
+        });
+        var data = await res.json();
+        if (data.success) {
+            showToast('Caption saved', 'success');
+            await refresh();
+        } else {
+            showToast(data.error || 'Save failed', 'error');
+        }
+    } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        showToast('Copied!', 'success');
+    }).catch(function() {
+        // Fallback
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Copied!', 'success');
+    });
+}
+
+async function runReelStep(reelId, step) {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep) return;
+
+    if (step === 'generate' && (!ep.guest || !ep.role)) {
+        showToast('Set guest name and role first', 'error');
+        editMeta();
+        return;
     }
 
-    document.getElementById('pipeline').innerHTML = html;
+    var body = {
+        slug: currentSlug,
+        step: step,
+        reelId: reelId,
+        force: true
+    };
+
+    if (step === 'crop') {
+        var ratioEl = document.getElementById('reel-crop-ratio');
+        body.ratio = ratioEl ? ratioEl.value : '9:16';
+        var ftEl = document.getElementById('reel-face-track');
+        body.faceTrack = ftEl ? ftEl.checked : false;
+    }
+
+    try {
+        var res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (!data.success) showToast(data.error, 'error');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+// ── Overlay Config Panel ─────────────────────────────────────────────────
+let overlayConfig = null;
+let overlayDragging = null;
+let overlayCanvasCtx = null;
+
+async function toggleOverlayConfig() {
+    const section = document.getElementById('overlay-config-section');
+    if (section.style.display !== 'none' && section.innerHTML) {
+        section.style.display = 'none';
+        section.innerHTML = '';
+        return;
+    }
+    section.style.display = '';
+    // Load config
+    try {
+        const res = await fetch('/api/overlay-config/' + encodeURIComponent(currentSlug));
+        overlayConfig = await res.json();
+    } catch (e) {
+        overlayConfig = {
+            sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
+            logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
+            lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+            cta: { enabled: false, mode: 'text', text: 'www.tajarib.show', fontSize: 28, fontColor: '#ffffff', imagePath: '', x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
+        };
+    }
+    renderOverlayConfig();
+}
+
+function renderOverlayConfig() {
+    const section = document.getElementById('overlay-config-section');
+    const c = overlayConfig;
+    section.innerHTML =
+        '<div class="overlay-config">' +
+            '<h3>Overlay Configuration</h3>' +
+            '<div style="display:flex; gap:16px; flex-wrap:wrap;">' +
+                // Canvas
+                '<div style="flex:1; min-width:280px;">' +
+                    '<div class="overlay-canvas-wrap">' +
+                        '<canvas id="overlay-canvas" width="640" height="360"></canvas>' +
+                    '</div>' +
+                    '<div style="font-size:0.65rem; color:#555; margin-top:4px;">Drag elements to reposition</div>' +
+                '</div>' +
+                // Controls
+                '<div style="flex:1; min-width:260px;" class="overlay-elements">' +
+                    // Sponsor
+                    '<div class="overlay-el">' +
+                        '<div class="overlay-el-header">' +
+                            '<label>Sponsor</label>' +
+                            '<input type="checkbox" id="ov-sponsor-on" ' + (c.sponsor.enabled ? 'checked' : '') + ' onchange="overlayConfig.sponsor.enabled=this.checked; drawOverlayCanvas();">' +
+                        '</div>' +
+                        '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>Scale</label><input type="range" min="80" max="300" value="' + c.sponsor.scale + '" oninput="overlayConfig.sponsor.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.sponsor.scale + 'px</span></div>' +
+                        '</div>' +
+                    '</div>' +
+                    // Logo
+                    '<div class="overlay-el">' +
+                        '<div class="overlay-el-header">' +
+                            '<label>Logo</label>' +
+                            '<input type="checkbox" id="ov-logo-on" ' + (c.logo.enabled ? 'checked' : '') + ' onchange="overlayConfig.logo.enabled=this.checked; drawOverlayCanvas();">' +
+                        '</div>' +
+                        '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>Scale</label><input type="range" min="60" max="250" value="' + c.logo.scale + '" oninput="overlayConfig.logo.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.logo.scale + 'px</span></div>' +
+                        '</div>' +
+                    '</div>' +
+                    // Lower Third
+                    '<div class="overlay-el">' +
+                        '<div class="overlay-el-header">' +
+                            '<label>Lower Third (Guest CG)</label>' +
+                            '<input type="checkbox" id="ov-lt-on" ' + (c.lowerThird.enabled ? 'checked' : '') + ' onchange="overlayConfig.lowerThird.enabled=this.checked; drawOverlayCanvas();">' +
+                        '</div>' +
+                        '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>Start</label><input type="range" min="0" max="30" step="0.5" value="' + c.lowerThird.startTime + '" oninput="overlayConfig.lowerThird.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.startTime + 's</span></div>' +
+                            '<div class="overlay-row"><label>End</label><input type="range" min="1" max="30" step="0.5" value="' + c.lowerThird.endTime + '" oninput="overlayConfig.lowerThird.endTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.endTime + 's</span></div>' +
+                        '</div>' +
+                    '</div>' +
+                    // CTA
+                    '<div class="overlay-el">' +
+                        '<div class="overlay-el-header">' +
+                            '<label>CTA</label>' +
+                            '<input type="checkbox" id="ov-cta-on" ' + (c.cta.enabled ? 'checked' : '') + ' onchange="overlayConfig.cta.enabled=this.checked; drawOverlayCanvas();">' +
+                        '</div>' +
+                        '<div class="overlay-el-body">' +
+                            '<div class="cta-mode-toggle">' +
+                                '<button class="' + (c.cta.mode === 'text' ? 'active' : '') + '" onclick="overlayConfig.cta.mode=\'text\'; renderOverlayConfig();">Text</button>' +
+                                '<button class="' + (c.cta.mode === 'image' ? 'active' : '') + '" onclick="overlayConfig.cta.mode=\'image\'; renderOverlayConfig();">Image</button>' +
+                            '</div>' +
+                            (c.cta.mode === 'text' ?
+                                '<div class="overlay-row"><label>Text</label><input type="text" value="' + (c.cta.text || '').replace(/"/g, '&quot;') + '" oninput="overlayConfig.cta.text=this.value; drawOverlayCanvas();"></div>' +
+                                '<div class="overlay-row"><label>Size</label><input type="range" min="14" max="48" value="' + c.cta.fontSize + '" oninput="overlayConfig.cta.fontSize=+this.value; this.nextSibling.textContent=this.value+\'pt\'; drawOverlayCanvas();"><span>' + c.cta.fontSize + 'pt</span></div>' +
+                                '<div class="overlay-row"><label>Color</label><input type="color" value="' + (c.cta.fontColor || '#ffffff') + '" oninput="overlayConfig.cta.fontColor=this.value; drawOverlayCanvas();"></div>'
+                            :
+                                '<div class="overlay-row"><label>File</label><input type="file" accept=".png,.mov,.mp4,.gif" onchange="uploadCTAAsset(this.files[0]);" style="font-size:0.65rem; color:#888;"></div>' +
+                                '<div class="overlay-row"><label>Scale</label><input type="range" min="50" max="400" value="' + c.cta.scale + '" oninput="overlayConfig.cta.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.cta.scale + 'px</span></div>'
+                            ) +
+                            '<div class="overlay-row"><label>Show</label><input type="range" min="0" max="120" step="1" value="' + c.cta.startTime + '" oninput="overlayConfig.cta.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.cta.startTime + 's</span></div>' +
+                            '<div class="overlay-row"><label>Hide</label><input type="range" min="1" max="120" step="1" value="' + c.cta.endTime + '" oninput="overlayConfig.cta.endTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.cta.endTime + 's</span></div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            // Action buttons
+            '<div style="display:flex; gap:8px; margin-top:14px;">' +
+                '<button class="primary" onclick="saveAndRunOverlay()">Save & Run Overlay</button>' +
+                '<button onclick="saveOverlayConfig()">Save Config</button>' +
+            '</div>' +
+        '</div>';
+
+    initOverlayCanvas();
+}
+
+function initOverlayCanvas() {
+    const canvas = document.getElementById('overlay-canvas');
+    if (!canvas) return;
+    overlayCanvasCtx = canvas.getContext('2d');
+    drawOverlayCanvas();
+
+    canvas.addEventListener('mousedown', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mx = (e.clientX - rect.left) * scaleX;
+        const my = (e.clientY - rect.top) * scaleY;
+        const elements = getOverlayElements();
+        for (let i = elements.length - 1; i >= 0; i--) {
+            const el = elements[i];
+            if (mx >= el.x && mx <= el.x + el.w && my >= el.y && my <= el.y + el.h) {
+                overlayDragging = { key: el.key, offsetX: mx - el.x, offsetY: my - el.y };
+                break;
+            }
+        }
+    });
+
+    canvas.addEventListener('mousemove', function(e) {
+        if (!overlayDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mx = (e.clientX - rect.left) * scaleX;
+        const my = (e.clientY - rect.top) * scaleY;
+        const nx = mx - overlayDragging.offsetX;
+        const ny = my - overlayDragging.offsetY;
+        const pctX = (nx / canvas.width) * 100;
+        const pctY = (ny / canvas.height) * 100;
+        if (overlayConfig[overlayDragging.key]) {
+            overlayConfig[overlayDragging.key].x = Math.max(0, Math.min(95, pctX));
+            overlayConfig[overlayDragging.key].y = Math.max(0, Math.min(95, pctY));
+        }
+        drawOverlayCanvas();
+    });
+
+    canvas.addEventListener('mouseup', function() { overlayDragging = null; });
+    canvas.addEventListener('mouseleave', function() { overlayDragging = null; });
+}
+
+function getOverlayElements() {
+    const c = overlayConfig;
+    const W = 640, H = 360;
+    const els = [];
+    if (c.sponsor.enabled) {
+        const w = c.sponsor.scale * 0.4;
+        const h = w * 0.6;
+        els.push({ key: 'sponsor', label: 'Sponsor', x: c.sponsor.x / 100 * W, y: c.sponsor.y / 100 * H, w: w, h: h, color: 'rgba(59,130,246,0.6)' });
+    }
+    if (c.logo.enabled) {
+        const w = c.logo.scale * 0.35;
+        const h = w;
+        els.push({ key: 'logo', label: 'Logo', x: c.logo.x / 100 * W, y: c.logo.y / 100 * H, w: w, h: h, color: 'rgba(168,85,247,0.6)' });
+    }
+    if (c.lowerThird.enabled) {
+        els.push({ key: 'lowerThird', label: 'Lower Third', x: 0, y: H - 70, w: 200, h: 50, color: 'rgba(168,85,247,0.7)', fixed: true });
+    }
+    if (c.cta.enabled) {
+        const w = c.cta.mode === 'text' ? Math.min(200, (c.cta.text || '').length * (c.cta.fontSize * 0.4) + 20) : c.cta.scale * 0.4;
+        const h = c.cta.mode === 'text' ? c.cta.fontSize * 1.5 : w * 0.5;
+        els.push({ key: 'cta', label: 'CTA', x: c.cta.x / 100 * W, y: c.cta.y / 100 * H, w: Math.max(60, w), h: Math.max(25, h), color: 'rgba(34,197,94,0.6)' });
+    }
+    return els;
+}
+
+function drawOverlayCanvas() {
+    const canvas = document.getElementById('overlay-canvas');
+    if (!canvas) return;
+    const ctx = overlayCanvasCtx;
+    const W = canvas.width, H = canvas.height;
+
+    // Dark background with grid
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // Safe area guide
+    ctx.strokeStyle = '#333';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(W * 0.05, H * 0.05, W * 0.9, H * 0.9);
+    ctx.setLineDash([]);
+
+    // Draw elements
+    const els = getOverlayElements();
+    els.forEach(function(el) {
+        ctx.fillStyle = el.color;
+        ctx.fillRect(el.x, el.y, el.w, el.h);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = overlayDragging && overlayDragging.key === el.key ? 2 : 1;
+        ctx.strokeRect(el.x, el.y, el.w, el.h);
+        ctx.fillStyle = '#fff';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(el.label, el.x + 4, el.y + 14);
+    });
+}
+
+async function uploadCTAAsset(file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('type', 'cta');
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            overlayConfig.cta.imagePath = 'assets/' + data.file;
+            drawOverlayCanvas();
+        }
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
+}
+
+async function saveOverlayConfig() {
+    if (!currentSlug || !overlayConfig) return;
+    try {
+        await fetch('/api/overlay-config/' + encodeURIComponent(currentSlug), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(overlayConfig)
+        });
+    } catch (e) {
+        alert('Save failed: ' + e.message);
+    }
+}
+
+async function saveAndRunOverlay() {
+    await saveOverlayConfig();
+    runStep('overlay');
+    // Collapse panel
+    document.getElementById('overlay-config-section').style.display = 'none';
+    document.getElementById('overlay-config-section').innerHTML = '';
 }
 
 // Actions
@@ -1511,11 +2030,18 @@ async function runStep(step) {
         }
     }
 
+    // Auto-enable face tracking for crop step
+    var body = {slug: currentSlug, step, force: true, model};
+    if (step === 'crop') {
+        body.faceTrack = true;
+        body.ratio = '9:16';
+    }
+
     try {
         const res = await fetch('/api/run-step', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug, step, force: true, model})
+            body: JSON.stringify(body)
         });
         const data = await res.json();
         if (!data.success) showToast(data.error, 'error');
@@ -1834,131 +2360,15 @@ async function confirmReelSelection() {
 
 // ── Crop Step ──────────────────────────────────────────────────────────────
 
-async function runCropStep() {
-    if (!currentSlug) return;
-    const ratioSelect = document.getElementById('crop-ratio-select');
-    const ratio = ratioSelect ? ratioSelect.value : '9:16';
-    try {
-        const res = await fetch('/api/run-step', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug, step: 'crop', force: true, ratio: ratio})
-        });
-        const data = await res.json();
-        if (!data.success) showToast(data.error, 'error');
-    } catch (err) {
-        showToast(err.message, 'error');
-    }
-}
-
-function skipCropStep() {
-    showToast('Crop skipped — proceeding with original aspect ratio', 'success');
-    showCutReels();
-}
-
-// ── Cut Reels Viewer ──────────────────────────────────────────────────────
+// ── Cut Reels (legacy) ──────────────────────────────────────────────────────
 
 async function showCutReels() {
-    if (!currentSlug) return;
-    const ep = episodes.find(e => e.slug === currentSlug);
-    if (!ep || ep.counts.reels === 0) {
-        showToast('No cut reels yet.', 'error');
-        return;
+    // Legacy function — now handled by the reel list
+    if (selectedReelId) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (ep && ep.reelStatuses && ep.reelStatuses.length > 0) {
+        selectReel(ep.reelStatuses[0].id);
     }
-
-    // Determine reel IDs from selected-reels.json or analysis
-    let reelIds = [];
-    try {
-        const selRes = await fetch('/api/file?slug=' + currentSlug + '&file=selected-reels.json');
-        if (selRes.ok) {
-            const selText = await selRes.text();
-            const data = JSON.parse(selText);
-            reelIds = data.reels.map(r => String(r.id).padStart(2, '0'));
-        }
-    } catch (_) {}
-
-    if (reelIds.length === 0) {
-        try {
-            const aRes = await fetch('/api/analysis?slug=' + currentSlug);
-            if (aRes.ok) {
-                const analysis = await aRes.json();
-                reelIds = (analysis.reels || []).map(r => String(r.id).padStart(2, '0'));
-            }
-        } catch (_) {}
-    }
-
-    if (reelIds.length === 0) {
-        showToast('Could not determine reel IDs', 'error');
-        return;
-    }
-
-    // Fetch version info for labels
-    let versionMap = {};
-    try {
-        const vRes = await fetch('/api/reel-versions?slug=' + currentSlug);
-        if (vRes.ok) {
-            const vData = await vRes.json();
-            vData.reels.forEach(r => { versionMap[r.id] = r; });
-        }
-    } catch (_) {}
-
-    const cropRatio = ep.cropRatio;
-    let headerLabel = 'Cut Reels (' + reelIds.length + ')';
-    if (ep.steps.cropped && cropRatio) {
-        headerLabel = 'Cropped Reels — ' + cropRatio + ' (' + reelIds.length + ')';
-    } else if (ep.steps.cropped) {
-        headerLabel = 'Cropped Reels (' + reelIds.length + ')';
-    }
-
-    const cacheBust = '&t=' + Date.now();
-
-    // Build next-step guidance
-    let nextStepHtml = '';
-    if (ep.steps.cut && !ep.steps.cropped && !ep.steps.generated) {
-        nextStepHtml = '<div style="background:#1a1a2e; border:1px solid #333; border-radius:8px; padding:14px; text-align:center; margin-top:8px;">' +
-            '<div style="font-size:0.8rem; color:#999; margin-bottom:10px;">Next: Crop to a target format, or skip to generate captions</div>' +
-            '<div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">' +
-                '<button class="primary" onclick="document.querySelector(\'.pipeline\').scrollIntoView({behavior:\'smooth\'})">⬆ Crop Reels</button>' +
-                '<button onclick="skipCropStep()">Skip Crop →</button>' +
-            '</div>' +
-        '</div>';
-    } else if (ep.steps.cut && !ep.steps.generated) {
-        nextStepHtml = '<div style="background:#1a2e1a; border:1px solid #333; border-radius:8px; padding:14px; text-align:center; margin-top:8px;">' +
-            '<div style="font-size:0.8rem; color:#999; margin-bottom:10px;">Reels look good? Generate captions next.</div>' +
-            '<div style="display:flex; gap:8px; justify-content:center;">' +
-                '<button class="primary" onclick="runStep(\'generate\')">▶ Run Generate</button>' +
-            '</div>' +
-        '</div>';
-    }
-
-    const previewDiv = document.getElementById('preview-content');
-    previewDiv.innerHTML =
-        '<div style="font-size:0.9rem; color:#aaa; margin-bottom:12px;">' + headerLabel + '</div>' +
-        reelIds.map(id => {
-            const v = versionMap[id];
-            let badge = '';
-            if (v) {
-                if (v.serving === 'cropped') {
-                    badge = '<span style="background:#2d1b4b; color:#c084fc; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">CROPPED' + (cropRatio ? ' ' + cropRatio : '') + '</span>';
-                } else if (v.serving === 'subtitled') {
-                    badge = '<span style="background:#1e3a5f; color:#60a5fa; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">SUBTITLED</span>';
-                } else {
-                    badge = '<span style="background:#1a2e1a; color:#4ade80; padding:2px 8px; border-radius:3px; font-size:0.65rem; font-weight:600;">ORIGINAL CUT</span>';
-                }
-            }
-            return '<div style="background:#161616; border:1px solid #2a2a2a; border-radius:8px; padding:12px; margin-bottom:12px;">' +
-                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
-                    '<span style="font-size:0.8rem; color:#888;">Reel ' + id + '</span>' +
-                    badge +
-                '</div>' +
-                '<video controls preload="metadata" style="width:100%; max-height:300px; border-radius:6px; background:#000;" ' +
-                    'src="/api/video?slug=' + currentSlug + '&reel=' + id + cacheBust + '"></video>' +
-            '</div>';
-        }).join('') +
-        nextStepHtml;
-
-    document.getElementById('tab-preview').style.display = '';
-    switchTab('preview', true);
 }
 
 // ── Media Type ─────────────────────────────────────────────────────────────
@@ -1985,14 +2395,16 @@ async function changeMediaType(slug, newType) {
 
 // Editor Tabs
 function switchTab(tab, skipPreviewLoad) {
-    document.getElementById('tab-text').classList.toggle('active', tab === 'text');
-    document.getElementById('tab-content').classList.toggle('active', tab === 'content');
-    document.getElementById('tab-preview').classList.toggle('active', tab === 'preview');
-    document.getElementById('tab-json').classList.toggle('active', tab === 'json');
-    document.getElementById('text-editor-wrap').style.display = tab === 'text' ? 'flex' : 'none';
-    document.getElementById('content-editor-wrap').style.display = tab === 'content' ? 'flex' : 'none';
-    document.getElementById('preview-editor-wrap').style.display = tab === 'preview' ? 'flex' : 'none';
-    document.getElementById('json-editor-wrap').style.display = tab === 'json' ? 'flex' : 'none';
+    var ids = ['tab-text', 'tab-content', 'tab-preview', 'tab-json'];
+    ids.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.toggle('active', id === 'tab-' + tab);
+    });
+    var wraps = {text: 'text-editor-wrap', content: 'content-editor-wrap', preview: 'preview-editor-wrap', json: 'json-editor-wrap'};
+    Object.keys(wraps).forEach(function(k) {
+        var el = document.getElementById(wraps[k]);
+        if (el) el.style.display = k === tab ? 'flex' : 'none';
+    });
 
     if (tab === 'preview' && !skipPreviewLoad) {
         loadPreview();
@@ -2001,13 +2413,15 @@ function switchTab(tab, skipPreviewLoad) {
 
 // Show preview tab
 async function showPreviewTab() {
-    document.getElementById('tab-preview').style.display = '';
+    var el = document.getElementById('tab-preview');
+    if (el) el.style.display = '';
     switchTab('preview');
 }
 
 // Load Preview
 async function loadPreview() {
     const previewDiv = document.getElementById('preview-content');
+    if (!previewDiv) return;
     if (!currentSlug) {
         previewDiv.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:40px;">No episode selected</div>';
         return;
@@ -2118,10 +2532,10 @@ async function showReels() {
         return;
     }
 
-    // Switch to preview tab which shows the video
-    document.getElementById('tab-preview').style.display = '';
-    switchTab('preview');
-    showToast('Showing subtitled reels in Preview tab', 'success');
+    // In new layout, just select the first reel
+    if (ep.reelStatuses && ep.reelStatuses.length > 0) {
+        selectReel(ep.reelStatuses[0].id);
+    }
 }
 
 // Model Management
@@ -2237,7 +2651,8 @@ async function loadContentEditor() {
     if (!currentSlug) return;
     const ep = episodes.find(e => e.slug === currentSlug);
     if (!ep || !ep.content) {
-        document.getElementById('content-editor-body').innerHTML = '<div style="color:#555; font-size:0.8rem; padding:20px; text-align:center;">No generated content yet. Run the Generate step first.</div>';
+        var edBody = document.getElementById('content-editor-body');
+        if (edBody) edBody.innerHTML = '<div style="color:#555; font-size:0.8rem; padding:20px; text-align:center;">No generated content yet. Run the Generate step first.</div>';
         return;
     }
     contentEditorData = ep.content;
@@ -2248,6 +2663,7 @@ function renderContentEditor() {
     if (!contentEditorData) return;
     const d = contentEditorData;
     const body = document.getElementById('content-editor-body');
+    if (!body) return;
     const ep = episodes.find(e => e.slug === currentSlug);
     const isReel = ep && ep.mediaType !== 'episode';
 
@@ -2387,8 +2803,9 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
 
 async function saveAllContent() {
     if (!currentSlug || !contentEditorData) return;
-    
+
     const body = document.getElementById('content-editor-body');
+    if (!body) return;
     const fields = body.querySelectorAll('.content-field[data-field]');
     let savedCount = 0;
 
@@ -2427,8 +2844,10 @@ function copyField(fieldPath) {
 async function loadTextEditor() {
     if (!currentSlug) return;
     switchTab('text');
-    document.getElementById('editor-file').textContent = 'transcript.json — Segment Editor';
-    document.getElementById('save-text-btn').disabled = false;
+    var edFile = document.getElementById('editor-file');
+    if (edFile) edFile.textContent = 'transcript.json — Segment Editor';
+    var saveBtn = document.getElementById('save-text-btn');
+    if (saveBtn) saveBtn.disabled = false;
 
     try {
         const res = await fetch('/api/file?slug=' + currentSlug + '&file=transcript.json');
@@ -2440,6 +2859,7 @@ async function loadTextEditor() {
     }
 
     const list = document.getElementById('seg-list');
+    if (!list) return;
     list.innerHTML = textEditorData.segments.map((seg, i) => {
         const mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
         const secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
@@ -2448,14 +2868,16 @@ async function loadTextEditor() {
             '<textarea class="seg-input" rows="2" data-idx="' + i + '" oninput="autoResize(this)">' + escHtml(seg.text) + '</textarea>' +
         '</div>';
     }).join('');
-    
+
     list.querySelectorAll('.seg-input').forEach(autoResize);
 }
 
 async function saveTextEditor() {
     if (!currentSlug || !textEditorData) return;
     
-    const inputs = document.getElementById('seg-list').querySelectorAll('.seg-input');
+    const segListEl = document.getElementById('seg-list');
+    if (!segListEl) return;
+    const inputs = segListEl.querySelectorAll('.seg-input');
     inputs.forEach(input => {
         const i = parseInt(input.dataset.idx);
         textEditorData.segments[i].text = input.value.trim();
@@ -2483,27 +2905,34 @@ async function loadJsonFile(filename) {
     if (!currentSlug) return;
     currentFile = filename;
     switchTab('json');
-    document.getElementById('editor-file').textContent = filename;
+    var edFile = document.getElementById('editor-file');
+    if (edFile) edFile.textContent = filename;
     
     try {
         const res = await fetch('/api/file?slug=' + currentSlug + '&file=' + filename);
         if (res.ok) {
             const text = await res.text();
-            try {
-                document.getElementById('file-editor').value = JSON.stringify(JSON.parse(text), null, 2);
-            } catch {
-                document.getElementById('file-editor').value = text;
+            var fileEditorEl = document.getElementById('file-editor');
+            if (fileEditorEl) {
+                try {
+                    fileEditorEl.value = JSON.stringify(JSON.parse(text), null, 2);
+                } catch(_) {
+                    fileEditorEl.value = text;
+                }
+                fileEditorEl.disabled = false;
             }
-            document.getElementById('file-editor').disabled = false;
-            document.getElementById('save-json-btn').disabled = false;
+            var saveJsonBtn = document.getElementById('save-json-btn');
+            if (saveJsonBtn) saveJsonBtn.disabled = false;
         }
     } catch(e) {}
 }
 
 async function saveJsonEditor() {
     if (!currentSlug || !currentFile) return;
+    var fileEditorEl = document.getElementById('file-editor');
+    if (!fileEditorEl) return;
     try {
-        const content = document.getElementById('file-editor').value;
+        const content = fileEditorEl.value;
         if (currentFile.endsWith('.json')) JSON.parse(content);
         await fetch('/api/file', {
             method: 'POST',

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Overlay Compositor — Apply CG lower-thirds, sponsor, and logo overlays.
- * Reads:  episodes/{slug}/meta.json (guest, role, overlay settings)
+ * Overlay Compositor — Apply CG lower-thirds, sponsor, logo, and CTA overlays.
+ * Reads:  episodes/{slug}/meta.json, episodes/{slug}/overlay-config.json
  * Input:  A video file (subtitled reel or raw video)
  * Writes: episodes/{slug}/reels/reel-XX-final.mp4 (or full-final.mp4)
  *
  * Usage:
+ *   node overlay.js --slug <slug> --config         (use overlay-config.json)
+ *   node overlay.js --slug <slug> --all             (legacy: apply all with defaults)
  *   node overlay.js --slug <slug> [--lower-third] [--sponsor] [--logo] [--force]
- *   node overlay.js --slug <slug> --all  (applies all available overlays)
  */
 
 const fs = require("fs");
@@ -18,44 +19,41 @@ const EPISODES_DIR = path.join(__dirname, "episodes");
 const ASSETS_DIR = path.join(__dirname, "assets");
 const FONTS_DIR = path.join(__dirname, "fonts");
 
-// Default timing (seconds)
-const LOWER_THIRD_START = 2;
-const LOWER_THIRD_END = 8;
-const OVERLAY_ANIM_START = 0;
-const OVERLAY_ANIM_END = 5;
-
 function loadJSON(p) {
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch (_) { return null; }
 }
 
 /**
+ * Probe video dimensions via ffprobe.
+ */
+function probeVideoDimensions(videoPath) {
+  try {
+    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`, { stdio: "pipe" }).toString().trim();
+    const [w, h] = out.split("x").map(Number);
+    return { width: w || 1920, height: h || 1080 };
+  } catch (_) {
+    return { width: 1920, height: 1080 };
+  }
+}
+
+/**
  * Build the FFmpeg drawtext filter for a lower-third CG.
- * Slide-in from left, hold, slide-out to left.
  */
 function buildLowerThirdFilter(guestName, guestRole, startTime, endTime) {
   const fontPath = path.join(FONTS_DIR, "SomarSans-SemiBold.otf");
   const escapedFont = fontPath.replace(/'/g, "'\\''").replace(/:/g, "\\:");
-
-  // Escape text for FFmpeg (handle Arabic, colons, quotes)
   const escName = guestName.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
   const escRole = guestRole.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
 
-  const fadeIn = 0.4;   // seconds for slide-in
-  const fadeOut = 0.4;   // seconds for slide-out
+  const fadeIn = 0.4;
+  const fadeOut = 0.4;
   const holdStart = startTime + fadeIn;
   const holdEnd = endTime - fadeOut;
 
-  // Background box: semi-transparent purple, slides in/out
-  // Using drawbox with enable for the hold period, and drawtext x-animation for the slide
   const bgFilter = `drawbox=x=0:y=ih-200:w=520:h=120:color=0xa855f7@0.85:t=fill:enable='between(t,${startTime},${endTime})'`;
-
-  // Guest name: large, white, with slide animation
-  // x expression: slide from -text_w to 20 during fadeIn, hold at 20, slide out to -text_w during fadeOut
   const nameX = `if(lt(t\\,${holdStart})\\,-tw+(tw+20)*(t-${startTime})/${fadeIn}\\,if(gt(t\\,${holdEnd})\\,20-(tw+20)*(t-${holdEnd})/${fadeOut}\\,20))`;
   const nameFilter = `drawtext=fontfile='${escapedFont}':text='${escName}':fontsize=36:fontcolor=white:x='${nameX}':y=ih-190:enable='between(t,${startTime},${endTime})'`;
-
-  // Guest role: smaller, lighter gray
   const roleX = `if(lt(t\\,${holdStart})\\,-tw+(tw+20)*(t-${startTime})/${fadeIn}\\,if(gt(t\\,${holdEnd})\\,20-(tw+20)*(t-${holdEnd})/${fadeOut}\\,20))`;
   const roleFilter = `drawtext=fontfile='${escapedFont}':text='${escRole}':fontsize=24:fontcolor=0xcccccc:x='${roleX}':y=ih-145:enable='between(t,${startTime},${endTime})'`;
 
@@ -63,34 +61,105 @@ function buildLowerThirdFilter(guestName, guestRole, startTime, endTime) {
 }
 
 /**
- * Build FFmpeg filter_complex for sponsor/logo MOV overlays.
- * Returns { filterComplex, inputs } where inputs are additional -i flags.
+ * Build FFmpeg drawtext filter for CTA text overlay.
  */
-function buildOverlayInputs(options) {
+function buildCTATextFilter(ctaConfig, videoWidth, videoHeight) {
+  const fontPath = path.join(FONTS_DIR, "SomarSans-SemiBold.otf");
+  const escapedFont = fontPath.replace(/'/g, "'\\''").replace(/:/g, "\\:");
+  const text = (ctaConfig.text || "").replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
+  const fontSize = ctaConfig.fontSize || 28;
+  const color = (ctaConfig.fontColor || "#ffffff").replace("#", "0x");
+  const x = Math.round((ctaConfig.x / 100) * videoWidth);
+  const y = Math.round((ctaConfig.y / 100) * videoHeight);
+  const start = ctaConfig.startTime || 0;
+  const end = ctaConfig.endTime || 10;
+
+  return `drawtext=fontfile='${escapedFont}':text='${text}':fontsize=${fontSize}:fontcolor=${color}:x=${x}:y=${y}:enable='between(t,${start},${end})'`;
+}
+
+/**
+ * Build overlay inputs and filter chain from config.
+ * Returns { inputs, chain, lastLabel, inputIdx } for building filter_complex.
+ */
+function buildConfigOverlays(config, videoWidth, videoHeight) {
   const inputs = [];
-  const filters = [];
-  let inputIdx = 1; // 0 is the main video
-  let lastLabel = "[0:v]";
+  let chain = "";
+  let lastLabel = null; // will be set by caller
+  let inputIdx = 1;
 
-  if (options.sponsor && fs.existsSync(path.join(ASSETS_DIR, "sponsor.mov"))) {
-    inputs.push(`-i "${path.join(ASSETS_DIR, "sponsor.mov")}"`);
-    const sponsorScale = `[${inputIdx}:v]scale=180:-1[sponsor]`;
-    const sponsorOverlay = `${lastLabel}[sponsor]overlay=10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_sponsor]`;
-    filters.push(sponsorScale, sponsorOverlay);
-    lastLabel = "[after_sponsor]";
-    inputIdx++;
+  // Sponsor overlay
+  if (config.sponsor && config.sponsor.enabled) {
+    const sponsorFile = path.join(ASSETS_DIR, "sponsor.mov");
+    if (fs.existsSync(sponsorFile)) {
+      inputs.push(`-i "${sponsorFile}"`);
+      const scale = config.sponsor.scale || 180;
+      const x = Math.round((config.sponsor.x / 100) * videoWidth);
+      const y = Math.round((config.sponsor.y / 100) * videoHeight);
+      chain += `[${inputIdx}:v]scale=${scale}:-1[sponsor];{LAST}[sponsor]overlay=${x}:${y}:shortest=1:enable='between(t,0,5)'[after_sponsor]`;
+      lastLabel = "[after_sponsor]";
+      inputIdx++;
+    }
   }
 
-  if (options.logo && fs.existsSync(path.join(ASSETS_DIR, "logo.mov"))) {
-    inputs.push(`-i "${path.join(ASSETS_DIR, "logo.mov")}"`);
-    const logoScale = `[${inputIdx}:v]scale=140:-1[logo]`;
-    const logoOverlay = `${lastLabel}[logo]overlay=W-w-10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_logo]`;
-    filters.push(logoScale, logoOverlay);
-    lastLabel = "[after_logo]";
-    inputIdx++;
+  // Logo overlay
+  if (config.logo && config.logo.enabled) {
+    const logoFile = path.join(ASSETS_DIR, "logo.mov");
+    if (fs.existsSync(logoFile)) {
+      inputs.push(`-i "${logoFile}"`);
+      const scale = config.logo.scale || 140;
+      const x = Math.round((config.logo.x / 100) * videoWidth);
+      const y = Math.round((config.logo.y / 100) * videoHeight);
+      if (chain) chain += ";";
+      chain += `[${inputIdx}:v]scale=${scale}:-1[logo];{LAST}[logo]overlay=${x}:${y}:shortest=1:enable='between(t,0,5)'[after_logo]`;
+      lastLabel = "[after_logo]";
+      inputIdx++;
+    }
   }
 
-  return { inputs, filters, lastLabel };
+  // CTA image overlay
+  if (config.cta && config.cta.enabled && config.cta.mode === "image") {
+    const ctaFile = findCTAAsset();
+    if (ctaFile) {
+      inputs.push(`-i "${ctaFile}"`);
+      const scale = config.cta.scale || 200;
+      const x = Math.round((config.cta.x / 100) * videoWidth);
+      const y = Math.round((config.cta.y / 100) * videoHeight);
+      const start = config.cta.startTime || 0;
+      const end = config.cta.endTime || 10;
+      if (chain) chain += ";";
+      chain += `[${inputIdx}:v]scale=${scale}:-1[cta];{LAST}[cta]overlay=${x}:${y}:shortest=1:enable='between(t,${start},${end})'[after_cta]`;
+      lastLabel = "[after_cta]";
+      inputIdx++;
+    }
+  }
+
+  return { inputs, chain, lastLabel, inputIdx };
+}
+
+function findCTAAsset() {
+  for (const ext of [".png", ".mov", ".mp4", ".gif"]) {
+    const p = path.join(ASSETS_DIR, "cta" + ext);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Resolve the {LAST} placeholder in chain with proper label tracking.
+ */
+function resolveChain(chain, startLabel) {
+  let current = startLabel;
+  return chain.replace(/\{LAST\}/g, () => {
+    const label = current;
+    // Find the next output label after this match
+    const afterIdx = chain.indexOf("{LAST}");
+    if (afterIdx !== -1) {
+      const afterChain = chain.substring(afterIdx);
+      const match = afterChain.match(/\[after_\w+\]/);
+      if (match) current = match[0];
+    }
+    return label;
+  });
 }
 
 async function overlay(slug, options) {
@@ -103,56 +172,87 @@ async function overlay(slug, options) {
   const guestName = meta.guest || "";
   const guestRole = meta.role || "";
 
-  if (options.lowerThird && (!guestName || !guestRole)) {
+  // Load config if --config mode
+  let config = null;
+  if (options.useConfig) {
+    config = loadJSON(path.join(dir, "overlay-config.json"));
+    if (!config) {
+      console.log("⚠️  No overlay-config.json found, falling back to defaults.");
+      config = {
+        sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
+        logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
+        lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+        cta: { enabled: false, mode: "text", text: "", fontSize: 28, fontColor: "#ffffff", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
+      };
+    }
+    console.log("📋 Using overlay config:");
+    if (config.sponsor?.enabled) console.log(`   Sponsor: ${config.sponsor.scale}px at (${config.sponsor.x.toFixed(1)}%, ${config.sponsor.y.toFixed(1)}%)`);
+    if (config.logo?.enabled) console.log(`   Logo: ${config.logo.scale}px at (${config.logo.x.toFixed(1)}%, ${config.logo.y.toFixed(1)}%)`);
+    if (config.lowerThird?.enabled) console.log(`   Lower-third: ${config.lowerThird.startTime}s-${config.lowerThird.endTime}s`);
+    if (config.cta?.enabled) console.log(`   CTA (${config.cta.mode}): ${config.cta.startTime}s-${config.cta.endTime}s`);
+  }
+
+  // Determine which overlays to apply
+  const doLowerThird = config ? config.lowerThird?.enabled : options.lowerThird;
+  const doSponsor = config ? config.sponsor?.enabled : options.sponsor;
+  const doLogo = config ? config.logo?.enabled : options.logo;
+  const doCTAText = config && config.cta?.enabled && config.cta.mode === "text";
+  const doCTAImage = config && config.cta?.enabled && config.cta.mode === "image";
+
+  if (doLowerThird && (!guestName || !guestRole)) {
     console.error("❌ Guest name and role required for lower-third. Set them in episode metadata.");
     process.exit(1);
   }
 
-  // Find input videos to process
+  // Find input videos — prefer subtitled, fall back to cropped, then raw reel
   const videos = [];
 
   if (fs.existsSync(reelsDir)) {
-    // Process subtitled reels
-    const reelFiles = fs.readdirSync(reelsDir)
-      .filter(f => f.endsWith("-subtitled.mp4"))
+    // Collect all reel IDs
+    const reelIds = fs.readdirSync(reelsDir)
+      .filter(f => /^reel-\d+\.mp4$/.test(f))
+      .map(f => f.match(/reel-(\d+)\.mp4/)[1])
       .sort();
-
-    for (const f of reelFiles) {
-      const base = f.replace("-subtitled.mp4", "");
-      videos.push({
-        input: path.join(reelsDir, f),
-        output: path.join(reelsDir, `${base}-final.mp4`),
-        label: base
-      });
+    for (const id of reelIds) {
+      const subtitled = path.join(reelsDir, `reel-${id}-subtitled.mp4`);
+      const cropped = path.join(reelsDir, `reel-${id}-cropped.mp4`);
+      const raw = path.join(reelsDir, `reel-${id}.mp4`);
+      const input = fs.existsSync(subtitled) ? subtitled :
+                    fs.existsSync(cropped) ? cropped : raw;
+      videos.push({ input, output: path.join(reelsDir, `reel-${id}-final.mp4`), label: `reel-${id}` });
     }
   }
 
-  // Also check for full-subtitled.mp4
   const fullSubtitled = path.join(dir, "full-subtitled.mp4");
   if (fs.existsSync(fullSubtitled)) {
-    videos.push({
-      input: fullSubtitled,
-      output: path.join(dir, "full-final.mp4"),
-      label: "full"
-    });
+    videos.push({ input: fullSubtitled, output: path.join(dir, "full-final.mp4"), label: "full" });
   }
 
-  // For reel_full (no subtitles step), use raw video
   if (videos.length === 0 && meta.mediaType === "reel_full") {
     const files = fs.readdirSync(dir);
     const rawVideo = files.find(f => /\.(mp4|mkv|mov)$/i.test(f) && !f.includes("final") && !f.includes("compressed"));
     if (rawVideo) {
-      videos.push({
-        input: path.join(dir, rawVideo),
-        output: path.join(dir, "full-final.mp4"),
-        label: "full"
-      });
+      videos.push({ input: path.join(dir, rawVideo), output: path.join(dir, "full-final.mp4"), label: "full" });
     }
   }
 
   if (videos.length === 0) {
     console.error("❌ No videos found to overlay. Run subtitle step first (or upload a reel).");
     process.exit(1);
+  }
+
+  // Per-reel filter
+  if (options.reelId) {
+    const padded = options.reelId.padStart(2, "0");
+    const targetLabel = `reel-${padded}`;
+    const filtered = videos.filter(v => v.label === targetLabel);
+    if (filtered.length === 0) {
+      console.error(`❌ Reel ${options.reelId} not found among overlay-able videos.`);
+      process.exit(1);
+    }
+    videos.length = 0;
+    videos.push(...filtered);
+    console.log(`🎨 Per-reel mode: processing only ${targetLabel}`);
   }
 
   console.log(`📼 Processing ${videos.length} video(s)...\n`);
@@ -165,49 +265,84 @@ async function overlay(slug, options) {
 
     console.log(`🎨 ${video.label}: applying overlays...`);
 
-    // Build filter chain
+    const dims = probeVideoDimensions(video.input);
     const vfFilters = [];
 
-    // Lower-third drawtext filters
-    if (options.lowerThird) {
-      const ltFilters = buildLowerThirdFilter(guestName, guestRole, LOWER_THIRD_START, LOWER_THIRD_END);
-      vfFilters.push(...ltFilters);
-      console.log(`   📝 Lower-third: "${guestName}" / "${guestRole}" (${LOWER_THIRD_START}s-${LOWER_THIRD_END}s)`);
+    // Lower-third drawtext
+    if (doLowerThird) {
+      const ltStart = config ? config.lowerThird.startTime : 2;
+      const ltEnd = config ? config.lowerThird.endTime : 8;
+      vfFilters.push(...buildLowerThirdFilter(guestName, guestRole, ltStart, ltEnd));
+      console.log(`   📝 Lower-third: "${guestName}" / "${guestRole}" (${ltStart}s-${ltEnd}s)`);
     }
 
-    // Sponsor/logo overlays (require filter_complex with multiple inputs)
-    const overlayData = buildOverlayInputs({ sponsor: options.sponsor, logo: options.logo });
-    const hasMovOverlays = overlayData.inputs.length > 0;
+    // CTA text drawtext
+    if (doCTAText && config.cta.text) {
+      vfFilters.push(buildCTATextFilter(config.cta, dims.width, dims.height));
+      console.log(`   📝 CTA text: "${config.cta.text}" (${config.cta.startTime}s-${config.cta.endTime}s)`);
+    }
 
-    if (hasMovOverlays && vfFilters.length > 0) {
-      // Both drawtext AND mov overlays — use filter_complex
-      // First apply drawtext to main video, then overlay MOVs
+    // Image overlays (sponsor, logo, CTA image)
+    let movInputs = [];
+    let movChain = "";
+    let movLastLabel = null;
+
+    if (config) {
+      const ovData = buildConfigOverlays(config, dims.width, dims.height);
+      movInputs = ovData.inputs;
+      movChain = ovData.chain;
+      movLastLabel = ovData.lastLabel;
+    } else {
+      // Legacy --all / --sponsor / --logo mode
+      if (doSponsor && fs.existsSync(path.join(ASSETS_DIR, "sponsor.mov"))) {
+        movInputs.push(`-i "${path.join(ASSETS_DIR, "sponsor.mov")}"`);
+        movChain += `[1:v]scale=180:-1[sponsor];{LAST}[sponsor]overlay=10:10:shortest=1:enable='between(t,0,5)'[after_sponsor]`;
+        movLastLabel = "[after_sponsor]";
+      }
+      if (doLogo && fs.existsSync(path.join(ASSETS_DIR, "logo.mov"))) {
+        const idx = movInputs.length + 1;
+        movInputs.push(`-i "${path.join(ASSETS_DIR, "logo.mov")}"`);
+        if (movChain) movChain += ";";
+        movChain += `[${idx}:v]scale=140:-1[logo];{LAST}[logo]overlay=W-w-10:10:shortest=1:enable='between(t,0,5)'[after_logo]`;
+        movLastLabel = "[after_logo]";
+      }
+    }
+
+    const hasMovOverlays = movInputs.length > 0;
+    const hasDrawtext = vfFilters.length > 0;
+
+    if (hasMovOverlays && hasDrawtext) {
+      // Both drawtext AND image overlays
       const drawtextChain = vfFilters.join(",");
-      const allFilters = [`[0:v]${drawtextChain}[drawn]`, ...overlayData.filters.map(f => f.replace("[0:v]", "[drawn]").replace(overlayData.filters[0].includes("[0:v]") ? "[0:v]" : "", ""))];
-
-      // Rebuild the filter chain properly
-      let chain = `[0:v]${drawtextChain}[drawn]`;
-      let lastLabel = "[drawn]";
-      let inputIdx = 1;
-
-      if (options.sponsor && fs.existsSync(path.join(ASSETS_DIR, "sponsor.mov"))) {
-        chain += `;[${inputIdx}:v]scale=180:-1[sponsor];${lastLabel}[sponsor]overlay=10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_sponsor]`;
-        lastLabel = "[after_sponsor]";
-        inputIdx++;
+      let fullChain = `[0:v]${drawtextChain}[drawn]`;
+      // Replace {LAST} placeholders sequentially
+      let currentLabel = "[drawn]";
+      const parts = movChain.split("{LAST}");
+      let resolvedMov = "";
+      for (let i = 0; i < parts.length; i++) {
+        resolvedMov += parts[i];
+        if (i < parts.length - 1) {
+          resolvedMov += currentLabel;
+          const labelMatch = parts[i].match(/\[after_\w+\]\s*$/);
+          if (labelMatch) currentLabel = labelMatch[0].trim();
+          else {
+            const nextPart = parts.slice(i + 1).join("");
+            const nextLabel = nextPart.match(/\[after_\w+\]/);
+            if (nextLabel) currentLabel = nextLabel[0];
+          }
+        }
       }
-
-      if (options.logo && fs.existsSync(path.join(ASSETS_DIR, "logo.mov"))) {
-        chain += `;[${inputIdx}:v]scale=140:-1[logo];${lastLabel}[logo]overlay=W-w-10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_logo]`;
-        lastLabel = "[after_logo]";
-        inputIdx++;
-      }
+      // Find all output labels to track the last one
+      const outputLabels = resolvedMov.match(/\[after_\w+\]/g) || [];
+      const finalLabel = outputLabels.length > 0 ? outputLabels[outputLabels.length - 1] : "[drawn]";
+      fullChain += ";" + resolvedMov;
 
       const cmd = [
         "ffmpeg -y",
         `-i "${video.input}"`,
-        ...overlayData.inputs,
-        `-filter_complex "${chain}"`,
-        `-map "${lastLabel}" -map 0:a`,
+        ...movInputs,
+        `-filter_complex "${fullChain}"`,
+        `-map "${finalLabel}" -map 0:a`,
         `-c:v libx264 -crf 18 -preset fast`,
         `-c:a copy`,
         `"${video.output}"`
@@ -216,30 +351,28 @@ async function overlay(slug, options) {
       runFFmpeg(cmd, video);
 
     } else if (hasMovOverlays) {
-      // Only MOV overlays, no drawtext
-      let chain = "";
-      let lastLabel = "[0:v]";
-      let inputIdx = 1;
-
-      if (options.sponsor && fs.existsSync(path.join(ASSETS_DIR, "sponsor.mov"))) {
-        chain += `[${inputIdx}:v]scale=180:-1[sponsor];${lastLabel}[sponsor]overlay=10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_sponsor]`;
-        lastLabel = "[after_sponsor]";
-        inputIdx++;
+      // Only image overlays
+      let currentLabel = "[0:v]";
+      const parts = movChain.split("{LAST}");
+      let resolved = "";
+      for (let i = 0; i < parts.length; i++) {
+        resolved += parts[i];
+        if (i < parts.length - 1) {
+          resolved += currentLabel;
+          const rest = parts.slice(i + 1).join("{LAST}");
+          const labelMatch = (parts[i] + currentLabel).match(/\[after_\w+\]/g);
+          if (labelMatch) currentLabel = labelMatch[labelMatch.length - 1];
+        }
       }
-
-      if (options.logo && fs.existsSync(path.join(ASSETS_DIR, "logo.mov"))) {
-        if (chain) chain += ";";
-        chain += `[${inputIdx}:v]scale=140:-1[logo];${lastLabel}[logo]overlay=W-w-10:10:shortest=1:enable='between(t,${OVERLAY_ANIM_START},${OVERLAY_ANIM_END})'[after_logo]`;
-        lastLabel = "[after_logo]";
-        inputIdx++;
-      }
+      const outputLabels = resolved.match(/\[after_\w+\]/g) || [];
+      const finalLabel = outputLabels.length > 0 ? outputLabels[outputLabels.length - 1] : "[0:v]";
 
       const cmd = [
         "ffmpeg -y",
         `-i "${video.input}"`,
-        ...overlayData.inputs,
-        `-filter_complex "${chain}"`,
-        `-map "${lastLabel}" -map 0:a`,
+        ...movInputs,
+        `-filter_complex "${resolved}"`,
+        `-map "${finalLabel}" -map 0:a`,
         `-c:v libx264 -crf 18 -preset fast`,
         `-c:a copy`,
         `"${video.output}"`
@@ -247,8 +380,8 @@ async function overlay(slug, options) {
 
       runFFmpeg(cmd, video);
 
-    } else if (vfFilters.length > 0) {
-      // Only drawtext filters (no MOV overlays)
+    } else if (hasDrawtext) {
+      // Only drawtext filters
       const cmd = [
         "ffmpeg -y",
         `-i "${video.input}"`,
@@ -287,16 +420,20 @@ const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i +
 const slug = get("--slug");
 const force = args.includes("--force");
 const all = args.includes("--all");
+const useConfig = args.includes("--config");
+const reelId = get("--reel-id");
 
 const options = {
   lowerThird: all || args.includes("--lower-third"),
   sponsor: all || args.includes("--sponsor"),
   logo: all || args.includes("--logo"),
-  force
+  useConfig,
+  force,
+  reelId
 };
 
 if (!slug) {
-  console.error("Usage: node overlay.js --slug <slug> [--lower-third] [--sponsor] [--logo] [--all] [--force]");
+  console.error("Usage: node overlay.js --slug <slug> [--config] [--all] [--lower-third] [--sponsor] [--logo] [--force]");
   process.exit(1);
 }
 
