@@ -2246,7 +2246,7 @@ Choose clips that:
         const meta = loadMeta(slug);
         const mediaType = meta.mediaType || "episode";
 
-        if (mediaType === "reel_full" && !['generate', 'transcribe', 'overlay'].includes(step)) {
+        if (mediaType === "reel_full" && !['generate', 'transcribe'].includes(step)) {
           throw new Error(`Step '${step}' not applicable for fully-produced reel.`);
         }
         if (mediaType === "reel_cut" && step === "cut") {
