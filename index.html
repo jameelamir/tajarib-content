@@ -101,6 +101,20 @@
         .precut-console .panel-header { padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
         .precut-console pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.78rem; color: #aaa; white-space: pre-wrap; line-height: 1.5; }
 
+        /* Reel-full pre-cut layout */
+        .reel-full-layout { display: flex; flex-direction: column; flex: 1; overflow: hidden; gap: 0; }
+        .reel-full-video { flex-shrink: 0; background: #000; border-radius: 8px 8px 0 0; overflow: hidden; max-height: 250px; display: flex; align-items: center; justify-content: center; }
+        .reel-full-video video { width: 100%; max-height: 250px; display: block; }
+        .reel-full-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: #1a1a1a; flex-shrink: 0; }
+        .reel-full-tab { padding: 8px 16px; cursor: pointer; font-size: 0.75rem; color: #666; border-bottom: 2px solid transparent; transition: 0.15s; user-select: none; }
+        .reel-full-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .reel-full-tab:hover { color: #aaa; }
+        .reel-full-tab-body { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
+        .reel-full-tab-body.active { display: flex; }
+        .reel-full-caption-wrap { padding: 14px; display: flex; flex-direction: column; gap: 12px; flex: 1; overflow-y: auto; }
+        .reel-full-actions { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); flex-shrink: 0; justify-content: flex-end; align-items: center; }
+        .reel-full-actions .publish-btn { background: var(--success); border-color: var(--success); color: #fff; }
+
         /* Overlay config panel */
         .overlay-config { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 100%; flex-shrink: 0; }
         .overlay-config h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 12px; }
@@ -376,7 +390,8 @@
 
         <!-- MODE A: Pre-Cut (episode-level) -->
         <div id="pre-cut-view" style="display:none; flex:1; display:flex; flex-direction:column; gap:12px; overflow:hidden;">
-            <div class="precut-console">
+            <!-- For episodes: just a console -->
+            <div id="precut-console-only" class="precut-console" style="display:none;">
                 <div class="panel-header">
                     <span>Console</span>
                     <div style="display:flex; gap:8px;">
@@ -385,6 +400,50 @@
                     </div>
                 </div>
                 <pre class="logs" id="logs-output"></pre>
+            </div>
+
+            <!-- For reel_full: video + tabbed editor -->
+            <div id="reel-full-layout" class="reel-full-layout" style="display:none;">
+                <div class="reel-full-video" id="reel-full-video"></div>
+                <div class="reel-full-tabs">
+                    <div class="reel-full-tab active" data-tab="caption" onclick="switchReelFullTab('caption')">Caption</div>
+                    <div class="reel-full-tab" data-tab="transcript" onclick="switchReelFullTab('transcript')">Transcript</div>
+                    <div class="reel-full-tab" data-tab="console" onclick="switchReelFullTab('console')">Console</div>
+                </div>
+                <!-- Caption tab -->
+                <div class="reel-full-tab-body active" id="rfTab-caption">
+                    <div class="reel-full-caption-wrap" id="reel-full-caption-body">
+                        <div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>
+                    </div>
+                    <div class="reel-full-actions" id="reel-full-caption-actions" style="display:none;">
+                        <button onclick="saveReelFullCaption()" style="font-size:0.75rem;">Save</button>
+                        <button onclick="copyReelFullCaption()" style="font-size:0.75rem;">Copy</button>
+                        <button class="publish-btn" onclick="publishToZapier()" style="font-size:0.75rem;">Publish</button>
+                    </div>
+                </div>
+                <!-- Transcript tab -->
+                <div class="reel-full-tab-body" id="rfTab-transcript">
+                    <div style="padding:8px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); flex-shrink:0;">
+                        <span style="font-size:0.75rem; color:#666; font-weight:600;">Transcript Segments</span>
+                        <button onclick="saveReelFullTranscript()" style="font-size:0.7rem;">Save</button>
+                    </div>
+                    <div class="seg-list" id="reel-full-seg-list" style="flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:6px;">
+                        <div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Transcribe step first.</div>
+                    </div>
+                </div>
+                <!-- Console tab -->
+                <div class="reel-full-tab-body" id="rfTab-console">
+                    <div class="precut-console" style="flex:1; display:flex; flex-direction:column;">
+                        <div class="panel-header">
+                            <span>Console</span>
+                            <div style="display:flex; gap:8px;">
+                                <button id="stop-btn-rf" class="stop-btn" style="display:none">⏹ Stop</button>
+                                <button class="text-btn" onclick="clearLogs()">Clear</button>
+                            </div>
+                        </div>
+                        <pre class="logs" id="logs-output-rf"></pre>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -922,6 +981,13 @@ socket.on('process-end', function(data) {
             }
         }, 600);
     }
+    // Auto-switch to caption tab when generate completes for reel_full
+    if (data.step === 'generate' && data.code === 0 && currentSlug === data.slug) {
+        var epCheck = episodes.find(function(e) { return e.slug === data.slug; });
+        if (epCheck && epCheck.mediaType === 'reel_full') {
+            setTimeout(function() { switchReelFullTab('caption'); }, 700);
+        }
+    }
 });
 socket.on('toast', ({type, message}) => showToast(message, type));
 
@@ -1346,7 +1412,7 @@ function stepsForType(mediaType, ep) {
     }
 
     if (mediaType === 'reel_full') {
-        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'overlay'].includes(s.id)}));
+        return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate'].includes(s.id)}));
     } else if (mediaType === 'reel_cut') {
         return all.map(s => Object.assign({}, s, {applicable: ['transcribe', 'generate', 'subtitle', 'overlay'].includes(s.id)}));
     }
@@ -1367,11 +1433,17 @@ function selectEp(slug) {
 }
 
 function updateLogs() {
-    // Pre-cut console
+    // Pre-cut console (episodes)
     var el = document.getElementById('logs-output');
     if (el) {
         el.textContent = logs[currentSlug] || '';
         el.scrollTop = el.scrollHeight;
+    }
+    // Reel-full console
+    var rfEl = document.getElementById('logs-output-rf');
+    if (rfEl) {
+        rfEl.textContent = logs[currentSlug] || '';
+        rfEl.scrollTop = rfEl.scrollHeight;
     }
     // Per-reel console
     if (selectedReelId) {
@@ -1451,7 +1523,18 @@ function renderMain(slug) {
     } else {
         document.getElementById('pre-cut-view').style.display = 'flex';
         document.getElementById('post-cut-view').style.display = 'none';
-        document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
+
+        var isReelFull = ep.mediaType === 'reel_full';
+        document.getElementById('precut-console-only').style.display = isReelFull ? 'none' : 'flex';
+        document.getElementById('reel-full-layout').style.display = isReelFull ? 'flex' : 'none';
+
+        if (isReelFull) {
+            renderReelFullView(ep);
+            var stopRf = document.getElementById('stop-btn-rf');
+            if (stopRf) stopRf.style.display = ep.isRunning ? '' : 'none';
+        } else {
+            document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
+        }
     }
 }
 
@@ -1605,6 +1688,135 @@ function renderReelDetail(ep, reelId) {
     var logsEl = document.getElementById('logs-output-reel');
     logsEl.scrollTop = logsEl.scrollHeight;
 }
+
+// ─── Reel-Full View ───────────────────────────────────────────────────────────
+
+var reelFullTranscriptData = null;
+
+function renderReelFullView(ep) {
+    // Video preview — only recreate if slug changed
+    var videoEl = document.getElementById('reel-full-video');
+    if (videoEl.dataset.slug !== ep.slug) {
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now();
+        videoEl.innerHTML = '<video controls preload="metadata" style="max-height:250px; width:100%;" src="' + videoUrl + '"></video>';
+        videoEl.dataset.slug = ep.slug;
+    }
+
+    // Caption tab — skip rebuild if already rendered (preserves focus/input state)
+    var captionBody = document.getElementById('reel-full-caption-body');
+    var captionActions = document.getElementById('reel-full-caption-actions');
+    var existingTextarea = document.getElementById('reel-full-caption-textarea');
+    if (ep.content && ep.content.reels && ep.content.reels.length > 0) {
+        var caption = ep.content.reels[0].caption || '';
+        var fieldPath = 'reels.0.caption';
+        var textareaId = 'reel-full-caption-textarea';
+        // Only rebuild if no textarea exists yet (first render)
+        if (!existingTextarea) {
+            captionBody.innerHTML =
+                '<div class="content-field" data-field="' + fieldPath + '">' +
+                    '<div class="content-label" style="font-size:0.75rem; color:#888; margin-bottom:6px;">Reel Caption</div>' +
+                    '<textarea class="content-textarea" id="' + textareaId + '" rows="6" dir="rtl" style="text-align:right;" oninput="autoResize(this)">' + escHtml(caption) + '</textarea>' +
+                    feedbackRow(fieldPath, textareaId) +
+                    '<div class="content-hint" id="hint-' + textareaId + '"></div>' +
+                '</div>';
+            captionBody.querySelectorAll('.content-textarea').forEach(autoResize);
+        }
+        captionActions.style.display = 'flex';
+    } else {
+        captionBody.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>';
+        captionActions.style.display = 'none';
+    }
+
+    // Transcript tab
+    renderReelFullTranscript(ep);
+}
+
+async function renderReelFullTranscript(ep) {
+    var segList = document.getElementById('reel-full-seg-list');
+    if (!segList) return;
+
+    if (!ep.steps.transcribed) {
+        segList.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Transcribe step first.</div>';
+        return;
+    }
+
+    // Skip rebuild if segments already rendered (preserves editing state)
+    if (segList.querySelector('.seg-input')) return;
+
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(ep.slug) + '&file=transcript.json');
+        if (!res.ok) throw new Error('Not found');
+        var data = JSON.parse(await res.text());
+        reelFullTranscriptData = data;
+
+        segList.innerHTML = data.segments.map(function(seg, i) {
+            var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
+            var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
+            return '<div class="seg-row">' +
+                '<span class="seg-ts">' + mins + ':' + secs + '</span>' +
+                '<textarea class="seg-input" rows="2" dir="rtl" data-idx="' + i + '" oninput="autoResize(this)">' + escHtml(seg.text) + '</textarea>' +
+            '</div>';
+        }).join('');
+        segList.querySelectorAll('.seg-input').forEach(autoResize);
+    } catch (e) {
+        segList.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Transcript not available yet.</div>';
+    }
+}
+
+function switchReelFullTab(tab) {
+    document.querySelectorAll('.reel-full-tab').forEach(function(el) {
+        el.classList.toggle('active', el.dataset.tab === tab);
+    });
+    ['caption', 'transcript', 'console'].forEach(function(t) {
+        var body = document.getElementById('rfTab-' + t);
+        if (body) {
+            body.classList.toggle('active', t === tab);
+            body.style.display = t === tab ? 'flex' : 'none';
+        }
+    });
+}
+
+async function saveReelFullCaption() {
+    if (!currentSlug) return;
+    var textEl = document.getElementById('reel-full-caption-textarea');
+    if (!textEl) return;
+    try {
+        var res = await fetch('/api/save-content', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, field: 'reels.0.caption', value: textEl.value })
+        });
+        var data = await res.json();
+        if (data.success) { showToast('Caption saved', 'success'); await refresh(); }
+        else showToast(data.error || 'Save failed', 'error');
+    } catch (err) { showToast('Save failed: ' + err.message, 'error'); }
+}
+
+function copyReelFullCaption() {
+    var textEl = document.getElementById('reel-full-caption-textarea');
+    if (textEl) copyToClipboard(textEl.value);
+}
+
+async function saveReelFullTranscript() {
+    if (!currentSlug || !reelFullTranscriptData) return;
+    var segListEl = document.getElementById('reel-full-seg-list');
+    if (!segListEl) return;
+    segListEl.querySelectorAll('.seg-input').forEach(function(input) {
+        var i = parseInt(input.dataset.idx);
+        reelFullTranscriptData.segments[i].text = input.value.trim();
+    });
+    reelFullTranscriptData.full_text = reelFullTranscriptData.segments.map(function(s) { return s.text; }).join(' ');
+    try {
+        await fetch('/api/file', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, file: 'transcript.json', content: JSON.stringify(reelFullTranscriptData, null, 2) })
+        });
+        showToast('Transcript saved!', 'success');
+    } catch (e) { showToast('Save failed', 'error'); }
+}
+
+// ─── End Reel-Full View ──────────────────────────────────────────────────────
 
 function buildReelActions(ep, reel) {
     var reelId = reel.id;
@@ -2073,6 +2285,10 @@ async function publishToZapier() {
 }
 
 document.getElementById('stop-btn').onclick = function() {
+    if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
+};
+var stopBtnRf = document.getElementById('stop-btn-rf');
+if (stopBtnRf) stopBtnRf.onclick = function() {
     if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
 };
 
