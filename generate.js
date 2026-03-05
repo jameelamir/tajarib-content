@@ -218,7 +218,7 @@ ${summary}
  *                             In reel-only mode the transcript + analysis may not exist;
  *                             we generate a single caption from whatever info we have.
  */
-async function generate(slug, guest, role, force = false, reelOnly = false) {
+async function generate(slug, guest, role, force = false, reelOnly = false, reelId = null) {
   const outputPath = path.join(EPISODES_DIR, slug, "content.json");
 
   if (fs.existsSync(outputPath) && !force) {
@@ -299,6 +299,17 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
     log(`📋 Using ${reelsToProcess.length} selected reels (of ${(analysis.reels || []).length} total)`);
   }
 
+  // Per-reel filter
+  if (reelId) {
+    const targetId = parseInt(reelId, 10);
+    reelsToProcess = reelsToProcess.filter(r => r.id === targetId);
+    if (reelsToProcess.length === 0) {
+      process.stderr.write(`❌ Reel ${reelId} not found in analysis.\n`);
+      process.exit(1);
+    }
+    log(`📋 Per-reel mode: generating only reel ${targetId}`);
+  }
+
   const reelCaptions = [];
   for (const reel of reelsToProcess) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
@@ -313,23 +324,43 @@ async function generate(slug, guest, role, force = false, reelOnly = false) {
   }
 
   // YouTube + announcement
-  log("   📺 Generating YouTube description + titles + announcement...");
-  const ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat, slug);
-  totalTokens2 += ytResult.tokens;
-  log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
+  let ytResult = { tokens: 0, content: {} };
+  if (!reelId) {
+    log("   📺 Generating YouTube description + titles + announcement...");
+    ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat, slug);
+    totalTokens2 += ytResult.tokens;
+    log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
+  }
 
-  const output = {
-    slug,
-    generated_at: new Date().toISOString(),
-    guest, role,
-    total_tokens_used: totalTokens2,
-    reels: reelCaptions,
-    ...ytResult.content,
-  };
-
-  fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
-  log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
-  log(`📄 Saved: ${outputPath}`);
+  if (reelId && fs.existsSync(outputPath)) {
+    // Per-reel mode: merge into existing content.json
+    const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+    const existingReels = existing.reels || [];
+    const newCaption = reelCaptions[0];
+    if (newCaption) {
+      const idx = existingReels.findIndex(r => r.id === newCaption.id);
+      if (idx >= 0) existingReels[idx] = newCaption;
+      else existingReels.push(newCaption);
+    }
+    existing.reels = existingReels;
+    existing.generated_at = new Date().toISOString();
+    fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+    log(`\n✅ Done! Merged reel ${reelId} into content.json`);
+    log(`📄 Saved: ${outputPath}`);
+  } else {
+    // Full mode or no existing content
+    const output = {
+      slug,
+      generated_at: new Date().toISOString(),
+      guest, role,
+      total_tokens_used: totalTokens2,
+      reels: reelCaptions,
+      ...ytResult.content,
+    };
+    fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
+    log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
+    log(`📄 Saved: ${outputPath}`);
+  }
   return outputPath;
 }
 
@@ -340,6 +371,7 @@ const guest    = get("--guest");
 const role     = get("--role");
 const force    = CLI_ARGS.includes("--force");
 const reelOnly = CLI_ARGS.includes("--reel-only");
+const reelIdFilter = get("--reel-id");
 const modelArg = get("--model");
 
 if (modelArg) {
@@ -351,7 +383,7 @@ if (!slug || !guest || !role) {
   process.exit(1);
 }
 
-generate(slug, guest, role, force, reelOnly).catch(err => {
+generate(slug, guest, role, force, reelOnly, reelIdFilter).catch(err => {
   process.stderr.write("❌ " + err.message + "\n");
   process.exit(1);
 });

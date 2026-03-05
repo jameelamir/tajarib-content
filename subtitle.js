@@ -10,6 +10,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { execSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
@@ -139,7 +140,7 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   return entries.join("\n");
 }
 
-async function subtitle(slug, force = false, titleCard = false) {
+async function subtitle(slug, force = false, titleCard = false, reelId = null) {
   console.log(`\n🎬 Subtitle Generator — ${slug}\n`);
   
   const dir = path.join(EPISODES_DIR, slug);
@@ -159,6 +160,30 @@ async function subtitle(slug, force = false, titleCard = false) {
   console.log(`   ✅ Transcript exists (${(fs.statSync(transcriptPath).size / 1024).toFixed(1)} KB)`);
 
   const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
+
+  // Ensure word-level timestamps exist.
+  // If transcript was imported from SRT (no words array), synthesize from segments.
+  if (!transcript.words && transcript.segments && transcript.segments.length > 0) {
+    console.log(`   ⚠️  No word-level timestamps — synthesizing from ${transcript.segments.length} segments`);
+    transcript.words = [];
+    for (const seg of transcript.segments) {
+      const text = (seg.text || "").trim();
+      if (!text) continue;
+      const tokens = text.split(/\s+/);
+      const segDur = (seg.end || 0) - (seg.start || 0);
+      const wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+      for (let i = 0; i < tokens.length; i++) {
+        transcript.words.push({
+          word: tokens[i],
+          start: seg.start + i * wordDur,
+          end: seg.start + (i + 1) * wordDur,
+          probability: 0.5
+        });
+      }
+    }
+    console.log(`   ✅ Synthesized ${transcript.words.length} word timestamps from segments`);
+  }
+
   console.log(`   📊 Found ${transcript.words?.length || 0} words in transcript`);
 
   const analysis = fs.existsSync(analysisPath) ? JSON.parse(fs.readFileSync(analysisPath, "utf8")) : null;
@@ -173,6 +198,26 @@ async function subtitle(slug, force = false, titleCard = false) {
     console.log(`   📋 Processing ${reels.length} selected reels`);
   }
   console.log(`   📊 Found ${reels.length} reels to subtitle`);
+
+  // Per-reel filter
+  if (reelId) {
+    const targetId = parseInt(reelId, 10);
+    reels = reels.filter(r => r.id === targetId);
+    if (reels.length === 0) {
+      // Fallback: if no analysis entry but reel file exists, create a synthetic entry
+      const padded = String(reelId).padStart(2, "0");
+      const reelPath = path.join(reelsDir, `reel-${padded}.mp4`);
+      const croppedPath = path.join(reelsDir, `reel-${padded}-cropped.mp4`);
+      if (fs.existsSync(reelPath) || fs.existsSync(croppedPath)) {
+        console.log(`   ⚠️  Reel ${reelId} not in analysis, using full-length subtitles`);
+        reels = [{ id: targetId, start: "0:00", end: "99:59" }];
+      } else {
+        console.error(`❌ Reel ${reelId} not found (no analysis entry, no reel file).`);
+        process.exit(1);
+      }
+    }
+    console.log(`📝 Per-reel mode: processing only reel ${targetId}`);
+  }
 
   // Get source video path
   let sourceVideo = path.join(dir, "raw.mov");
@@ -213,27 +258,35 @@ async function subtitle(slug, force = false, titleCard = false) {
     console.log(`   SRT:    ${srtPath}`);
     console.log(`   Output: ${subtitledPath}`);
     
-    // Escape SRT path for FFmpeg
-    const escapedSRT = srtPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+    // Copy SRT to /tmp to avoid special characters in path (!, spaces, etc.)
+    const tmpSRT = path.join(os.tmpdir(), `tajarib-full-sub.srt`);
+    const tmpFullOut = path.join(os.tmpdir(), `tajarib-full-subtitled.mp4`);
+    fs.copyFileSync(srtPath, tmpSRT);
+    const escapedSRT = tmpSRT.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
     const cmd = [
       "ffmpeg -y",
       `-i "${sourceVideo}"`,
       `-vf "subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H00000000,BackColour=&H800080,BorderStyle=4,Bold=1,Alignment=2,MarginV=50'"`,
       `-c:a copy`,
-      `"${subtitledPath}"`
+      `"${tmpFullOut}"`
     ].join(" ");
 
     console.log(`\n⏳ Running ffmpeg (this may take a while)...`);
     const startTime = Date.now();
-    
+
     try {
       execSync(cmd, { stdio: "inherit" });
+      fs.copyFileSync(tmpFullOut, subtitledPath);
+      fs.unlinkSync(tmpFullOut);
+      fs.unlinkSync(tmpSRT);
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`\n✅ Done in ${duration}s`);
       console.log(`   📁 ${size} MB → ${subtitledPath}`);
     } catch (e) {
+      try { fs.unlinkSync(tmpSRT); } catch {}
+      try { fs.unlinkSync(tmpFullOut); } catch {}
       console.error(`\n❌ Subtitle burn failed:`, e.stderr?.toString() || e.message);
       process.exit(1);
     }
@@ -246,8 +299,7 @@ async function subtitle(slug, force = false, titleCard = false) {
 
   for (const reel of reels) {
     const reelId = String(reel.id).padStart(2, "0");
-    const subtitleExt = titleCard ? "ass" : "srt";
-    const subtitlePath = path.join(reelsDir, `reel-${reelId}.${subtitleExt}`);
+    const subtitlePath = path.join(reelsDir, `reel-${reelId}.ass`);
     // Prefer cropped reel as input, fall back to raw cut
     const croppedPath = path.join(reelsDir, `reel-${reelId}-cropped.mp4`);
     const rawReelPath = path.join(reelsDir, `reel-${reelId}.mp4`);
@@ -274,44 +326,48 @@ async function subtitle(slug, force = false, titleCard = false) {
 
     // Get words in this reel's time range
     const reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
-    
-    // Generate subtitle file (ASS for title cards, SRT for regular)
-    let subtitleContent;
-    if (titleCard) {
-      subtitleContent = generateASS(reelWords, startSec, reelTitle);
-    } else {
-      subtitleContent = generateSRT(reelWords, startSec, null);
-    }
+
+    // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
+    const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null);
 
     fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
-    console.log(`   📝 ${subtitleExt.toUpperCase()} generated: ${subtitleContent.split("\n").filter(l => l.includes("Dialogue") || l.includes(" --> ")).length} subtitle blocks${titleCard ? ' (with 5s title card)' : ''}`);
+    const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
+    console.log(`   📝 ASS generated: ${blockCount} subtitle blocks${titleCard ? ' (with 5s title card)' : ''}`);
 
     // Burn subtitles into video with FFmpeg
     console.log(`   🔥 Burning subtitles with ffmpeg...`);
-    
-    // Escape subtitle path for FFmpeg
-    const escapedSubtitle = subtitlePath.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
-    // For ASS, we don't need force_style as styles are embedded; for SRT we use force_style
-    const vfFilter = titleCard 
-      ? `subtitles='${escapedSubtitle}'`
-      : `subtitles='${escapedSubtitle}':force_style='FontName=SomarSans-SemiBold,FontSize=18,PrimaryColour=&HFFFFFF,OutlineColour=&H00000000,BackColour=&H800080,BorderStyle=4,Bold=1,Alignment=2'`;
+    // Copy subtitle file to /tmp to avoid special characters in path (!, spaces, etc.)
+    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-${reelId}.ass`);
+    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-${reelId}.mp4`);
+    fs.copyFileSync(subtitlePath, tmpSub);
 
+    // Escape temp subtitle path for FFmpeg (only : and \ need escaping)
+    const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+
+    // ASS has embedded styles — no force_style needed, avoids FFmpeg filter parsing issues
     const cmd = [
       "ffmpeg -y",
       `-i "${videoPath}"`,
-      `-vf "${vfFilter}"`,
+      `-vf "ass='${escapedSubtitle}'"`,
       `-c:a copy`,
-      `"${subtitledPath}"`
+      `"${tmpOut}"`
     ].join(" ");
 
     const startTime = Date.now();
     try {
       execSync(cmd, { stdio: "inherit" });
+      // Move result back to the real output path
+      fs.copyFileSync(tmpOut, subtitledPath);
+      fs.unlinkSync(tmpOut);
+      fs.unlinkSync(tmpSub);
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ Done in ${duration}s (${size} MB)`);
     } catch (e) {
+      // Clean up temp files on error
+      try { fs.unlinkSync(tmpSub); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
       console.error(`   ❌ Subtitle burn failed:`, e.stderr?.toString() || e.message);
     }
   }
@@ -324,9 +380,10 @@ const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i +
 const slug = get("--slug");
 const force = args.includes("--force");
 const titleCard = args.includes("--title-card");
+const reelId = get("--reel-id");
 
 if (!slug) {
   console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card]");
   process.exit(1);
 }
-subtitle(slug, force, titleCard).catch(err => { console.error("❌", err.message); process.exit(1); });
+subtitle(slug, force, titleCard, reelId).catch(err => { console.error("❌", err.message); process.exit(1); });

@@ -174,6 +174,26 @@ function getEpisodes() {
       // Check for cropped reels (per-reel crop)
       const hasCropped = reelFiles.some(f => f.includes("-cropped") && f.endsWith(".mp4"));
 
+      // Per-reel status data
+      const reelStatuses = [];
+      const reelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
+      const analysisData = loadJSON(path.join(dir, "analysis.json"));
+      const contentData = loadJSON(path.join(dir, "content.json"));
+      const generatedReelIds = new Set((contentData?.reels || []).map(r => String(r.id).padStart(2, "0")));
+      for (const id of reelIds) {
+        const reelInfo = analysisData?.reels?.find(r => String(r.id).padStart(2, "0") === id) || {};
+        reelStatuses.push({
+          id,
+          cut: true,
+          generated: generatedReelIds.has(id),
+          cropped: reelFiles.includes(`reel-${id}-cropped.mp4`),
+          subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
+          final: reelFiles.includes(`reel-${id}-final.mp4`),
+          hook: reelInfo.hook || reelInfo.title || "",
+          duration: reelInfo.duration || null
+        });
+      }
+
       return {
         slug,
         mediaType,
@@ -195,6 +215,7 @@ function getEpisodes() {
           published: meta.published || false
         },
         selectedReels: selectedReels ? selectedReels.reels : null,
+        reelStatuses,
         content,
         counts: { reels: reelCount, final: finalCount },
         cropRatio: meta.cropRatio || null
@@ -769,13 +790,15 @@ async function handler(req, res) {
     let videoPath;
 
     if (reelParam) {
-      // Serve individual reel: prefer cropped, then subtitled, then raw cut
+      // Serve individual reel: prefer final, then subtitled, then cropped, then raw cut
       const reelsDir = path.join(dir, "reels");
-      const croppedPath = path.join(reelsDir, `reel-${reelParam}-cropped.mp4`);
+      const finalPath = path.join(reelsDir, `reel-${reelParam}-final.mp4`);
       const subtitledPath = path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`);
+      const croppedPath = path.join(reelsDir, `reel-${reelParam}-cropped.mp4`);
       const cutPath = path.join(reelsDir, `reel-${reelParam}.mp4`);
-      videoPath = fs.existsSync(croppedPath) ? croppedPath :
-                  fs.existsSync(subtitledPath) ? subtitledPath : cutPath;
+      videoPath = fs.existsSync(finalPath) ? finalPath :
+                  fs.existsSync(subtitledPath) ? subtitledPath :
+                  fs.existsSync(croppedPath) ? croppedPath : cutPath;
     } else if (type === 'compressed') {
       // Serve the publish-compressed version
       videoPath = path.join(dir, "publish-compressed.mp4");
@@ -920,15 +943,30 @@ The hook should be attention-grabbing and the caption should be ready for Instag
         // Save content
         saveJSON(path.join(reelDir, "content.json"), content);
         
+        // Create a synthetic analysis.json so cut.js can find the reel
+        const startMin = Math.floor(clipData.start_time / 60);
+        const startSec = Math.floor(clipData.start_time % 60);
+        const endMin = Math.floor(clipData.end_time / 60);
+        const endSec = Math.floor(clipData.end_time % 60);
+        const analysisForClip = {
+          reels: [{
+            id: 1,
+            title: clipData.hook,
+            hook: clipData.hook,
+            start: `${startMin}:${String(startSec).padStart(2, '0')}`,
+            end: `${endMin}:${String(endSec).padStart(2, '0')}`,
+            duration: Math.round(clipData.end_time - clipData.start_time)
+          }]
+        };
+        saveJSON(path.join(reelDir, "analysis.json"), analysisForClip);
+
         // Run cut for this specific segment
         io.emit("log", { slug: reelSlug, text: `\n▶ Cutting topic clip: ${topic}\n` });
-        
+
         const cutProc = spawn(NODE_BIN, [
-          "cut.js", 
-          "--slug", reelSlug, 
-          "--video", videoFile,
-          "--start", String(clipData.start_time),
-          "--end", String(clipData.end_time)
+          "cut.js",
+          "--slug", reelSlug,
+          "--video", videoFile
         ], { cwd: WORKSPACE_DIR });
         
         cutProc.stdout.on("data", d => io.emit("log", { slug: reelSlug, text: d.toString() }));
@@ -1152,20 +1190,95 @@ Choose clips that:
         const assetType = Array.isArray(fields.type) ? fields.type[0] : (fields.type || ""); // "sponsor" or "logo"
         const file = files.file?.[0] || files.file;
         if (!assetType || !file) throw new Error("type and file required");
-        if (!["sponsor", "logo"].includes(assetType)) throw new Error("type must be 'sponsor' or 'logo'");
+        if (!["sponsor", "logo", "cta"].includes(assetType)) throw new Error("type must be 'sponsor', 'logo', or 'cta'");
 
-        const destPath = path.join(ASSETS_DIR, `${assetType}.mov`);
+        const ext = assetType === "cta" ? path.extname(file.originalFilename || ".png") : ".mov";
+        const destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);
         fs.renameSync(file.filepath, destPath);
 
         const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
+        const fileName = path.basename(destPath);
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, file: `${assetType}.mov`, sizeMb }));
+        res.end(JSON.stringify({ success: true, file: fileName, sizeMb }));
         io.emit("toast", { type: "success", message: `${assetType} overlay uploaded (${sizeMb} MB)` });
       } catch (e) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: e.message }));
       }
     });
+    return;
+  }
+
+  // ── Overlay Config API ─────────────────────────────────────────────────────
+  const overlayConfigMatch = url.pathname.match(/^\/api\/overlay-config\/(.+)$/);
+  if (overlayConfigMatch) {
+    const slug = decodeURIComponent(overlayConfigMatch[1]);
+    const dir = path.join(EPISODES_DIR, slug);
+    const configPath = path.join(dir, "overlay-config.json");
+
+    if (req.method === "GET") {
+      const defaults = {
+        sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
+        logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
+        lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+        cta: { enabled: false, mode: "text", text: "www.tajarib.show", fontSize: 28, fontColor: "#ffffff", imagePath: "", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
+      };
+      const saved = loadJSON(configPath);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(saved || defaults));
+      return;
+    }
+
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => body += chunk);
+      req.on("end", () => {
+        try {
+          const config = JSON.parse(body);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+          io.emit("toast", { type: "success", message: "Overlay config saved" });
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+      });
+      return;
+    }
+  }
+
+  // ── Reel Thumbnail API ────────────────────────────────────────────────────
+  const thumbMatch = url.pathname.match(/^\/api\/reel-thumbnail\/(.+?)\/(.+)$/);
+  if (req.method === "GET" && thumbMatch) {
+    const slug = decodeURIComponent(thumbMatch[1]);
+    const reelId = thumbMatch[2];
+    const dir = path.join(EPISODES_DIR, slug, "reels");
+    const reelFile = path.join(dir, `reel-${reelId}.mp4`);
+    const thumbFile = path.join(dir, `reel-${reelId}-thumb.jpg`);
+
+    if (!fs.existsSync(reelFile)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Reel not found" }));
+      return;
+    }
+
+    // Cache: only regenerate if thumb doesn't exist or is older than source
+    if (!fs.existsSync(thumbFile) || fs.statSync(thumbFile).mtimeMs < fs.statSync(reelFile).mtimeMs) {
+      try {
+        const { execSync } = require("child_process");
+        execSync(`ffmpeg -y -i "${reelFile}" -ss 3 -frames:v 1 -q:v 4 "${thumbFile}"`, { stdio: "pipe" });
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Thumbnail generation failed" }));
+        return;
+      }
+    }
+
+    const data = fs.readFileSync(thumbFile);
+    res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=3600" });
+    res.end(data);
     return;
   }
 
@@ -1286,10 +1399,10 @@ Choose clips that:
           // No SRT — run transcription as usual
           io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
 
-          const args = ["transcribe.py", finalPath, "--slug", slug];
+          const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
           if (transcribeMethod === "api") args.push("--api");
 
-          const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR });
+          const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
           activeProcesses[slug] = proc;
 
           proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
@@ -2127,7 +2240,7 @@ Choose clips that:
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, step, force, model, ratio } = JSON.parse(body);
+        const { slug, step, force, model, ratio, faceTrack, reelId } = JSON.parse(body);
         if (!slug || !step) throw new Error("slug + step required");
 
         const meta = loadMeta(slug);
@@ -2152,7 +2265,33 @@ Choose clips that:
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
 
-        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio });
+        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId });
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Save reel caption API ──────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/save-reel-caption") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, reelId, caption } = JSON.parse(body);
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        const contentPath = path.join(EPISODES_DIR, slug, "content.json");
+        const content = loadJSON(contentPath);
+        if (!content || !content.reels) throw new Error("No content.json found");
+        const reelNum = parseInt(reelId, 10);
+        const reel = content.reels.find(r => r.id === reelNum || String(r.id).padStart(2, "0") === reelId);
+        if (!reel) throw new Error("Reel not found in content");
+        reel.caption = caption;
+        saveJSON(contentPath, content);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -2209,7 +2348,7 @@ Choose clips that:
 
 // ─── Run Pipeline Step ───────────────────────────────────────────────────────
 
-function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resume, resumeRound }) {
+function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, resume, resumeRound }) {
   if (activeProcesses[slug]) {
     io.emit("toast", { type: "error", message: `${slug} is already running` });
     return;
@@ -2246,6 +2385,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
       const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : [];
       const modelArgs = model ? ["--model", model] : [];
       args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs];
+      if (reelId) args.push("--reel-id", reelId);
       if (force) args.push("--force");
       if (resume) { args.push("--resume"); args.push("--resume-round", String(resumeRound || 0)); }
       break;
@@ -2262,18 +2402,24 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
       cmd = NODE_BIN;
       args = ["crop.js", "--slug", slug];
       if (ratio) args.push("--ratio", ratio);
+      if (faceTrack) args.push("--face-track");
+      if (reelId) args.push("--reel-id", reelId);
       if (force) args.push("--force");
       break;
     case "subtitle":
       cmd = NODE_BIN;
       args = ["subtitle.js", "--slug", slug];
+      if (reelId) args.push("--reel-id", reelId);
       if (force) args.push("--force");
       break;
-    case "overlay":
+    case "overlay": {
       cmd = NODE_BIN;
-      args = ["overlay.js", "--slug", slug, "--all"];
+      const hasConfig = fs.existsSync(path.join(dir, "overlay-config.json"));
+      args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all"];
+      if (reelId) args.push("--reel-id", reelId);
       if (force) args.push("--force");
       break;
+    }
     case "compose":
       cmd = NODE_BIN;
       args = ["compose.js", "--slug", slug];
@@ -2290,11 +2436,12 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
   }
 
   activeSteps[slug] = step;
-  io.emit("log", { slug, text: `\n▶ Running: ${step}\n` });
-  io.emit("log", { slug, text: `   Command: ${cmd} ${args.join(" ")}\n` });
-  io.emit("log", { slug, text: `   Working dir: ${WORKSPACE_DIR}\n` });
-  io.emit("log", { slug, text: `   Starting process...\n\n` });
-  io.emit("process-start", { slug, step });
+  const _rid = reelId || null;
+  io.emit("log", { slug, reelId: _rid, text: `\n▶ Running: ${step}${_rid ? ' (reel ' + _rid + ')' : ''}\n` });
+  io.emit("log", { slug, reelId: _rid, text: `   Command: ${cmd} ${args.join(" ")}\n` });
+  io.emit("log", { slug, reelId: _rid, text: `   Working dir: ${WORKSPACE_DIR}\n` });
+  io.emit("log", { slug, reelId: _rid, text: `   Starting process...\n\n` });
+  io.emit("process-start", { slug, step, reelId: _rid });
 
   console.log(`[Spawning] ${cmd} ${args.join(" ")} in ${WORKSPACE_DIR}`);
   console.log(`[DEBUG] slug=${slug}, step=${step}, io.connected sockets=${io.engine?.clientsCount || 'unknown'}`);
@@ -2317,7 +2464,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
     io.emit("log", { slug, text: `   Command attempted: ${cmd} ${args.join(" ")}\n` });
     io.emit("log", { slug, text: `   Working directory: ${WORKSPACE_DIR}\n` });
     io.emit("log", { slug, text: `   Check that the script exists and is executable.\n\n` });
-    io.emit("process-end", { slug, step, code: -1 });
+    io.emit("process-end", { slug, step, code: -1, reelId: _rid });
     delete activeProcesses[slug];
   });
 
@@ -2338,7 +2485,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
     const text = d.toString();
     stdoutBuffer += text;
     console.log(`[DEBUG stdout ${slug}] ${text.substring(0, 100)}...`);
-    io.emit("log", { slug, text });
+    io.emit("log", { slug, reelId: _rid, text });
   });
   proc.stderr.on("data", d => {
     gotFirstOutput = true;
@@ -2346,7 +2493,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     const text = d.toString();
     stderrBuffer += text;
-    io.emit("log", { slug, text });
+    io.emit("log", { slug, reelId: _rid, text });
   });
   
   // Also listen for stdout/stderr end to capture any remaining data
@@ -2376,16 +2523,16 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, resu
       } else {
         io.emit("log", { slug, text: `\n❌ Exit 42 but no llm-prompt.json found\n` });
       }
-      io.emit("process-end", { slug, step, code: 42 });
+      io.emit("process-end", { slug, step, code: 42, reelId: _rid });
       return;
     }
 
-    io.emit("log", { slug, text: `\nExit code: ${code}\n${"─".repeat(40)}\n` });
+    io.emit("log", { slug, reelId: _rid, text: `\nExit code: ${code}\n${"─".repeat(40)}\n` });
     // Save crop ratio to meta when crop completes successfully
     if (step === "crop" && code === 0 && ratio) {
       saveMeta(slug, { cropRatio: ratio });
     }
-    io.emit("process-end", { slug, step, code });
+    io.emit("process-end", { slug, step, code, reelId: _rid });
     io.emit("status-update", {});
     // Post-transcription: AI title generation if pending
     if (step === "transcribe" && code === 0) {
