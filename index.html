@@ -2977,13 +2977,19 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
     const fbInput = document.getElementById('fb-' + hintId);
     const textarea = document.getElementById(textareaId);
     const hint = document.getElementById('hint-' + hintId);
-    
+    // Find the Revise button (sibling of input in feedback-row)
+    const reviseBtn = fbInput ? fbInput.parentElement.querySelector('.feedback-btn') : null;
+
     const feedback = fbInput.value.trim();
     if (!feedback) return showToast('Enter feedback first', 'error');
 
+    // Clear loading state
     fbInput.disabled = true;
-    hint.textContent = '⏳ Sending to AI...';
-    hint.className = 'content-hint';
+    if (reviseBtn) { reviseBtn.disabled = true; reviseBtn.textContent = '⏳ Revising...'; }
+    hint.textContent = '⏳ Sending feedback to AI — this may take a moment...';
+    hint.style.color = '#60a5fa';
+    hint.style.fontSize = '0.8rem';
+    showToast('Sending to AI...', 'success');
 
     try {
         const res = await fetch('/api/feedback', {
@@ -2997,12 +3003,14 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
             })
         });
         const data = await res.json();
-        
+
         if (data.success) {
             textarea.value = data.revised;
             autoResize(textarea);
             fbInput.value = '';
             hint.textContent = '✓ Revised by AI';
+            hint.style.color = '';
+            hint.style.fontSize = '';
             hint.className = 'content-hint ok';
             showToast('Content revised!', 'success');
         } else {
@@ -3010,11 +3018,15 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
         }
     } catch (err) {
         hint.textContent = '✗ ' + err.message;
+        hint.style.color = '';
+        hint.style.fontSize = '';
         hint.className = 'content-hint err';
+        showToast('Revision failed: ' + err.message, 'error');
     }
-    
+
     fbInput.disabled = false;
-    setTimeout(() => hint.textContent = '', 4000);
+    if (reviseBtn) { reviseBtn.disabled = false; reviseBtn.textContent = '↩ Revise'; }
+    setTimeout(() => { hint.textContent = ''; hint.style.color = ''; hint.style.fontSize = ''; }, 6000);
 }
 
 async function saveAllContent() {
