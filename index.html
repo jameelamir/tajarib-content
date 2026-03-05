@@ -1702,7 +1702,7 @@ function renderReelFullView(ep) {
         videoEl.dataset.slug = ep.slug;
     }
 
-    // Caption tab — skip rebuild if already rendered (preserves focus/input state)
+    // Caption tab — skip rebuild only if user is actively editing (preserves focus/input state)
     var captionBody = document.getElementById('reel-full-caption-body');
     var captionActions = document.getElementById('reel-full-caption-actions');
     var existingTextarea = document.getElementById('reel-full-caption-textarea');
@@ -1710,8 +1710,10 @@ function renderReelFullView(ep) {
         var caption = ep.content.reels[0].caption || '';
         var fieldPath = 'reels.0.caption';
         var textareaId = 'reel-full-caption-textarea';
-        // Only rebuild if no textarea exists yet (first render)
+        var fbInput = document.getElementById('fb-' + textareaId);
+        var isUserEditing = fbInput && (fbInput.value.trim() || document.activeElement === fbInput || document.activeElement === existingTextarea);
         if (!existingTextarea) {
+            // First render — build the editor
             captionBody.innerHTML =
                 '<div class="content-field" data-field="' + fieldPath + '">' +
                     '<div class="content-label" style="font-size:0.75rem; color:#888; margin-bottom:6px;">Reel Caption</div>' +
@@ -1720,6 +1722,10 @@ function renderReelFullView(ep) {
                     '<div class="content-hint" id="hint-' + textareaId + '"></div>' +
                 '</div>';
             captionBody.querySelectorAll('.content-textarea').forEach(autoResize);
+        } else if (!isUserEditing && existingTextarea.value !== caption) {
+            // Caption changed on server (e.g. after generate) and user isn't editing — update
+            existingTextarea.value = caption;
+            autoResize(existingTextarea);
         }
         captionActions.style.display = 'flex';
     } else {
