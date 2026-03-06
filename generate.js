@@ -99,6 +99,14 @@ async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = 
   });
   const text = response.text;
   const tokens = response.usage.total;
+
+  // Debug: log token breakdown and text status
+  log(`   📊 Tokens — input: ${response.usage.input}, output: ${response.usage.output}, total: ${tokens}`);
+  log(`   🤖 Model: ${response.model}`);
+  if (!text) {
+    log(`   ⚠️  LLM returned empty text! Check console for raw response details.`);
+  }
+
   manualRound++;
   return { text, tokens };
 }
@@ -161,7 +169,10 @@ ${reelText}
 
 اكتب الكابشن الآن:`;
 
-  return chat(apiKey, SYSTEM_REELS, user, 512, slug, `reel-${reel.id}`);
+  // Note: reasoning models (e.g. DeepSeek R1 via haimaker/auto) need extra token
+  // budget because they use tokens for internal reasoning before producing output.
+  // 512 was too small — the model would exhaust tokens on reasoning and return null content.
+  return chat(apiKey, SYSTEM_REELS, user, 2048, slug, `reel-${reel.id}`);
 }
 
 async function generateYouTubeContent(apiKey, transcript, analysis, guest, role, formatSpec, slug) {
@@ -259,6 +270,17 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
 
+    // Clean up caption: strip markdown code blocks if present
+    let captionText = (result.text || "").trim();
+    captionText = captionText.replace(/^```[\w]*\n?/gm, "").replace(/```\s*$/gm, "").trim();
+
+    if (!captionText) {
+      log(`   ⚠️  WARNING: LLM returned empty caption text!`);
+      log(`   Raw result.text: ${JSON.stringify(result.text)}`);
+    } else {
+      log(`   📝 Caption preview: ${captionText.substring(0, 80)}…`);
+    }
+
     const output = {
       slug,
       generated_at: new Date().toISOString(),
@@ -268,7 +290,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
       reels: [{
         id: "reel-01",
         reel_text: reelText,
-        caption: result.text,
+        caption: captionText,
       }],
     };
 
