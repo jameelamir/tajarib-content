@@ -1821,6 +1821,10 @@ async function saveReelFullCaption() {
     if (!currentSlug) return;
     var textEl = document.getElementById('reel-full-caption-textarea');
     if (!textEl) return;
+    // Visual feedback on Save button
+    var saveBtn = document.querySelector('#reel-full-caption-actions button');
+    var origText = saveBtn ? saveBtn.textContent : '';
+    if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
     try {
         var res = await fetch('/api/save-content', {
             method: 'POST',
@@ -1828,9 +1832,19 @@ async function saveReelFullCaption() {
             body: JSON.stringify({ slug: currentSlug, field: 'reels.0.caption', value: textEl.value })
         });
         var data = await res.json();
-        if (data.success) { showToast('Caption saved', 'success'); await refresh(); }
-        else showToast(data.error || 'Save failed', 'error');
-    } catch (err) { showToast('Save failed: ' + err.message, 'error'); }
+        if (data.success) {
+            showToast('Caption saved', 'success');
+            if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.color = 'var(--success)'; }
+            setTimeout(function() { if (saveBtn) { saveBtn.textContent = origText; saveBtn.style.color = ''; saveBtn.disabled = false; } }, 2000);
+            await refresh();
+        } else {
+            if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
+            showToast(data.error || 'Save failed', 'error');
+        }
+    } catch (err) {
+        if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
+        showToast('Save failed: ' + err.message, 'error');
+    }
 }
 
 function copyReelFullCaption() {
