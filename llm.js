@@ -103,8 +103,47 @@ async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
     }
 
     const data = await res.json();
+
+    // Extract text — try standard OpenAI format first, then fallbacks
+    let text = "";
+    let reasoning = "";
+    const choice = data.choices?.[0];
+    if (choice) {
+      // Capture reasoning content from reasoning models (DeepSeek R1, etc.)
+      if (typeof choice.message?.reasoning_content === "string") {
+        reasoning = choice.message.reasoning_content.trim();
+      }
+
+      if (typeof choice.message?.content === "string") {
+        text = choice.message.content.trim();
+      } else if (Array.isArray(choice.message?.content)) {
+        // Anthropic-style: content is [{type:"text", text:"..."}]
+        const textBlock = choice.message.content.find(b => b.type === "text");
+        text = (textBlock?.text || "").trim();
+      } else if (typeof choice.text === "string") {
+        // Older completions API format
+        text = choice.text.trim();
+      }
+    }
+
+    // Debug: log when text is empty (often caused by reasoning models exhausting token budget)
+    if (!text && reasoning) {
+      console.error("[llm.js] WARNING: content is null/empty but reasoning_content exists.");
+      console.error("[llm.js] The reasoning model may have exhausted max_tokens on thinking.");
+      console.error("[llm.js] Reasoning preview:", reasoning.slice(0, 200));
+    } else if (!text) {
+      console.error("[llm.js] WARNING: Empty text extracted from API response.");
+      console.error("[llm.js] Response keys:", JSON.stringify(Object.keys(data)));
+      if (data.choices?.length) {
+        console.error("[llm.js] choices[0] keys:", JSON.stringify(Object.keys(data.choices[0])));
+        console.error("[llm.js] choices[0].message:", JSON.stringify(data.choices[0].message)?.slice(0, 500));
+      }
+      console.error("[llm.js] usage:", JSON.stringify(data.usage));
+    }
+
     return {
-      text: (data.choices?.[0]?.message?.content || "").trim(),
+      text,
+      reasoning,
       model: data.model || model,
       usage: {
         input: data.usage?.prompt_tokens || 0,
