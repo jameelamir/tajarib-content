@@ -106,9 +106,21 @@ function addGuestToHistory(guest, role) {
 
 const llm = require("./llm");
 
-async function callClaude(systemPrompt, userMessage, maxTokens = 1024) {
+async function callClaude(systemPrompt, userMessage, maxTokens = 4096) {
   const result = await llm.chat({ system: systemPrompt, user: userMessage, maxTokens });
   if (!result) throw new Error("No API key configured. Set up your LLM provider in the Generation settings.");
+
+  // Reasoning models (e.g. DeepSeek R1 via haimaker/auto) may exhaust tokens on
+  // internal thinking and return empty content. Detect and report this clearly.
+  if (!result.text && result.reasoning) {
+    console.error(`[callClaude] Reasoning model returned empty content (used ${result.usage?.output || '?'} output tokens on reasoning).`);
+    throw new Error("The AI model spent all its capacity on internal reasoning and produced no output. Try again — this is intermittent with reasoning models.");
+  }
+  if (!result.text) {
+    console.error(`[callClaude] LLM returned empty text. Usage: ${JSON.stringify(result.usage)}`);
+    throw new Error("The AI returned an empty response. Please try again.");
+  }
+
   return result.text;
 }
 
@@ -247,7 +259,9 @@ The user has provided this feedback:
 
 Please return a revised version that incorporates the feedback exactly, keeping the same format and language style (Iraqi white Arabic). Use the transcript as reference for what was actually said in the audio. Output only the revised content — no explanations, no extra text.`;
 
-  return callClaude("أنت كاتب محتوى لبودكاست تجارب. راجع المحتوى بناءً على ملاحظات المستخدم.", prompt, 2048);
+  // Use 4096 max_tokens — reasoning models (DeepSeek R1 via haimaker/auto) need
+  // extra budget for internal thinking before producing the actual revised content.
+  return callClaude("أنت كاتب محتوى لبودكاست تجارب. راجع المحتوى بناءً على ملاحظات المستخدم.", prompt, 4096);
 }
 
 // ─── Zapier Webhook Integration ─────────────────────────────────────────────
@@ -1987,6 +2001,11 @@ Choose clips that:
         }
 
         const revised = await callModelForRevision(currentContent, feedback, transcriptText);
+
+        // Safety check: never save empty revision (can happen with reasoning models)
+        if (!revised || !revised.trim()) {
+          throw new Error("AI returned empty revision. Please try again.");
+        }
 
         const contentPath = path.join(EPISODES_DIR, slug, "content.json");
         const content = loadJSON(contentPath);
