@@ -574,19 +574,15 @@ async function publishViaZapier(slug, caption, videoPath) {
 }
 
 async function publishViaBuffer(slug, caption, videoPath) {
-  const meta = loadMeta(slug);
-  const dir = path.join(EPISODES_DIR, slug);
-  const compressedPath = path.join(dir, "publish-compressed.mp4");
-  let videoType;
-  if (fs.existsSync(compressedPath)) {
-    videoType = "compressed";
-  } else {
-    const isReelFull = meta.mediaType === "reel_full";
-    videoType = isReelFull ? "raw" : "subtitled";
-  }
-  const videoUrl = `http://76.13.145.146:7430/api/video?slug=${slug}&type=${videoType}`;
+  // Upload video to temp public host so Buffer can access it
+  io.emit("log", { slug, text: `\n📤 Uploading video for Buffer...\n` });
+  io.emit("toast", { type: "success", message: "Uploading video to public host..." });
 
-  const results = await buffer.publish({ caption, videoUrl });
+  const publicVideoUrl = await buffer.uploadToTempHost(videoPath);
+  console.log(`[Buffer] Uploaded to: ${publicVideoUrl}`);
+  io.emit("log", { slug, text: `✅ Uploaded: ${publicVideoUrl}\n` });
+
+  const results = await buffer.publish({ caption, videoUrl: publicVideoUrl });
 
   const failed = results.filter(r => !r.success);
   if (failed.length > 0 && failed.length === results.length) {

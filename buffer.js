@@ -7,6 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 
 const BUFFER_API_URL = "https://api.buffer.com";
 const BUFFER_CONFIG_FILE = path.join(__dirname, "buffer-config.json");
@@ -215,12 +216,40 @@ async function publish({ caption, videoUrl, videoThumbnailUrl }) {
   return publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels: enabledChannels });
 }
 
+/**
+ * Upload a video file to a temporary public host so Buffer can access it.
+ * Uses litterbox.catbox.moe (72h retention, up to 1GB).
+ */
+async function uploadToTempHost(filePath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("curl", [
+      "-s", "-F", "reqtype=fileupload",
+      "-F", "time=72h",
+      "-F", `fileToUpload=@${filePath}`,
+      "https://litterbox.catbox.moe/resources/internals/api.php"
+    ]);
+
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", d => stdout += d.toString());
+    proc.stderr.on("data", d => stderr += d.toString());
+    proc.on("error", err => reject(new Error(`Upload failed to start: ${err.message}`)));
+    proc.on("close", code => {
+      if (code !== 0) return reject(new Error(`Upload failed (code ${code}): ${stderr}`));
+      const url = stdout.trim();
+      if (!url.startsWith("http")) return reject(new Error(`Upload returned invalid URL: ${url}`));
+      resolve(url);
+    });
+  });
+}
+
 module.exports = {
   loadConfig,
   saveConfig,
   getAccount,
   getChannels,
   createPost,
+  uploadToTempHost,
   publish,
   graphql,
 };
