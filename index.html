@@ -206,6 +206,14 @@
 
         .publish-btn { background: #1d4ed8; border-color: #2563eb; }
         .publish-btn:hover { background: #2563eb; }
+        .pub-method-btn { background: #1a1a1a; border: 1px solid #333; color: #888; cursor: pointer; border-radius: 4px; transition: all 0.15s; }
+        .pub-method-btn.active { background: #1d4ed8; border-color: #2563eb; color: #fff; }
+        .pub-method-btn:hover:not(.active) { background: #222; color: #ccc; }
+        .buffer-ch-item { display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px solid #1a1a1a; }
+        .buffer-ch-toggle { width:32px; height:18px; border-radius:9px; background:#333; border:none; cursor:pointer; position:relative; transition:background 0.2s; }
+        .buffer-ch-toggle.on { background: var(--success); }
+        .buffer-ch-toggle::after { content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left 0.2s; }
+        .buffer-ch-toggle.on::after { left:16px; }
 
         /* ── Mobile Responsive Styles ──────────────────────────────────────────── */
         @media (max-width: 768px) {
@@ -278,15 +286,42 @@
         <div class="progress-text" id="progress-text">Uploading...</div>
     </div>
 
-    <!-- Collapsible: Zapier -->
-    <div class="sidebar-section" id="section-zapier">
-        <div class="sidebar-section-header" onclick="toggleSection('zapier')">
-            <span>🔗 Zapier Connected</span>
-            <span class="chevron">&#9656;</span>
+    <!-- Collapsible: Publishing -->
+    <div class="sidebar-section" id="section-publishing">
+        <div class="sidebar-section-header" onclick="toggleSection('publishing')">
+            <span>📤 Publishing</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="buffer-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
         </div>
         <div class="sidebar-section-body">
-            <div style="padding:6px 8px; color:#666; font-size:0.65rem;">
-                Reels sent to Zapier webhook for TikTok, Instagram, etc.
+            <div style="padding:8px;">
+                <!-- Publish method selector -->
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:4px;">Publish via</label>
+                    <div style="display:flex; gap:4px;">
+                        <button id="pub-method-zapier" class="pub-method-btn active" onclick="setPublishMethod('zapier')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Zapier</button>
+                        <button id="pub-method-buffer" class="pub-method-btn" onclick="setPublishMethod('buffer')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Buffer API</button>
+                    </div>
+                </div>
+                <!-- Buffer config (hidden by default) -->
+                <div id="buffer-config-panel" style="display:none;">
+                    <div style="margin-bottom:6px;">
+                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Buffer API Token</label>
+                        <div style="display:flex; gap:4px;">
+                            <input type="password" id="buffer-token-input" placeholder="API token" style="flex:1; font-size:0.65rem; padding:4px 6px;">
+                            <button onclick="saveBufferToken()" style="font-size:0.65rem; padding:4px 8px;">Save</button>
+                        </div>
+                        <div id="buffer-token-status" style="font-size:0.6rem; color:#666; margin-top:3px;"></div>
+                    </div>
+                    <button onclick="fetchBufferChannels()" style="font-size:0.65rem; padding:4px 8px; width:100%; margin-bottom:6px;">Refresh Channels</button>
+                    <div id="buffer-channels-list" style="font-size:0.6rem;"></div>
+                </div>
+                <!-- Zapier info -->
+                <div id="zapier-info-panel">
+                    <div style="color:#666; font-size:0.6rem;">Reels sent to Zapier webhook for TikTok, Instagram, etc.</div>
+                </div>
             </div>
         </div>
     </div>
@@ -418,7 +453,7 @@
                     <div class="reel-full-actions" id="reel-full-caption-actions" style="display:none;">
                         <button onclick="saveReelFullCaption()" style="font-size:0.75rem;">Save</button>
                         <button onclick="copyReelFullCaption()" style="font-size:0.75rem;">Copy</button>
-                        <button class="publish-btn" onclick="publishToZapier()" style="font-size:0.75rem;">Publish</button>
+                        <button class="publish-btn" onclick="publishNow()" style="font-size:0.75rem;">Publish</button>
                     </div>
                 </div>
                 <!-- Transcript tab -->
@@ -1094,7 +1129,7 @@ function toggleSection(name) {
     localStorage.setItem('tajarib-section-' + name, el.classList.contains('open'));
 }
 // Restore collapsed state
-['zapier','transcription'].forEach(function(name) {
+['publishing','transcription'].forEach(function(name) {
     const saved = localStorage.getItem('tajarib-section-' + name);
     if (saved === 'true') {
         const el = document.getElementById('section-' + name);
@@ -2268,19 +2303,37 @@ async function runStep(step) {
     }
 }
 
-async function publishToZapier() {
+// ── Publishing (Zapier or Buffer) ─────────────────────────────────────────
+var publishMethod = localStorage.getItem('tajarib-publish-method') || 'zapier';
+
+function setPublishMethod(method) {
+    publishMethod = method;
+    localStorage.setItem('tajarib-publish-method', method);
+    document.getElementById('pub-method-zapier').classList.toggle('active', method === 'zapier');
+    document.getElementById('pub-method-buffer').classList.toggle('active', method === 'buffer');
+    document.getElementById('buffer-config-panel').style.display = method === 'buffer' ? 'block' : 'none';
+    document.getElementById('zapier-info-panel').style.display = method === 'zapier' ? 'block' : 'none';
+}
+
+async function publishNow() {
     if (!currentSlug) return;
-    
+    var service = publishMethod;
     try {
-        showToast('Sending to Zapier...', 'success');
+        showToast('Publishing via ' + (service === 'buffer' ? 'Buffer' : 'Zapier') + '...', 'success');
         const res = await fetch('/api/publish', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug})
+            body: JSON.stringify({slug: currentSlug, service: service})
         });
         const data = await res.json();
         if (data.success) {
-            showToast('Sent to Zapier!', 'success');
+            if (service === 'buffer' && data.result && data.result.results) {
+                var ok = data.result.results.filter(function(r) { return r.success; }).length;
+                var fail = data.result.results.filter(function(r) { return !r.success; }).length;
+                showToast('Buffer: ' + ok + ' posted' + (fail ? ', ' + fail + ' failed' : ''), fail ? 'warning' : 'success');
+            } else {
+                showToast('Sent to ' + (service === 'buffer' ? 'Buffer' : 'Zapier') + '!', 'success');
+            }
             refresh();
         } else {
             throw new Error(data.error);
@@ -2289,6 +2342,100 @@ async function publishToZapier() {
         showToast('Publish failed: ' + err.message, 'error');
     }
 }
+
+// Keep old name as alias for backwards compatibility in existing onclick handlers
+var publishToZapier = publishNow;
+
+async function saveBufferToken() {
+    var token = document.getElementById('buffer-token-input').value.trim();
+    if (!token) return;
+    try {
+        const res = await fetch('/api/buffer-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({accessToken: token})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Buffer token saved', 'success');
+            document.getElementById('buffer-token-input').value = '';
+            loadBufferConfig();
+            fetchBufferChannels();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function fetchBufferChannels() {
+    var listEl = document.getElementById('buffer-channels-list');
+    listEl.innerHTML = '<div style="color:#666;">Loading channels...</div>';
+    try {
+        const res = await fetch('/api/buffer-channels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}'
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        renderBufferChannels(data.channels);
+        document.getElementById('buffer-status-dot').style.background = 'var(--success)';
+    } catch (err) {
+        listEl.innerHTML = '<div style="color:#f66;">' + err.message + '</div>';
+        document.getElementById('buffer-status-dot').style.background = '#c33';
+    }
+}
+
+function renderBufferChannels(channels) {
+    var listEl = document.getElementById('buffer-channels-list');
+    if (!channels || Object.keys(channels).length === 0) {
+        listEl.innerHTML = '<div style="color:#666;">No channels found. Connect channels in Buffer first.</div>';
+        return;
+    }
+    var serviceIcons = {tiktok:'TikTok', instagram:'Instagram', facebook:'Facebook', youtube:'YouTube', linkedin:'LinkedIn'};
+    var html = '';
+    Object.values(channels).forEach(function(ch) {
+        var label = (serviceIcons[ch.service] || ch.service) + ' - ' + ch.name;
+        html += '<div class="buffer-ch-item">' +
+            '<span style="color:#ccc;">' + label + '</span>' +
+            '<button class="buffer-ch-toggle' + (ch.enabled ? ' on' : '') + '" onclick="toggleBufferChannel(\'' + ch.id + '\', this)"></button>' +
+            '</div>';
+    });
+    listEl.innerHTML = html;
+}
+
+async function toggleBufferChannel(channelId, btn) {
+    var isOn = btn.classList.contains('on');
+    btn.classList.toggle('on');
+    await fetch('/api/buffer-channel-toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({channelId: channelId, enabled: !isOn})
+    });
+}
+
+async function loadBufferConfig() {
+    try {
+        const res = await fetch('/api/buffer-config');
+        const data = await res.json();
+        var statusEl = document.getElementById('buffer-token-status');
+        if (data.hasToken) {
+            statusEl.innerHTML = 'Token: <span style="color:var(--success);">configured</span> (' + data.tokenPreview + ')';
+            document.getElementById('buffer-status-dot').style.background = 'var(--success)';
+            if (data.channels && Object.keys(data.channels).length > 0) {
+                renderBufferChannels(data.channels);
+            }
+        } else {
+            statusEl.innerHTML = '<span style="color:#c33;">No token set</span>';
+        }
+    } catch (e) {}
+}
+
+// Init publish method UI
+setPublishMethod(publishMethod);
+loadBufferConfig();
 
 document.getElementById('stop-btn').onclick = function() {
     if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
@@ -2678,7 +2825,7 @@ async function loadPreview() {
                 '<div style="font-size:0.9rem; color:#ddd; line-height:1.6; direction:rtl; text-align:right;">' + escHtml(caption) + '</div>' +
             '</div>' +
             '<div style="display:flex; gap:12px; justify-content:center; padding:10px;">' +
-                '<button class="primary" style="padding:10px 24px; font-size:0.9rem;" onclick="publishToZapier()">📤 Publish Now</button>' +
+                '<button class="primary" style="padding:10px 24px; font-size:0.9rem;" onclick="publishNow()">📤 Publish Now</button>' +
                 '<button onclick="switchTab(' + "'content'" + ')">✏️ Edit Caption</button>' +
             '</div>' +
         '</div>';

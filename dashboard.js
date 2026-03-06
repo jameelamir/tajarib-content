@@ -11,6 +11,7 @@ const { spawn } = require("child_process");
 const socketIo = require("socket.io");
 const { formidable } = require("formidable");
 // Anthropic SDK now loaded via llm.js only when needed
+const buffer = require("./buffer");
 
 const PORT = process.env.PORT || 7430;
 const WORKSPACE_DIR = __dirname;
@@ -570,6 +571,29 @@ async function publishViaZapier(slug, caption, videoPath) {
   }
   
   return { success: true, service: "zapier" };
+}
+
+async function publishViaBuffer(slug, caption, videoPath) {
+  const meta = loadMeta(slug);
+  const dir = path.join(EPISODES_DIR, slug);
+  const compressedPath = path.join(dir, "publish-compressed.mp4");
+  let videoType;
+  if (fs.existsSync(compressedPath)) {
+    videoType = "compressed";
+  } else {
+    const isReelFull = meta.mediaType === "reel_full";
+    videoType = isReelFull ? "raw" : "subtitled";
+  }
+  const videoUrl = `http://76.13.145.146:7430/api/video?slug=${slug}&type=${videoType}`;
+
+  const results = await buffer.publish({ caption, videoUrl });
+
+  const failed = results.filter(r => !r.success);
+  if (failed.length > 0 && failed.length === results.length) {
+    throw new Error(`All Buffer posts failed: ${failed.map(f => `${f.service}: ${f.error}`).join("; ")}`);
+  }
+
+  return { success: true, service: "buffer", results };
 }
 
 // ─── Server Setup ────────────────────────────────────────────────────────────
@@ -1693,34 +1717,30 @@ Choose clips that:
     return;
   }
 
-  // ── Publish via Zapier Webhook ────────────────────────────────────────────
+  // ── Publish (Zapier or Buffer) ───────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/publish") {
     let body = "";
     req.on("data", chunk => body += chunk);
     req.on("end", async () => {
       try {
-        const { slug } = JSON.parse(body);
+        const { slug, service } = JSON.parse(body);
+        const useBuffer = service === "buffer";
         const meta = loadMeta(slug);
         const content = loadJSON(path.join(EPISODES_DIR, slug, "content.json"));
-        
+
         // Get caption from content.json if available, otherwise use a default
         let caption;
         if (content && content.reels && content.reels.length > 0) {
           caption = content.reels[0].caption;
         } else {
-          // Generate a basic caption from metadata
           const guest = meta.guest || "ضيف تاجرب";
           const role = meta.role || "";
           caption = `🎙️ ${guest}${role ? " - " + role : ""}\n\n#تجارب #بودكاست #ريادة_الأعمال`;
         }
-        
-        // For reel_full, use the raw video (already subtitled)
-        // For reel_cut, use the subtitled reel from reels folder
-        // For full video (no reels), use full-subtitled.mp4
+
         let videoPath;
         const dir = path.join(EPISODES_DIR, slug);
-        
-        // First check for full-subtitled.mp4 (handles both reel_cut with no reels and reel_full)
+
         const fullSubtitled = path.join(dir, "full-subtitled.mp4");
         if (fs.existsSync(fullSubtitled)) {
           videoPath = fullSubtitled;
@@ -1738,20 +1758,136 @@ Choose clips that:
             videoPath = path.join(dir, "reels", "reel-001-subtitled.mp4");
           }
         }
-        
+
         // Compress if needed (Buffer/Instagram limit ~100MB)
-        io.emit("toast", { type: "success", message: "Preparing video for publish..." });
+        io.emit("toast", { type: "success", message: `Preparing video for ${useBuffer ? "Buffer" : "Zapier"}...` });
         const publishVideoPath = await compressForPublish(videoPath, slug);
-        
-        const result = await publishViaZapier(slug, caption, publishVideoPath);
-        
+
+        let result;
+        if (useBuffer) {
+          result = await publishViaBuffer(slug, caption, publishVideoPath);
+          const successCount = result.results.filter(r => r.success).length;
+          const failCount = result.results.filter(r => !r.success).length;
+          let toastMsg = `Buffer: ${successCount} channel(s) posted`;
+          if (failCount > 0) toastMsg += `, ${failCount} failed`;
+          io.emit("toast", { type: failCount > 0 ? "warning" : "success", message: toastMsg });
+        } else {
+          result = await publishViaZapier(slug, caption, publishVideoPath);
+          io.emit("toast", { type: "success", message: "Sent to Zapier!" });
+        }
+
         // Mark as published
         saveMeta(slug, { published: true, publishedAt: new Date().toISOString() });
-        
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true, result }));
         io.emit("status-update", {});
-        io.emit("toast", { type: "success", message: "Sent to Zapier!" });
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Buffer Config API ────────────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/buffer-config") {
+    const config = buffer.loadConfig();
+    // Don't expose full token to frontend
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      hasToken: !!config.accessToken,
+      tokenPreview: config.accessToken ? "..." + config.accessToken.slice(-6) : null,
+      enabled: config.enabled || false,
+      channels: config.channels || {},
+    }));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/buffer-config") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const { accessToken, enabled } = JSON.parse(body);
+        const config = buffer.loadConfig();
+        if (accessToken !== undefined) config.accessToken = accessToken;
+        if (enabled !== undefined) config.enabled = enabled;
+        buffer.saveConfig(config);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Fetch channels from Buffer API and save to config
+  if (req.method === "POST" && url.pathname === "/api/buffer-channels") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", async () => {
+      try {
+        const config = buffer.loadConfig();
+        if (!config.accessToken) throw new Error("Buffer API token not configured");
+
+        const account = await buffer.getAccount();
+        if (!account.organizations || account.organizations.length === 0) {
+          throw new Error("No organizations found in Buffer account");
+        }
+
+        const orgId = account.organizations[0].id;
+        const channels = await buffer.getChannels(orgId);
+
+        // Target services
+        const TARGET_SERVICES = ["tiktok", "linkedin", "facebook", "youtube", "instagram"];
+        const relevantChannels = channels.filter(ch => TARGET_SERVICES.includes(ch.service) && !ch.isDisconnected && !ch.isLocked);
+
+        // Merge with existing config (preserve enabled state)
+        const existingChannels = config.channels || {};
+        const updatedChannels = {};
+        for (const ch of relevantChannels) {
+          updatedChannels[ch.id] = {
+            id: ch.id,
+            name: ch.name,
+            service: ch.service,
+            type: ch.type,
+            avatar: ch.avatar,
+            enabled: existingChannels[ch.id] ? existingChannels[ch.id].enabled : true,
+          };
+        }
+
+        config.channels = updatedChannels;
+        config.organizationId = orgId;
+        config.organizationName = account.organizations[0].name;
+        buffer.saveConfig(config);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, channels: updatedChannels, organization: account.organizations[0].name }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Toggle individual channel on/off
+  if (req.method === "POST" && url.pathname === "/api/buffer-channel-toggle") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { channelId, enabled } = JSON.parse(body);
+        const config = buffer.loadConfig();
+        if (config.channels && config.channels[channelId]) {
+          config.channels[channelId].enabled = enabled;
+          buffer.saveConfig(config);
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
