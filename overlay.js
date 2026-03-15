@@ -119,6 +119,16 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
 
   // Logo overlay (supports .mov, .png, .jpg)
   if (config.logo && config.logo.enabled) {
+    // Top-right corner vignette for logo readability
+    const vigFile = path.join(ASSETS_DIR, "logo-vignette.png");
+    if (fs.existsSync(vigFile)) {
+      inputs.push(vigFile);
+      if (chain) chain += ";";
+      chain += `[${inputIdx}:v]scale=${videoWidth}:${videoHeight},format=rgba[logo_vig];{LAST}[logo_vig]overlay=0:0[after_logo_vig]`;
+      lastLabel = "[after_logo_vig]";
+      inputIdx++;
+    }
+
     const logoFile = [".mov", ".png", ".jpg", ".mp4"].map(ext => path.join(ASSETS_DIR, "logo" + ext)).find(f => fs.existsSync(f));
     if (logoFile) {
       inputs.push(logoFile);
@@ -130,7 +140,7 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
       x = Math.min(x, videoWidth - scale - margin);
       const isStatic = /\.(png|jpg|jpeg)$/i.test(logoFile);
       if (chain) chain += ";";
-      chain += `[${inputIdx}:v]scale=${scale}:-1[logo];{LAST}[logo]overlay=${x}:${y}${isStatic ? "" : ":eof_action=pass"}[after_logo]`;
+      chain += `[${inputIdx}:v]scale=${scale}:-1,format=rgba[logo];{LAST}[logo]overlay=${x}:${y}${isStatic ? "" : ":eof_action=pass"}[after_logo]`;
       lastLabel = "[after_logo]";
       inputIdx++;
     }
@@ -289,7 +299,7 @@ async function overlay(slug, options) {
     const vfFilters = [];
 
     // Shadow gradient PNG — injected as extra input, composited before everything else
-    const shadowFile = path.join(ASSETS_DIR, "shadow-reels.png");
+    const shadowFile = path.join(ASSETS_DIR, "shadow-reels-light.png");
     let shadowInput = null;
     if (fs.existsSync(shadowFile)) {
       shadowInput = shadowFile;
