@@ -115,28 +115,104 @@ async function cut(slug, videoPath, force = false, reelId = null) {
       continue;
     }
 
-    console.log(`   ✂️  Reel ${reel.id}: ${reel.start}→${reel.end} (${duration.toFixed(1)}s) → ${path.basename(outFile)}`);
+    // Build segments: if reel has middle cuts, split into kept segments
+    const cuts = (reel.cuts || [])
+      .map(c => ({ from: snapToWord(words, toSeconds(c.from), "end"), to: snapToWord(words, toSeconds(c.to), "start") }))
+      .filter(c => c.from > startSec && c.to < endSec && c.to > c.from)
+      .sort((a, b) => a.from - b.from);
 
-    const ffmpegArgs = [
-      "-y",
-      "-ss", startSec.toFixed(3),
-      "-i", videoPath,
-      "-t", duration.toFixed(3),
-      "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-      "-c:a", "aac", "-b:a", "192k",
-      "-movflags", "+faststart",
-      outFile
-    ];
+    if (cuts.length === 0) {
+      // Simple single-segment cut
+      console.log(`   ✂️  Reel ${reel.id}: ${reel.start}→${reel.end} (${duration.toFixed(1)}s) → ${path.basename(outFile)}`);
 
-    try {
-      execFileSync("ffmpeg", ffmpegArgs, { stdio: "pipe" });
-      const size = (fs.statSync(outFile).size / 1024 / 1024).toFixed(1);
-      console.log(`   ✅ ${size} MB`);
-    } catch (e) {
-      const stderr = e.stderr?.toString().slice(-200) || "";
-      console.error(`   ❌ Reel ${reel.id} failed: ${stderr || e.message}`);
-      // Clean up 0-byte files
-      try { if (fs.existsSync(outFile) && fs.statSync(outFile).size === 0) fs.unlinkSync(outFile); } catch {}
+      const ffmpegArgs = [
+        "-y",
+        "-ss", startSec.toFixed(3),
+        "-i", videoPath,
+        "-t", duration.toFixed(3),
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        outFile
+      ];
+
+      try {
+        execFileSync("ffmpeg", ffmpegArgs, { stdio: "pipe" });
+        const size = (fs.statSync(outFile).size / 1024 / 1024).toFixed(1);
+        console.log(`   ✅ ${size} MB`);
+      } catch (e) {
+        const stderr = e.stderr?.toString().slice(-200) || "";
+        console.error(`   ❌ Reel ${reel.id} failed: ${stderr || e.message}`);
+        try { if (fs.existsSync(outFile) && fs.statSync(outFile).size === 0) fs.unlinkSync(outFile); } catch {}
+      }
+    } else {
+      // Multi-segment cut: extract kept segments, then concat
+      const segments = [];
+      let segStart = startSec;
+      for (const c of cuts) {
+        if (c.from > segStart) segments.push({ start: segStart, end: c.from });
+        segStart = c.to;
+      }
+      if (segStart < endSec) segments.push({ start: segStart, end: endSec });
+
+      const totalKept = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
+      const totalRemoved = duration - totalKept;
+      console.log(`   ✂️  Reel ${reel.id}: ${reel.start}→${reel.end} with ${cuts.length} cut(s) removed (${totalRemoved.toFixed(1)}s cut, ${totalKept.toFixed(1)}s kept) → ${path.basename(outFile)}`);
+
+      const tempFiles = [];
+      let segFailed = false;
+
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const tempFile = path.join(reelsDir, `_seg-${reel.id}-${i}.mp4`);
+        tempFiles.push(tempFile);
+
+        const segArgs = [
+          "-y",
+          "-ss", seg.start.toFixed(3),
+          "-i", videoPath,
+          "-t", (seg.end - seg.start).toFixed(3),
+          "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+          "-c:a", "aac", "-b:a", "192k",
+          "-movflags", "+faststart",
+          tempFile
+        ];
+
+        try {
+          execFileSync("ffmpeg", segArgs, { stdio: "pipe" });
+        } catch (e) {
+          const stderr = e.stderr?.toString().slice(-200) || "";
+          console.error(`   ❌ Reel ${reel.id} segment ${i} failed: ${stderr || e.message}`);
+          segFailed = true;
+          break;
+        }
+      }
+
+      if (!segFailed) {
+        // Write concat list and merge
+        const concatList = path.join(reelsDir, `_concat-${reel.id}.txt`);
+        fs.writeFileSync(concatList, tempFiles.map(f => `file '${f}'`).join("\n"));
+
+        try {
+          execFileSync("ffmpeg", [
+            "-y", "-f", "concat", "-safe", "0", "-i", concatList,
+            "-c", "copy", "-movflags", "+faststart", outFile
+          ], { stdio: "pipe" });
+          const size = (fs.statSync(outFile).size / 1024 / 1024).toFixed(1);
+          console.log(`   ✅ ${size} MB (${segments.length} segments joined)`);
+        } catch (e) {
+          const stderr = e.stderr?.toString().slice(-200) || "";
+          console.error(`   ❌ Reel ${reel.id} concat failed: ${stderr || e.message}`);
+          try { if (fs.existsSync(outFile) && fs.statSync(outFile).size === 0) fs.unlinkSync(outFile); } catch {}
+        }
+
+        // Clean up temp files
+        try { fs.unlinkSync(concatList); } catch {}
+      }
+
+      for (const f of tempFiles) {
+        try { fs.unlinkSync(f); } catch {}
+      }
     }
   }
 
