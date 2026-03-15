@@ -103,6 +103,30 @@ function addGuestToHistory(guest, role) {
   saveJSON(GUESTS_FILE, guests);
 }
 
+// ─── Shared: start transcription after upload/download ───────────────────────
+
+function startTranscription(slug, finalPath, transcribeMethod) {
+  io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
+
+  const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
+  if (transcribeMethod === "api") args.push("--api");
+
+  const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
+  activeProcesses[slug] = proc;
+
+  proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
+  proc.stderr.on("data", d => io.emit("log", { slug, text: d.toString() }));
+
+  proc.on("close", async (code) => {
+    delete activeProcesses[slug];
+    io.emit("log", { slug, text: `\nTranscription complete. Exit: ${code}\n` });
+    io.emit("status-update", {});
+    if (code === 0) {
+      await handlePostTranscription(slug);
+    }
+  });
+}
+
 // ─── LLM Helper (supports Haimaker / OpenAI-compatible + direct Anthropic) ──
 
 const llm = require("./llm");
@@ -1431,25 +1455,7 @@ Choose clips that:
           await handlePostTranscription(slug);
         } else {
           // No SRT — run transcription as usual
-          io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
-
-          const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
-          if (transcribeMethod === "api") args.push("--api");
-
-          const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
-          activeProcesses[slug] = proc;
-
-          proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
-          proc.stderr.on("data", d => io.emit("log", { slug, text: d.toString() }));
-
-          proc.on("close", async (code) => {
-            delete activeProcesses[slug];
-            io.emit("log", { slug, text: `\nTranscription complete. Exit: ${code}\n` });
-            io.emit("status-update", {});
-            if (code === 0) {
-              await handlePostTranscription(slug);
-            }
-          });
+          startTranscription(slug, finalPath, transcribeMethod);
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -1457,6 +1463,118 @@ Choose clips that:
 
       } catch (err) {
         console.error("[Upload Error]", err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Download from URL (yt-dlp) ──────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/download-url") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { url: videoUrl, slug: rawSlug, guest, role, mediaType, transcribeMethod } = JSON.parse(body);
+
+        if (!videoUrl || !/^https?:\/\/.+/.test(videoUrl)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: "Invalid URL" }));
+          return;
+        }
+
+        const pendingAiTitle = !rawSlug || !rawSlug.trim();
+        const slug = pendingAiTitle
+          ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}`
+          : rawSlug.trim().replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+
+        const epDir = path.join(EPISODES_DIR, slug);
+        fs.mkdirSync(epDir, { recursive: true });
+
+        const outPath = path.join(epDir, "raw.mp4");
+
+        io.emit("log", { slug, text: `\n🔗 Downloading: ${videoUrl}\n` });
+        io.emit("download-progress", { slug, percent: 0, status: "downloading" });
+
+        const ytdlpArgs = [
+          "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+          "--merge-output-format", "mp4",
+          "-o", outPath,
+          "--newline",
+          "--no-warnings",
+          videoUrl
+        ];
+
+        const proc = spawn("yt-dlp", ytdlpArgs, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
+        activeProcesses[slug] = proc;
+
+        // Parse yt-dlp progress output (e.g. "[download]  45.2% of 123.45MiB at 5.67MiB/s ETA 00:12")
+        const parseProgress = (line) => {
+          const match = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([\d.]+\S+)\s+at\s+([\d.]+\S+)\s+ETA\s+(\S+)/);
+          if (match) {
+            io.emit("download-progress", {
+              slug,
+              percent: parseFloat(match[1]),
+              size: match[2],
+              speed: match[3],
+              eta: match[4],
+              status: "downloading"
+            });
+          }
+        };
+
+        proc.stdout.on("data", d => {
+          const text = d.toString();
+          io.emit("log", { slug, text });
+          text.split("\n").forEach(parseProgress);
+        });
+        proc.stderr.on("data", d => {
+          const text = d.toString();
+          io.emit("log", { slug, text });
+          text.split("\n").forEach(parseProgress);
+        });
+
+        proc.on("close", async (code) => {
+          delete activeProcesses[slug];
+
+          if (code !== 0 || !fs.existsSync(outPath)) {
+            io.emit("log", { slug, text: `\n❌ Download failed (exit ${code})\n` });
+            io.emit("download-progress", { slug, percent: 0, status: "error" });
+            // Clean up empty episode dir
+            try { fs.rmSync(epDir, { recursive: true }); } catch {}
+            return;
+          }
+
+          io.emit("log", { slug, text: `\n✅ Download complete\n` });
+          io.emit("download-progress", { slug, percent: 100, status: "done" });
+
+          // Save metadata
+          saveMeta(slug, {
+            mediaType: mediaType || "episode",
+            originalFilename: videoUrl,
+            sourceUrl: videoUrl,
+            createdAt: new Date().toISOString(),
+            rawVideo: outPath,
+            guest: guest || "",
+            role: role || "",
+            transcribeMethod: transcribeMethod || "local",
+            ...(pendingAiTitle && { pendingAiTitle: true })
+          });
+
+          if (guest) addGuestToHistory(guest, role);
+
+          io.emit("status-update", {});
+
+          // Start transcription pipeline
+          startTranscription(slug, outPath, transcribeMethod || "local");
+        });
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, slug }));
+
+      } catch (err) {
+        console.error("[Download URL Error]", err);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
       }

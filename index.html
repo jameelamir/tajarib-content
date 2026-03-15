@@ -280,7 +280,13 @@
         <input type="file" id="file-input" accept=".mp4,.mkv,.mov,.avi">
     </div>
 
-    <!-- Upload Progress -->
+    <!-- URL Input -->
+    <div style="margin:0 12px 12px; display:flex; gap:6px;">
+        <input type="text" id="url-input" placeholder="Paste video link (YouTube, X, Instagram...)" style="flex:1; padding:8px 12px; background:#111; border:1px solid #333; border-radius:8px; color:#ccc; font-size:0.75rem; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='#333'">
+        <button onclick="startUrlUploadFlow()" style="padding:8px 14px; background:var(--accent); color:#fff; border:none; border-radius:8px; font-size:0.75rem; cursor:pointer; white-space:nowrap;">Download</button>
+    </div>
+
+    <!-- Upload/Download Progress -->
     <div class="upload-progress" id="upload-progress">
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         <div class="progress-text" id="progress-text">Uploading...</div>
@@ -537,7 +543,7 @@
 <!-- Upload Modal -->
 <div class="modal" id="upload-modal">
     <div class="modal-box">
-        <h3>📁 Upload Episode</h3>
+        <h3 id="upload-modal-title">📁 Upload Episode</h3>
         <div class="field">
             <label>Episode Slug <span style="font-weight:normal; color:#666; font-size:0.75rem;">(optional — AI generates from transcript if empty)</span></label>
             <input type="text" id="upload-slug" placeholder="Leave empty for AI title, or type e.g. muhannad-siemens">
@@ -625,7 +631,7 @@
         </div>
         <div class="modal-actions">
             <button onclick="closeUploadModal()">Cancel</button>
-            <button class="primary" onclick="confirmUpload()">Upload</button>
+            <button class="primary" id="upload-confirm-btn" onclick="confirmUpload()">Upload</button>
         </div>
     </div>
 </div>
@@ -778,6 +784,7 @@ let guestHistory = [];
 let pendingSpeakerFile = null;
 let pendingGuestFile = null;
 let pendingSrtFile = null;
+let pendingUrl = null;
 let selectedReelId = null;
 let reelLogs = {};
 
@@ -1029,6 +1036,31 @@ socket.on('process-end', function(data) {
 });
 socket.on('toast', ({type, message}) => showToast(message, type));
 
+// Download progress (from URL downloads)
+socket.on('download-progress', ({slug, percent, speed, eta, status}) => {
+    const progressEl = document.getElementById('upload-progress');
+    const fillEl = document.getElementById('progress-fill');
+    const textEl = document.getElementById('progress-text');
+
+    if (status === 'done') {
+        progressEl.classList.remove('active');
+        document.getElementById('upload-zone').style.display = '';
+        showToast('Download complete!', 'success');
+        refresh().then(() => selectEp(slug));
+        return;
+    }
+    if (status === 'error') {
+        progressEl.classList.remove('active');
+        document.getElementById('upload-zone').style.display = '';
+        showToast('Download failed', 'error');
+        return;
+    }
+    // Update progress bar
+    fillEl.style.width = Math.round(percent) + '%';
+    const label = speed ? `Downloading: ${Math.round(percent)}% at ${speed}` + (eta ? ` — ETA ${eta}` : '') : `Downloading: ${Math.round(percent)}%`;
+    textEl.textContent = label;
+});
+
 // Manual LLM mode
 let pendingLlmData = null;
 socket.on('llm-prompt', (data) => {
@@ -1174,6 +1206,10 @@ fileInput.onchange = function() {
     this.value = '';
 };
 
+document.getElementById('url-input').onkeydown = function(e) {
+    if (e.key === 'Enter') startUrlUploadFlow();
+};
+
 document.body.ondragover = e => e.preventDefault();
 document.body.ondrop = function(e) {
     e.preventDefault();
@@ -1183,6 +1219,9 @@ document.body.ondrop = function(e) {
 
 function startUploadFlow(file) {
     pendingFile = file;
+    pendingUrl = null;
+    document.getElementById('upload-modal-title').textContent = '📁 Upload Episode';
+    document.getElementById('upload-confirm-btn').textContent = 'Upload';
     // Leave slug empty by default — AI will generate from transcript
     // User can still type their own if they want
     document.getElementById('upload-slug').value = '';
@@ -1222,6 +1261,9 @@ function startUploadFlow(file) {
     const typeRadio = document.getElementById('upload-type-' + (selectedMediaType === 'reel_cut' ? 'reel-cut' : selectedMediaType === 'reel_full' ? 'reel-full' : 'episode'));
     if (typeRadio) typeRadio.checked = true;
 
+    // Restore fields that URL mode hides
+    document.getElementById('srt-upload-field').style.display = '';
+
     // Show multi-track toggle only for episodes
     updateMultiTrackVisibility();
     document.querySelectorAll('input[name="upload-media-type"]').forEach(r => {
@@ -1239,8 +1281,55 @@ function startUploadFlow(file) {
     document.getElementById('upload-modal').classList.add('open');
 }
 
+function startUrlUploadFlow() {
+    const urlInput = document.getElementById('url-input');
+    const url = urlInput.value.trim();
+    if (!url) { urlInput.focus(); return; }
+    if (!/^https?:\/\/.+/.test(url)) { showToast('Enter a valid URL', 'error'); return; }
+
+    pendingUrl = url;
+    pendingFile = null; // URL mode, not file mode
+    urlInput.value = '';
+    document.getElementById('upload-modal-title').textContent = '🔗 Download Video';
+    document.getElementById('upload-confirm-btn').textContent = 'Download';
+
+    // Reuse same modal reset as file upload
+    document.getElementById('upload-slug').value = '';
+    document.getElementById('upload-guest-select').value = '';
+    document.getElementById('upload-guest-input').value = '';
+    document.getElementById('upload-guest-input').style.display = 'none';
+    document.getElementById('upload-guest-select').style.display = 'block';
+    document.getElementById('upload-role').value = '';
+
+    const defaultMethod = transcriptionConfig.defaultMethod || 'local';
+    document.getElementById('radio-local').checked = defaultMethod === 'local';
+    document.getElementById('radio-api').checked = defaultMethod === 'api';
+
+    const apiWarning = document.getElementById('api-key-warning');
+    apiWarning.style.display = (defaultMethod === 'api' && !transcriptionConfig.hasApiKey) ? 'block' : 'none';
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(radio => {
+        radio.onchange = () => {
+            apiWarning.style.display = (radio.value === 'api' && !transcriptionConfig.hasApiKey) ? 'block' : 'none';
+        };
+    });
+
+    const typeRadio = document.getElementById('upload-type-' + (selectedMediaType === 'reel_cut' ? 'reel-cut' : selectedMediaType === 'reel_full' ? 'reel-full' : 'episode'));
+    if (typeRadio) typeRadio.checked = true;
+
+    // Hide SRT and multi-track in URL mode (not applicable)
+    document.getElementById('srt-upload-field').style.display = 'none';
+    document.getElementById('multi-track-field').style.display = 'none';
+    document.getElementById('upload-multi-track').checked = false;
+    document.getElementById('multi-track-zones').style.display = 'none';
+    pendingSpeakerFile = null;
+    pendingGuestFile = null;
+
+    document.getElementById('upload-modal').classList.add('open');
+}
+
 function closeUploadModal() {
     pendingFile = null;
+    pendingUrl = null;
     document.getElementById('upload-modal').classList.remove('open');
 }
 
@@ -1298,16 +1387,48 @@ function confirmUpload() {
     const slug = document.getElementById('upload-slug').value.trim();
     const guest = getSelectedGuest();
     const role = document.getElementById('upload-role').value.trim();
-    
-    // Get transcription method
     const transcribeMethod = document.querySelector('input[name="transcribe-method"]:checked')?.value || 'local';
-    
+    const uploadMediaType = document.querySelector('input[name="upload-media-type"]:checked')?.value || selectedMediaType;
+
+    // ── URL download mode ──
+    if (pendingUrl) {
+        document.getElementById('upload-modal').classList.remove('open');
+
+        const progressEl = document.getElementById('upload-progress');
+        const fillEl = document.getElementById('progress-fill');
+        const textEl = document.getElementById('progress-text');
+        progressEl.classList.add('active');
+        dropZone.style.display = 'none';
+        fillEl.style.width = '0%';
+        textEl.textContent = 'Starting download...';
+
+        fetch('/api/download-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: pendingUrl, slug, guest, role, mediaType: uploadMediaType, transcribeMethod })
+        }).then(r => r.json()).then(data => {
+            if (!data.success) {
+                progressEl.classList.remove('active');
+                dropZone.style.display = '';
+                showToast('Download failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+            // Progress updates come via socket events — slug is in data.slug
+        }).catch(err => {
+            progressEl.classList.remove('active');
+            dropZone.style.display = '';
+            showToast('Download failed: ' + err.message, 'error');
+        });
+
+        pendingUrl = null;
+        pendingSrtFile = null;
+        return;
+    }
+
+    // ── File upload mode ──
     if (!pendingFile) return;
 
     document.getElementById('upload-modal').classList.remove('open');
 
-    // Read media type from upload modal radio
-    const uploadMediaType = document.querySelector('input[name="upload-media-type"]:checked')?.value || selectedMediaType;
     const isMultiTrack = document.getElementById('upload-multi-track').checked && uploadMediaType === 'episode';
 
     if (isMultiTrack) {
