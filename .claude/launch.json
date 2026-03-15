@@ -5,7 +5,8 @@
       "name": "tajarib-dashboard",
       "runtimeExecutable": "node",
       "runtimeArgs": ["dashboard.js"],
-      "port": 7430
+      "port": 7430,
+      "autoPort": true
     }
   ]
 }
