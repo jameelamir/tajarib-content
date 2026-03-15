@@ -119,6 +119,14 @@
         .reel-detail-modular.portrait .reel-detail-content { flex: 1; min-width: 0; }
         .reel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
         .reel-actions-group { display: flex; gap: 4px; align-items: center; }
+        .reel-trim-editor { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+        .reel-trim-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .reel-trim-field { display: flex; flex-direction: column; gap: 3px; }
+        .reel-trim-field label { font-size: 0.65rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .reel-trim-field input { background: #0a0a0a; border: 1px solid #333; color: #ddd; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-family: 'Fira Code', monospace; width: 90px; text-align: center; }
+        .reel-trim-field input:focus { border-color: var(--accent); outline: none; }
+        .reel-trim-actions { display: flex; gap: 6px; align-items: flex-end; }
+        .reel-trim-actions button { font-size: 0.7rem; }
         .reel-console { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; min-height: 200px; }
         .reel-console .panel-header { padding: 8px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
         .reel-console pre.logs { flex: 1; padding: 10px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.75rem; color: #aaa; white-space: pre-wrap; line-height: 1.4; }
@@ -511,6 +519,7 @@
                             <div class="reel-detail-modular" id="reel-detail-modular">
                                 <div class="reel-preview" id="reel-preview"></div>
                                 <div class="reel-detail-content">
+                                    <div class="reel-trim-editor" id="reel-trim-editor" style="display:none;"></div>
                                     <div class="reel-actions" id="reel-actions"></div>
                                     <div id="reel-caption-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
                                     <div id="reel-subtitle-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
@@ -2164,8 +2173,8 @@ function renderMain(slug) {
     // Episode pipeline bar
     renderEpisodePipelineBar(ep);
 
-    // Mode switch
-    const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
+    // Mode switch — show reel list if any reels exist (from files or analysis)
+    const isCut = ep.reelStatuses && ep.reelStatuses.length > 0;
 
     if (isCut) {
         document.getElementById('pre-cut-view').style.display = 'none';
@@ -2297,7 +2306,7 @@ function renderReelDetail(ep, reelId) {
     }
     if (!r.cut) {
         warningEl.style.display = '';
-        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Re-cut below to regenerate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
+        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Cut below to generate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
     } else {
         warningEl.style.display = 'none';
     }
@@ -2316,6 +2325,9 @@ function renderReelDetail(ep, reelId) {
             if (modular) modular.classList.toggle('portrait', this.videoHeight > this.videoWidth);
         });
     }
+
+    // Trim editor
+    renderTrimEditor(ep, r);
 
     // Per-reel action buttons
     var actionsEl = document.getElementById('reel-actions');
@@ -2541,10 +2553,10 @@ function buildReelActions(ep, reel) {
     var reelId = reel.id;
     var html = '';
 
-    // Re-cut (only shown when cut is missing, not for pre-cut reels)
-    if (!reel.cut && ep.mediaType === 'episode') {
-        html += '<button class="primary" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
-            '▶ Re-cut</button>';
+    // Re-cut (available for all episode reels, primary style when cut is missing)
+    if (ep.mediaType === 'episode') {
+        html += '<button class="' + (reel.cut ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
+            (reel.cut ? '↻ Re-cut' : '▶ Cut') + '</button>';
     }
 
     // Crop group
@@ -2572,6 +2584,234 @@ function buildReelActions(ep, reel) {
     '</div>';
 
     return html;
+}
+
+var pendingCuts = [];
+
+function renderTrimEditor(ep, reel) {
+    var trimEl = document.getElementById('reel-trim-editor');
+    if (!trimEl) return;
+    // Only show for episodes (not pre-cut reels)
+    if (ep.mediaType !== 'episode' || !reel.start || !reel.end) {
+        trimEl.style.display = 'none';
+        return;
+    }
+    trimEl.style.display = '';
+
+    // Initialize pendingCuts from reel data
+    pendingCuts = (reel.cuts || []).map(function(c) { return { from: c.from, to: c.to }; });
+
+    var cutsHtml = '';
+    if (pendingCuts.length > 0) {
+        cutsHtml = pendingCuts.map(function(c, i) {
+            return '<div class="reel-trim-row" style="margin-top:6px; padding:6px 8px; background:#1a0a0a; border:1px solid #3a1c1c; border-radius:6px;">' +
+                '<div class="reel-trim-field">' +
+                    '<label style="color:#f87171;">Cut from</label>' +
+                    '<input type="text" class="trim-cut-from" data-idx="' + i + '" value="' + escHtml(c.from) + '" placeholder="1:00">' +
+                '</div>' +
+                '<div class="reel-trim-field">' +
+                    '<label style="color:#f87171;">Cut to</label>' +
+                    '<input type="text" class="trim-cut-to" data-idx="' + i + '" value="' + escHtml(c.to) + '" placeholder="1:15">' +
+                '</div>' +
+                '<div class="reel-trim-field">' +
+                    '<label>Playhead</label>' +
+                    '<div style="display:flex; gap:4px;">' +
+                        '<button onclick="setCutFromPlayhead(' + i + ', \'from\')" style="font-size:0.6rem; padding:3px 6px;">From</button>' +
+                        '<button onclick="setCutFromPlayhead(' + i + ', \'to\')" style="font-size:0.6rem; padding:3px 6px;">To</button>' +
+                    '</div>' +
+                '</div>' +
+                '<button onclick="removeCut(' + i + ', \'' + reel.id + '\')" style="font-size:0.7rem; padding:3px 6px; color:#f87171; align-self:flex-end;" title="Remove this cut">&times;</button>' +
+            '</div>';
+        }).join('');
+    }
+
+    trimEl.innerHTML =
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
+            '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Trim</div>' +
+            '<button onclick="seekToTrimStart()" style="font-size:0.6rem; padding:2px 6px; color:#888;">Jump to start</button>' +
+        '</div>' +
+        '<div class="reel-trim-row">' +
+            '<div class="reel-trim-field">' +
+                '<label>Start</label>' +
+                '<input type="text" id="reel-trim-start" value="' + escHtml(reel.start) + '" placeholder="0:00">' +
+            '</div>' +
+            '<div class="reel-trim-field">' +
+                '<label>End</label>' +
+                '<input type="text" id="reel-trim-end" value="' + escHtml(reel.end) + '" placeholder="1:30">' +
+            '</div>' +
+            '<div class="reel-trim-field">' +
+                '<label>Playhead</label>' +
+                '<div style="display:flex; gap:4px;">' +
+                    '<button onclick="setTrimFromPlayhead(\'start\')" style="font-size:0.6rem; padding:3px 6px;" title="Set start to current video time">In</button>' +
+                    '<button onclick="setTrimFromPlayhead(\'end\')" style="font-size:0.6rem; padding:3px 6px;" title="Set end to current video time">Out</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div id="trim-cuts-list">' + cutsHtml + '</div>' +
+        '<div style="display:flex; gap:6px; margin-top:8px; align-items:center;">' +
+            '<button onclick="addCut(\'' + reel.id + '\')" style="font-size:0.65rem; padding:4px 8px; color:#f87171; border-color:#3a1c1c;">+ Cut from middle</button>' +
+            '<div style="flex:1;"></div>' +
+            '<button class="primary" onclick="saveReelTrim(\'' + reel.id + '\')" style="font-size:0.7rem;">Save & Re-cut</button>' +
+        '</div>';
+}
+
+function addCut(reelId) {
+    pendingCuts.push({ from: '', to: '' });
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    if (r) {
+        // Preserve current input values before re-render
+        syncCutInputs();
+        r.cuts = pendingCuts;
+        renderTrimEditor(ep, r);
+    }
+}
+
+function removeCut(idx, reelId) {
+    syncCutInputs();
+    pendingCuts.splice(idx, 1);
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    if (r) {
+        r.cuts = pendingCuts;
+        renderTrimEditor(ep, r);
+    }
+}
+
+function syncCutInputs() {
+    // Sync input values back into pendingCuts and preserve start/end
+    document.querySelectorAll('.trim-cut-from').forEach(function(el) {
+        var i = parseInt(el.dataset.idx);
+        if (pendingCuts[i]) pendingCuts[i].from = el.value.trim();
+    });
+    document.querySelectorAll('.trim-cut-to').forEach(function(el) {
+        var i = parseInt(el.dataset.idx);
+        if (pendingCuts[i]) pendingCuts[i].to = el.value.trim();
+    });
+}
+
+function setCutFromPlayhead(idx, which) {
+    var video = getReelVideo();
+    if (!video) { showToast('No video loaded', 'error'); return; }
+
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
+    var offset = 0;
+    if (r && r.cut && r.start) offset = parseTrimTime(r.start);
+
+    var time = formatTrimTime(video.currentTime + offset);
+    var selector = which === 'from' ? '.trim-cut-from' : '.trim-cut-to';
+    var el = document.querySelector(selector + '[data-idx="' + idx + '"]');
+    if (el) el.value = time;
+}
+
+function getReelVideo() {
+    var previewEl = document.getElementById('reel-preview');
+    return previewEl ? previewEl.querySelector('video') : null;
+}
+
+function seekToTrimStart() {
+    var startInput = document.getElementById('reel-trim-start');
+    if (!startInput) return;
+    var video = getReelVideo();
+    if (!video) return;
+    video.currentTime = parseTrimTime(startInput.value);
+}
+
+function parseTrimTime(ts) {
+    if (!ts) return 0;
+    var parts = ts.split(':').map(Number);
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    return parseFloat(ts) || 0;
+}
+
+function formatTrimTime(totalSec) {
+    totalSec = Math.round(totalSec * 10) / 10;
+    var h = Math.floor(totalSec / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
+    var s = totalSec % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(Math.floor(s)).padStart(2, '0');
+    return m + ':' + String(Math.floor(s)).padStart(2, '0');
+}
+
+function setTrimFromPlayhead(which) {
+    var video = getReelVideo();
+    if (!video) { showToast('No video loaded', 'error'); return; }
+
+    // If the video is showing a processed reel, we need to get the reel's start offset
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
+
+    // If the reel has already been cut, the video starts at 0 relative to the reel
+    // so we need to add the original start time
+    var offset = 0;
+    if (r && r.cut && r.start) {
+        offset = parseTrimTime(r.start);
+    }
+
+    var time = video.currentTime + offset;
+    var inputId = which === 'start' ? 'reel-trim-start' : 'reel-trim-end';
+    var input = document.getElementById(inputId);
+    if (input) input.value = formatTrimTime(time);
+}
+
+async function saveReelTrim(reelId) {
+    if (!currentSlug) return;
+    var startEl = document.getElementById('reel-trim-start');
+    var endEl = document.getElementById('reel-trim-end');
+    if (!startEl || !endEl) return;
+
+    var start = startEl.value.trim();
+    var end = endEl.value.trim();
+    if (!start || !end) { showToast('Start and end times are required', 'error'); return; }
+
+    // Validate: end > start
+    var startSec = parseTrimTime(start);
+    var endSec = parseTrimTime(end);
+    if (endSec <= startSec) {
+        showToast('End time must be after start time', 'error');
+        return;
+    }
+
+    // Collect cuts from inputs
+    syncCutInputs();
+    var cuts = pendingCuts.filter(function(c) { return c.from && c.to; });
+
+    // Validate each cut is within bounds and from < to
+    for (var i = 0; i < cuts.length; i++) {
+        var cf = parseTrimTime(cuts[i].from);
+        var ct = parseTrimTime(cuts[i].to);
+        if (ct <= cf) {
+            showToast('Cut ' + (i + 1) + ': "to" must be after "from"', 'error');
+            return;
+        }
+        if (cf < startSec || ct > endSec) {
+            showToast('Cut ' + (i + 1) + ' is outside the reel range', 'error');
+            return;
+        }
+    }
+
+    try {
+        var res = await fetch('/api/save-reel-trim', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, reelId: reelId, start: start, end: end, cuts: cuts })
+        });
+        var data = await res.json();
+        if (!data.success) { showToast(data.error || 'Save failed', 'error'); return; }
+
+        showToast('Trim saved — re-cutting reel...', 'success');
+
+        // Trigger re-cut automatically
+        await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'cut', reelId: reelId, force: true })
+        });
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
 }
 
 async function loadReelSubtitles(reelId) {

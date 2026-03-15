@@ -251,16 +251,19 @@ function getEpisodes() {
       // Check for cropped reels (per-reel crop)
       const hasCropped = reelFiles.some(f => f.includes("-cropped") && f.endsWith(".mp4"));
 
-      // Per-reel status data
+      // Per-reel status data — discover from both filesystem AND analysis.json
       const reelStatuses = [];
-      const reelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
-      const validCutIds = new Set(reelIds.filter(id => {
+      const fileReelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
+      const validCutIds = new Set(fileReelIds.filter(id => {
         try { return fs.statSync(path.join(reelsDir, `reel-${id}.mp4`)).size > 0; } catch { return false; }
       }));
       const analysisData = loadJSON(path.join(dir, "analysis.json"));
       const contentData = loadJSON(path.join(dir, "content.json"));
       const generatedReelIds = new Set((contentData?.reels || []).filter(r => r.caption).map(r => String(r.id).padStart(2, "0")));
-      for (const id of reelIds) {
+      // Merge reel IDs from files and analysis.json so uncut reels are also visible
+      const analysisReelIds = (analysisData?.reels || []).map(r => String(r.id).padStart(2, "0"));
+      const allReelIds = [...new Set([...fileReelIds, ...analysisReelIds])].sort();
+      for (const id of allReelIds) {
         const reelInfo = analysisData?.reels?.find(r => String(r.id).padStart(2, "0") === id) || {};
         reelStatuses.push({
           id,
@@ -270,7 +273,10 @@ function getEpisodes() {
           subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
           final: reelFiles.includes(`reel-${id}-final.mp4`),
           hook: reelInfo.hook || reelInfo.title || "",
-          duration: reelInfo.duration || null
+          duration: reelInfo.duration || null,
+          start: reelInfo.start || null,
+          end: reelInfo.end || null,
+          cuts: reelInfo.cuts || []
         });
       }
 
@@ -1543,7 +1549,7 @@ async function handler(req, res) {
     const form = formidable({
       uploadDir: UPLOADS_DIR,
       keepExtensions: true,
-      maxFileSize: 10 * 1024 * 1024 * 1024, // 10GB max
+      maxFileSize: 25 * 1024 * 1024 * 1024, // 25GB max
     });
 
     form.parse(req, async (err, fields, files) => {
@@ -1919,15 +1925,17 @@ async function handler(req, res) {
         const ext = path.extname(upload.filename) || ".mp4";
         const dest = path.join(epDir, `raw${ext}`);
         
-        // Write chunks in order
+        // Write chunks in order (with back-pressure handling for large files)
         const writeStream = fs.createWriteStream(dest);
         for (let i = 0; i < upload.totalChunks; i++) {
           const chunkPath = path.join(chunkDir, `chunk-${i}`);
           const chunkData = fs.readFileSync(chunkPath);
-          writeStream.write(chunkData);
+          if (!writeStream.write(chunkData)) {
+            await new Promise(resolve => writeStream.once("drain", resolve));
+          }
         }
         writeStream.end();
-        
+
         await new Promise((resolve, reject) => {
           writeStream.on("finish", resolve);
           writeStream.on("error", reject);
@@ -2667,7 +2675,7 @@ async function handler(req, res) {
   // ── Upload API ────────────────────────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/upload") {
     const form = formidable({
-      maxFileSize: 10 * 1024 * 1024 * 1024,
+      maxFileSize: 25 * 1024 * 1024 * 1024,
       uploadDir: UPLOADS_DIR,
       keepExtensions: true,
       multiples: false,
@@ -2786,6 +2794,39 @@ async function handler(req, res) {
         saveJSON(contentPath, content);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Save reel trim (start/end) API ──────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/save-reel-trim") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, reelId, start, end, cuts } = JSON.parse(body);
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        if (!start || !end) throw new Error("start + end required");
+        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+        const analysis = loadJSON(analysisPath);
+        if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+        const padded = String(reelId).padStart(2, "0");
+        const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+        if (!reel) throw new Error("Reel not found in analysis");
+        reel.start = start;
+        reel.end = end;
+        reel.cuts = Array.isArray(cuts) ? cuts.filter(c => c.from && c.to) : [];
+        saveJSON(analysisPath, analysis);
+        // Delete existing cut so re-cut picks it up fresh
+        const reelFile = path.join(EPISODES_DIR, slug, "reels", `reel-${padded}.mp4`);
+        try { if (fs.existsSync(reelFile)) fs.unlinkSync(reelFile); } catch (_) {}
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        io.emit("status-update", {});
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));

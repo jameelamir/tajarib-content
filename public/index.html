@@ -988,7 +988,7 @@ function startUploadFlow(file) {
     document.getElementById('upload-media-type-display').textContent = typeLabels[selectedMediaType];
     
     // Show file size warning if very large
-    if (file.size > 10 * 1024 * 1024 * 1024) {
+    if (file.size > 25 * 1024 * 1024 * 1024) {
         document.getElementById('upload-media-type-display').innerHTML = typeLabels[selectedMediaType] + 
             '<br><span style="color:#f59e0b;">⚠️ Large file: ' + (file.size / 1024 / 1024 / 1024).toFixed(1) + ' GB</span>';
     }
