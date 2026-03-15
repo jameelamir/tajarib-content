@@ -1047,14 +1047,16 @@ async function handler(req, res) {
 
     if (reelParam) {
       // Serve individual reel: prefer final, then subtitled, then cropped, then raw cut
+      // Skip files that are corrupted (< 10KB — likely a crashed FFmpeg write)
+      const isValid = (p) => fs.existsSync(p) && fs.statSync(p).size > 10240;
       const reelsDir = path.join(dir, "reels");
       const finalPath = path.join(reelsDir, `reel-${reelParam}-final.mp4`);
       const subtitledPath = path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`);
       const croppedPath = path.join(reelsDir, `reel-${reelParam}-cropped.mp4`);
       const cutPath = path.join(reelsDir, `reel-${reelParam}.mp4`);
-      videoPath = fs.existsSync(finalPath) ? finalPath :
-                  fs.existsSync(subtitledPath) ? subtitledPath :
-                  fs.existsSync(croppedPath) ? croppedPath : cutPath;
+      videoPath = isValid(finalPath) ? finalPath :
+                  isValid(subtitledPath) ? subtitledPath :
+                  isValid(croppedPath) ? croppedPath : cutPath;
     } else if (type === 'compressed') {
       // Serve the publish-compressed version
       videoPath = path.join(dir, "publish-compressed.mp4");
@@ -1446,9 +1448,9 @@ Choose clips that:
         const assetType = Array.isArray(fields.type) ? fields.type[0] : (fields.type || ""); // "sponsor" or "logo"
         const file = files.file?.[0] || files.file;
         if (!assetType || !file) throw new Error("type and file required");
-        if (!["sponsor", "logo", "cta"].includes(assetType)) throw new Error("type must be 'sponsor', 'logo', or 'cta'");
+        if (!["sponsor", "logo", "cta", "lower-third"].includes(assetType)) throw new Error("type must be 'sponsor', 'logo', 'cta', or 'lower-third'");
 
-        const ext = assetType === "cta" ? path.extname(file.originalFilename || ".png") : ".mov";
+        const ext = (assetType === "cta" || assetType === "lower-third") ? path.extname(file.originalFilename || ".png") : ".mov";
         const destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);
         fs.renameSync(file.filepath, destPath);
 
