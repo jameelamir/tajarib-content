@@ -2049,7 +2049,7 @@ function renderReelDetail(ep, reelId) {
     }
     if (!r.cut) {
         warningEl.style.display = '';
-        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — re-run Cut to regenerate before cropping' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
+        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Re-cut below to regenerate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
     } else {
         warningEl.style.display = 'none';
     }
@@ -2280,6 +2280,12 @@ async function saveReelFullTranscript() {
 function buildReelActions(ep, reel) {
     var reelId = reel.id;
     var html = '';
+
+    // Re-cut (only shown when cut is missing, not for pre-cut reels)
+    if (!reel.cut && ep.mediaType === 'episode') {
+        html += '<button class="primary" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
+            '▶ Re-cut</button>';
+    }
 
     // Crop group
     html += '<div class="reel-actions-group">' +

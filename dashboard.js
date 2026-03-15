@@ -2840,7 +2840,9 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
       if (!found) { io.emit("toast", { type: "error", message: `No video in ${slug}/` }); return; }
       cmd = NODE_BIN;
       args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)];
-      if (fs.existsSync(path.join(dir, "selected-reels.json"))) {
+      if (reelId) {
+        args.push("--reel-id", reelId);
+      } else if (fs.existsSync(path.join(dir, "selected-reels.json"))) {
         args.push("--selected-only");
       }
       if (force) args.push("--force");
