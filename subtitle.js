@@ -214,14 +214,6 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
   const analysis = fs.existsSync(analysisPath) ? JSON.parse(fs.readFileSync(analysisPath, "utf8")) : null;
   let reels = analysis?.reels || [];
 
-  // Filter by selected reels if available
-  const selectedReelsPath = path.join(dir, "selected-reels.json");
-  if (fs.existsSync(selectedReelsPath)) {
-    const selectedData = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
-    const selectedIds = new Set(selectedData.reels.map(r => r.id));
-    reels = reels.filter(r => selectedIds.has(r.id));
-    console.log(`   📋 Processing ${reels.length} selected reels`);
-  }
   console.log(`   📊 Found ${reels.length} reels to subtitle`);
 
   // Per-reel filter

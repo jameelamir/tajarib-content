@@ -756,24 +756,6 @@
     </div>
 </div>
 
-<div class="modal" id="reel-selection-modal">
-    <div class="modal-box" style="width:780px; max-height:90vh; overflow-y:auto;">
-        <h3>🎬 Select Reels</h3>
-        <div style="font-size:0.7rem; color:#888; margin-bottom:12px;">
-            Choose which reels to include in the pipeline. Unselected reels will be skipped.
-        </div>
-        <div style="display:flex; gap:8px; margin-bottom:12px;">
-            <button onclick="toggleAllReels(true)" style="font-size:0.7rem;">Select All</button>
-            <button onclick="toggleAllReels(false)" style="font-size:0.7rem;">Deselect All</button>
-        </div>
-        <div id="reel-selection-list" style="display:flex; flex-direction:column; gap:12px;">
-        </div>
-        <div class="modal-actions" style="margin-top:16px;">
-            <button onclick="closeReelSelectionModal()">Cancel</button>
-            <button class="primary" onclick="confirmReelSelection()">Confirm Selection</button>
-        </div>
-    </div>
-</div>
 
 <!-- Storage Browser Modal -->
 <div class="modal" id="storage-modal">
@@ -972,7 +954,6 @@ let selectedReelId = null;
 let reelLogs = {};
 let storageData = null;
 let storageSortBy = 'size';
-let reelSelectionData = [];
 let switchPointsData = [];
 let overlayConfig = null;
 let overlayDragging = null;
@@ -1398,10 +1379,6 @@ socket.on('process-start', function(data) {
 socket.on('process-end', function(data) {
     delete runningStep[data.slug];
     refresh();
-    // Auto-open reel selection after analyze completes successfully
-    if (data.step === 'analyze' && data.code === 0 && currentSlug === data.slug) {
-        setTimeout(function() { openReelSelectionModal(); }, 500);
-    }
     if (data.step === 'cut' && data.code === 0 && currentSlug === data.slug) {
         setTimeout(function() { selectedReelId = null; renderMain(currentSlug); }, 500);
     }
@@ -2116,12 +2093,11 @@ function stepsForType(mediaType, ep) {
     const all = [
         {id: 'transcribe',   label: '1. Transcribe',   desc: 'Whisper ASR'},
         {id: 'analyze',      label: '2. Analyze',      desc: 'AI analysis'},
-        {id: 'select-reels', label: '3. Select Reels', desc: 'Pick reels to process'},
-        {id: 'cut',          label: '4. Cut',          desc: 'FFmpeg clips'},
-        {id: 'generate',     label: '5. Caption',      desc: 'Generate captions & copy'},
-        {id: 'crop',         label: '6. Crop',         desc: 'Aspect ratio crop (optional)'},
-        {id: 'subtitle',     label: '7. Subtitle',     desc: 'Burn subs'},
-        {id: 'overlay',      label: '8. Overlay',      desc: 'CG, logos & CTA'},
+        {id: 'cut',          label: '3. Cut',          desc: 'FFmpeg clips'},
+        {id: 'generate',     label: '4. Caption',      desc: 'Generate captions & copy'},
+        {id: 'crop',         label: '5. Crop',         desc: 'Aspect ratio crop (optional)'},
+        {id: 'subtitle',     label: '6. Subtitle',     desc: 'Burn subs'},
+        {id: 'overlay',      label: '7. Overlay',      desc: 'CG, logos & CTA'},
     ];
 
     // Add compose step for multi-track episodes
@@ -2258,13 +2234,13 @@ function renderMain(slug) {
 function renderEpisodePipelineBar(ep) {
     const bar = document.getElementById('episode-pipeline-bar');
     const steps = stepsForType(ep.mediaType, ep);
-    const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', 'select-reels':'reelsSelected', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
+    const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
     const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
 
     // For reels, all applicable steps are shown in the pipeline bar (no per-reel breakdown)
     // For episodes, only episode-level steps; per-reel steps appear in reel detail
     const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
-    const episodeLevelSteps = ['transcribe', 'analyze', 'select-reels', 'cut', 'compose'];
+    const episodeLevelSteps = ['transcribe', 'analyze', 'cut', 'compose'];
     const stepsToShow = steps.filter(function(s) {
         return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
     });
@@ -2281,8 +2257,7 @@ function renderEpisodePipelineBar(ep) {
         var icon = done ? '✓' : (isRunning ? '⏳' : '○');
         var label = s.label.replace(/^\d+[b]?\.\s*/, '');
 
-        // For select-reels, use a special onclick
-        var onclick = s.id === 'select-reels' ? 'openReelSelectionModal()' : 'runStep(\'' + s.id + '\')';
+        var onclick = 'runStep(\'' + s.id + '\')';
 
         var connector = (i > 0) ? '<div class="ep-step-connector' + (done ? ' done' : '') + '"></div>' : '';
         return connector +
@@ -2293,18 +2268,23 @@ function renderEpisodePipelineBar(ep) {
     }).join('');
 }
 
+var showHiddenReels = false;
+
 function renderReelList(ep) {
     var listEl = document.getElementById('reel-list');
-    document.getElementById('reel-list-count').textContent = ep.reelStatuses.length + ' reels';
+    var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
+    var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
+    document.getElementById('reel-list-count').textContent = visibleReels.length + ' reels' + (hiddenCount > 0 ? ' (' + hiddenCount + ' hidden)' : '');
 
     // Bulk actions
     var bulkEl = document.getElementById('reel-list-bulk');
     bulkEl.innerHTML =
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
-        '<button onclick="runStep(\'overlay\')">Overlay All</button>';
+        '<button onclick="runStep(\'overlay\')">Overlay All</button>' +
+        (hiddenCount > 0 ? '<button onclick="showHiddenReels=!showHiddenReels; var ep=episodes.find(function(e){return e.slug===currentSlug;}); if(ep) renderReelList(ep);" style="font-size:0.65rem; opacity:0.6;">' + (showHiddenReels ? 'Hide Hidden' : 'Show Hidden') + '</button>' : '');
 
-    listEl.innerHTML = ep.reelStatuses.map(function(r) {
+    listEl.innerHTML = visibleReels.map(function(r) {
         var isActive = selectedReelId === r.id;
         var chipDefs = [
             {key: 'cut', label: 'CUT'},
@@ -2319,8 +2299,8 @@ function renderReelList(ep) {
             return '<span class="reel-chip ' + cls + '">' + c.label + '</span>';
         }).join('');
 
-        return '<div class="reel-list-item ' + (isActive ? 'active' : '') + '" onclick="selectReel(\'' + r.id + '\')">' +
-            '<div class="reel-list-item-title">Reel ' + r.id + '</div>' +
+        return '<div class="reel-list-item ' + (isActive ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
+            '<div class="reel-list-item-title">Reel ' + r.id + (r.hidden ? ' (hidden)' : '') + '</div>' +
             (r.hook ? '<div class="reel-list-item-hook">' + r.hook + '</div>' : '') +
             '<div class="reel-list-item-chips">' + chips + '</div>' +
         '</div>';
@@ -2629,6 +2609,13 @@ function buildReelActions(ep, reel) {
         '<button class="' + (reel.final ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'overlay\')">' +
         (reel.final ? '↻ Overlay' : '▶ Overlay') + '</button>' +
         '<button onclick="toggleOverlayConfig()" style="font-size:0.7rem; padding:6px 8px;" title="Configure overlays">⚙</button>' +
+    '</div>';
+
+    // Hide / Delete
+    html += '<div class="reel-actions-group" style="margin-left:auto; gap:4px;">' +
+        '<button onclick="toggleHideReel(\'' + reelId + '\')" style="font-size:0.65rem; padding:4px 8px; opacity:0.6;" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
+        (reel.hidden ? '👁 Show' : '👁‍🗨 Hide') + '</button>' +
+        '<button onclick="deleteReel(\'' + reelId + '\')" style="font-size:0.65rem; padding:4px 8px; opacity:0.6; color:#f87171;" title="Delete reel files">🗑</button>' +
     '</div>';
 
     return html;
@@ -3676,95 +3663,47 @@ async function submitLlmResponse() {
     }
 }
 
-// ── Reel Selection Modal ──────────────────────────────────────────────────
+// ── Hide / Delete Reels ──────────────────────────────────────────────────
 
-async function openReelSelectionModal() {
+async function toggleHideReel(reelId) {
     if (!currentSlug) return;
     try {
-        const res = await fetch('/api/analysis?slug=' + currentSlug);
-        if (!res.ok) { showToast('No analysis found. Run Analyze first.', 'error'); return; }
-        const analysis = await res.json();
-        reelSelectionData = (analysis.reels || []).map(r => ({...r, selected: true}));
-
-        // Restore prior selections if selected-reels.json exists
-        const ep = episodes.find(e => e.slug === currentSlug);
-        if (ep && ep.selectedReels) {
-            const selectedIds = new Set(ep.selectedReels.map(r => r.id));
-            reelSelectionData.forEach(r => {
-                r.selected = selectedIds.has(r.id);
-            });
-        }
-
-        renderReelSelectionList();
-        document.getElementById('reel-selection-modal').classList.add('open');
-    } catch (err) {
-        showToast('Failed to load analysis: ' + err.message, 'error');
-    }
-}
-
-function closeReelSelectionModal() {
-    document.getElementById('reel-selection-modal').classList.remove('open');
-}
-
-function renderReelSelectionList() {
-    const container = document.getElementById('reel-selection-list');
-    container.innerHTML = reelSelectionData.map((reel, idx) => {
-        const durationStr = reel.duration_seconds ? reel.duration_seconds + 's' : '';
-        return '<div style="background:#161616; border:1px solid ' +
-            (reel.selected ? 'var(--accent)' : '#2a2a2a') +
-            '; border-radius:8px; padding:14px; cursor:pointer; transition:border-color 0.15s;" onclick="toggleReelSelection(' + idx + ')">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
-                '<div style="display:flex; align-items:center; gap:10px;">' +
-                    '<input type="checkbox" ' + (reel.selected ? 'checked' : '') +
-                    ' style="accent-color:var(--accent); width:16px; height:16px;"' +
-                    ' onclick="event.stopPropagation(); toggleReelSelection(' + idx + ')">' +
-                    '<strong style="color:#fff;">Reel ' + reel.id + '</strong>' +
-                    '<span style="font-size:0.7rem; color:#888; font-family:monospace;">' +
-                        reel.start + ' → ' + reel.end + (durationStr ? ' (' + durationStr + ')' : '') + '</span>' +
-                '</div>' +
-            '</div>' +
-            '<div style="font-size:0.8rem; color:var(--accent); margin-bottom:6px; direction:rtl; text-align:right;">' +
-                escHtml(reel.hook || '') + '</div>' +
-            (reel.transcript_excerpt ? '<div style="font-size:0.7rem; color:#666; margin-bottom:6px; direction:rtl; text-align:right; max-height:60px; overflow:hidden;">' +
-                escHtml(reel.transcript_excerpt) + '</div>' : '') +
-            (reel.why ? '<div style="font-size:0.7rem; color:#555; direction:rtl; text-align:right; font-style:italic;">' +
-                escHtml(reel.why) + '</div>' : '') +
-        '</div>';
-    }).join('');
-}
-
-function toggleReelSelection(idx) {
-    reelSelectionData[idx].selected = !reelSelectionData[idx].selected;
-    renderReelSelectionList();
-}
-
-function toggleAllReels(selectAll) {
-    reelSelectionData.forEach(r => r.selected = selectAll);
-    renderReelSelectionList();
-}
-
-async function confirmReelSelection() {
-    const selected = reelSelectionData.filter(r => r.selected);
-    if (selected.length === 0) {
-        showToast('Select at least one reel', 'error');
-        return;
-    }
-    try {
-        const res = await fetch('/api/save-selected-reels', {
+        const res = await fetch('/api/hide-reel', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug, reels: reelSelectionData})
+            body: JSON.stringify({slug: currentSlug, reelId: reelId})
         });
         const data = await res.json();
         if (data.success) {
-            showToast(data.count + ' reel(s) selected', 'success');
-            closeReelSelectionModal();
+            showToast('Reel ' + reelId + (data.hidden ? ' hidden' : ' shown'), 'success');
             refresh();
         } else {
             throw new Error(data.error);
         }
     } catch (err) {
-        showToast('Failed to save: ' + err.message, 'error');
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function deleteReel(reelId) {
+    if (!confirm('Delete reel ' + reelId + '? This removes its video files.')) return;
+    try {
+        const res = await fetch('/api/delete-reel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reelId: reelId})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Reel ' + reelId + ' deleted', 'success');
+            selectedReelId = null;
+            localStorage.removeItem('tajarib-selected-reel');
+            refresh();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
     }
 }
 
