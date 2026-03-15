@@ -33,7 +33,7 @@ function snapToWord(words, targetSec, direction = "nearest") {
   return direction === "start" ? best.start : best.end;
 }
 
-async function cut(slug, videoPath, force = false) {
+async function cut(slug, videoPath, force = false, reelId = null) {
   const dir = path.join(EPISODES_DIR, slug);
   const reelsDir = path.join(dir, "reels");
   const analysisPath = path.join(dir, "analysis.json");
@@ -71,6 +71,17 @@ async function cut(slug, videoPath, force = false) {
     } else {
       console.log("⚠️  --selected-only flag set but no selected-reels.json found. Cutting all reels.");
     }
+  }
+
+  // Filter to a single reel if --reel-id is specified
+  if (reelId) {
+    const padded = String(reelId).padStart(2, "0");
+    reels = reels.filter(r => String(r.id).padStart(2, "0") === padded);
+    if (reels.length === 0) {
+      console.error(`❌ Reel ${reelId} not found in analysis.json`);
+      process.exit(1);
+    }
+    console.log(`🎯 Single reel mode: cutting reel ${padded} only`);
   }
 
   // Probe video stream duration to skip reels beyond it
@@ -137,9 +148,10 @@ const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i +
 const slug = get("--slug");
 const video = get("--video");
 const force = args.includes("--force");
+const reelId = get("--reel-id");
 
 if (!slug || !video) {
-  console.error("Usage: node cut.js --slug <slug> --video /path/to/episode.mp4 [--force]");
+  console.error("Usage: node cut.js --slug <slug> --video /path/to/episode.mp4 [--force] [--reel-id NN]");
   process.exit(1);
 }
-cut(slug, video, force).catch(err => { console.error("❌", err.message); process.exit(1); });
+cut(slug, video, force, reelId).catch(err => { console.error("❌", err.message); process.exit(1); });
