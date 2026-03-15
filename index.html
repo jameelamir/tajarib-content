@@ -972,6 +972,15 @@ let selectedReelId = null;
 let reelLogs = {};
 let storageData = null;
 let storageSortBy = 'size';
+let reelSelectionData = [];
+let switchPointsData = [];
+let overlayConfig = null;
+let overlayDragging = null;
+let overlayCanvasCtx = null;
+let overlayCanvasRatio = '9:16';
+let availableModels = [];
+let modelListLoaded = false;
+let modelValidationTimer = null;
 
 // Initialize
 async function init() {
@@ -2973,10 +2982,6 @@ async function runReelStep(reelId, step) {
 }
 
 // ── Overlay Config Panel ─────────────────────────────────────────────────
-let overlayConfig = null;
-let overlayDragging = null;
-let overlayCanvasCtx = null;
-let overlayCanvasRatio = '9:16';
 
 async function toggleOverlayConfig() {
     const section = document.getElementById('overlay-config-section');
@@ -3506,7 +3511,6 @@ async function confirmMeta() {
 }
 
 // Switch Point Editor
-let switchPointsData = [];
 
 async function openSwitchEditor() {
     if (!currentSlug) return;
@@ -3673,7 +3677,6 @@ async function submitLlmResponse() {
 }
 
 // ── Reel Selection Modal ──────────────────────────────────────────────────
-let reelSelectionData = [];
 
 async function openReelSelectionModal() {
     if (!currentSlug) return;
@@ -3946,8 +3949,6 @@ async function showReels() {
 }
 
 // Model Management
-let availableModels = [];
-let modelListLoaded = false;
 
 // Known model aliases for validation
 const KNOWN_MODEL_ALIASES = {
@@ -3981,8 +3982,6 @@ const KNOWN_MODEL_ALIASES = {
     'openrouter/openai/gpt-4o': 'OpenRouter GPT-4o',
 };
 
-
-let modelValidationTimer = null;
 
 function debouncedValidateSidebarModel(input) {
     const value = input.value.trim();
