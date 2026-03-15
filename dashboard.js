@@ -1496,7 +1496,7 @@ async function handler(req, res) {
     const form = formidable({
       uploadDir: UPLOADS_DIR,
       keepExtensions: true,
-      maxFileSize: 10 * 1024 * 1024 * 1024, // 10GB max
+      maxFileSize: 25 * 1024 * 1024 * 1024, // 25GB max
     });
 
     form.parse(req, async (err, fields, files) => {
@@ -2620,7 +2620,7 @@ async function handler(req, res) {
   // ── Upload API ────────────────────────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/upload") {
     const form = formidable({
-      maxFileSize: 10 * 1024 * 1024 * 1024,
+      maxFileSize: 25 * 1024 * 1024 * 1024,
       uploadDir: UPLOADS_DIR,
       keepExtensions: true,
       multiples: false,
