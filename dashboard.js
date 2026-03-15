@@ -153,6 +153,45 @@ function hasApiKey() {
   return llm.hasKey();
 }
 
+// Storage config
+const STORAGE_CONFIG_FILE = path.join(WORKSPACE_DIR, "storage-config.json");
+
+function getStorageConfig() {
+  return loadJSON(STORAGE_CONFIG_FILE) || { quotaGB: 100 };
+}
+
+function saveStorageConfig(config) {
+  saveJSON(STORAGE_CONFIG_FILE, config);
+}
+
+function categorizeFile(filename) {
+  const f = filename.toLowerCase();
+  if (f.endsWith('.json') || f.endsWith('.txt') || f.endsWith('.srt') || f.endsWith('.vtt') || f.endsWith('.ass') || f.endsWith('.md'))
+    return 'json';
+  if (f.includes('-final.') || f === 'full-final.mp4')
+    return 'final';
+  if (f.includes('-subtitled.') || f === 'full-subtitled.mp4')
+    return 'subtitled';
+  if (f.includes('reel-') || f.includes('-cropped.'))
+    return 'reels';
+  if (/^(raw|speaker|guest|composed)\./i.test(f) || (/\.(mp4|mkv|mov|avi|mp3|wav|m4a|aac|ogg|flac)$/i.test(f) && !f.includes('reel')))
+    return 'raw';
+  return 'other';
+}
+
+function calcDirSize(dir) {
+  let total = 0;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      const fp = path.join(dir, f);
+      const s = fs.statSync(fp);
+      if (s.isDirectory()) total += calcDirSize(fp);
+      else total += s.size;
+    }
+  } catch (_) {}
+  return total;
+}
+
 // Buffer config
 function getBufferConfig() {
   return loadJSON(BUFFER_CONFIG_FILE) || { accessToken: null, enabled: false };
@@ -810,6 +849,161 @@ async function handler(req, res) {
     return;
   }
 
+  // ── Storage API ──────────────────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/storage") {
+    try {
+      const config = getStorageConfig();
+      const quotaBytes = config.quotaGB * 1024 * 1024 * 1024;
+      let totalBytes = 0;
+      const episodeStorage = [];
+
+      if (fs.existsSync(EPISODES_DIR)) {
+        const slugs = fs.readdirSync(EPISODES_DIR)
+          .filter(f => { try { return fs.statSync(path.join(EPISODES_DIR, f)).isDirectory(); } catch (_) { return false; } });
+
+        for (const slug of slugs) {
+          const dir = path.join(EPISODES_DIR, slug);
+          const meta = loadMeta(slug);
+          const breakdown = { raw: 0, reels: 0, subtitled: 0, final: 0, json: 0, other: 0 };
+          const fileList = [];
+
+          // Scan episode root files
+          try {
+            for (const f of fs.readdirSync(dir)) {
+              const fp = path.join(dir, f);
+              try {
+                const stat = fs.statSync(fp);
+                if (stat.isFile()) {
+                  const cat = categorizeFile(f);
+                  breakdown[cat] += stat.size;
+                  fileList.push({ name: f, path: f, size: stat.size, category: cat, mtime: stat.mtimeMs });
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+
+          // Scan reels subdirectory
+          const reelsDir = path.join(dir, "reels");
+          if (fs.existsSync(reelsDir)) {
+            try {
+              for (const f of fs.readdirSync(reelsDir)) {
+                const fp = path.join(reelsDir, f);
+                try {
+                  const stat = fs.statSync(fp);
+                  if (stat.isFile()) {
+                    const cat = categorizeFile(f);
+                    breakdown[cat] += stat.size;
+                    fileList.push({ name: f, path: `reels/${f}`, size: stat.size, category: cat, mtime: stat.mtimeMs });
+                  }
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }
+
+          const epTotal = Object.values(breakdown).reduce((a, b) => a + b, 0);
+          totalBytes += epTotal;
+          episodeStorage.push({
+            slug,
+            guest: meta.guest || "",
+            mediaType: meta.mediaType || "episode",
+            createdAt: meta.createdAt || null,
+            totalBytes: epTotal,
+            breakdown,
+            files: fileList
+          });
+        }
+      }
+
+      // Also count uploads/ temp directory
+      let uploadsBytes = 0;
+      if (fs.existsSync(UPLOADS_DIR)) {
+        uploadsBytes = calcDirSize(UPLOADS_DIR);
+        totalBytes += uploadsBytes;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        totalBytes,
+        quotaBytes,
+        quotaGB: config.quotaGB,
+        usedGB: +(totalBytes / (1024 * 1024 * 1024)).toFixed(2),
+        percentUsed: quotaBytes > 0 ? +((totalBytes / quotaBytes) * 100).toFixed(1) : 0,
+        uploadsBytes,
+        episodes: episodeStorage
+      }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/storage-config") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getStorageConfig()));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/storage-config") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { quotaGB } = JSON.parse(body);
+        if (typeof quotaGB !== "number" || quotaGB < 1) throw new Error("Invalid quota");
+        saveStorageConfig({ quotaGB });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, quotaGB }));
+        io.emit("toast", { type: "success", message: `Storage quota set to ${quotaGB} GB` });
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/delete-files") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, files } = JSON.parse(body);
+        if (!slug || !Array.isArray(files) || files.length === 0) throw new Error("slug and files[] required");
+
+        const dir = path.join(EPISODES_DIR, slug);
+        if (!fs.existsSync(dir)) throw new Error("Episode not found");
+
+        const deleted = [];
+        let freedBytes = 0;
+
+        for (const relPath of files) {
+          // Security: prevent path traversal
+          const safe = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, '');
+          const fullPath = path.join(dir, safe);
+          if (!fullPath.startsWith(dir)) continue;
+
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            const size = fs.statSync(fullPath).size;
+            fs.unlinkSync(fullPath);
+            deleted.push(safe);
+            freedBytes += size;
+          }
+        }
+
+        const freedMb = (freedBytes / 1024 / 1024).toFixed(1);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, deleted, freedBytes, freedMb: parseFloat(freedMb) }));
+        io.emit("toast", { type: "success", message: `Deleted ${deleted.length} file(s), freed ${freedMb} MB` });
+        io.emit("status-update", {});
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   // ── Reel Version Info API ─────────────────────────────────────────────────
   if (req.method === "GET" && url.pathname === "/api/reel-versions") {
     const slug = url.searchParams.get("slug");
@@ -1385,6 +1579,22 @@ Choose clips that:
         if (multiTrack && (!speakerFile || !guestFile)) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: false, error: "Multi-track requires both speaker and guest video files" }));
+          return;
+        }
+
+        // Quota check
+        const storageConfig = getStorageConfig();
+        const quotaBytes = storageConfig.quotaGB * 1024 * 1024 * 1024;
+        const uploadSize = multiTrack
+          ? ((speakerFile?.size || 0) + (guestFile?.size || 0))
+          : (videoFile?.size || 0);
+        const currentUsage = calcDirSize(EPISODES_DIR);
+        if (currentUsage + uploadSize > quotaBytes) {
+          res.writeHead(413, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            success: false,
+            error: `Upload would exceed storage quota (${storageConfig.quotaGB} GB). Free up space first.`
+          }));
           return;
         }
 
