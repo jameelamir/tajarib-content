@@ -251,16 +251,19 @@ function getEpisodes() {
       // Check for cropped reels (per-reel crop)
       const hasCropped = reelFiles.some(f => f.includes("-cropped") && f.endsWith(".mp4"));
 
-      // Per-reel status data
+      // Per-reel status data — discover from both filesystem AND analysis.json
       const reelStatuses = [];
-      const reelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
-      const validCutIds = new Set(reelIds.filter(id => {
+      const fileReelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
+      const validCutIds = new Set(fileReelIds.filter(id => {
         try { return fs.statSync(path.join(reelsDir, `reel-${id}.mp4`)).size > 0; } catch { return false; }
       }));
       const analysisData = loadJSON(path.join(dir, "analysis.json"));
       const contentData = loadJSON(path.join(dir, "content.json"));
       const generatedReelIds = new Set((contentData?.reels || []).filter(r => r.caption).map(r => String(r.id).padStart(2, "0")));
-      for (const id of reelIds) {
+      // Merge reel IDs from files and analysis.json so uncut reels are also visible
+      const analysisReelIds = (analysisData?.reels || []).map(r => String(r.id).padStart(2, "0"));
+      const allReelIds = [...new Set([...fileReelIds, ...analysisReelIds])].sort();
+      for (const id of allReelIds) {
         const reelInfo = analysisData?.reels?.find(r => String(r.id).padStart(2, "0") === id) || {};
         reelStatuses.push({
           id,
