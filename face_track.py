@@ -43,15 +43,55 @@ from mediapipe.tasks.python import vision
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
-GAUSSIAN_SIGMA = 6.0  # smoothing width in samples (~3s look-ahead/behind at 0.5s intervals)
+GAUSSIAN_SIGMA = 8.0  # smoothing width in samples (~4s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "blaze_face_short_range.tflite")
 
 
+SCENE_CUT_THRESHOLD = 0.4  # histogram correlation below this = scene cut
+
+
+def _detect_face_tiled(frame, detector, frame_w, frame_h):
+    """Fallback for wide shots: scan overlapping tiles to find small faces.
+
+    When BlazeFace can't detect faces in the full frame (too small/far),
+    we crop into overlapping halves and run detection on each tile,
+    mapping coordinates back to full frame.
+    """
+    tile_w = frame_w // 2
+    tiles = [
+        (0, tile_w),                    # left half
+        (frame_w // 4, frame_w // 4 + tile_w),  # center half
+        (frame_w - tile_w, frame_w),    # right half
+    ]
+
+    best_score = 0
+    best_cx = None
+
+    for (x1, x2) in tiles:
+        tile = frame[:, x1:x2]
+        rgb = cv2.cvtColor(tile, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = detector.detect(mp_image)
+
+        if result.detections:
+            det = max(result.detections, key=lambda d: d.categories[0].score)
+            score = det.categories[0].score
+            if score > best_score:
+                bbox = det.bounding_box
+                # Map tile-local x back to full frame
+                tile_cx = bbox.origin_x + bbox.width / 2.0
+                full_cx = (x1 + tile_cx) / frame_w
+                best_score = score
+                best_cx = max(0.0, min(1.0, full_cx))
+
+    return best_cx
+
+
 def detect_faces(video_path):
-    """Sample frames from video and detect face center x-coordinates."""
+    """Sample frames from video and detect face positions + scene cuts."""
     if not os.path.exists(MODEL_PATH):
         print(f"Face detection model not found at: {MODEL_PATH}", file=sys.stderr)
         print("Download from: https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite", file=sys.stderr)
@@ -78,55 +118,96 @@ def detect_faces(video_path):
     detector = vision.FaceDetector.create_from_options(options)
 
     keyframes = []
+    cuts = []  # precise timestamps where scene cuts are detected
+    prev_hist = None
+    last_cut_frame = -999  # prevent duplicate cuts within MIN_CUT_GAP frames
+    MIN_CUT_GAP = int(fps * 0.3)  # at least 0.3s between cuts
     frame_idx = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        if frame_idx % frame_interval == 0:
-            t = frame_idx / fps
+        t = frame_idx / fps
 
-            # Convert BGR to RGB and create MediaPipe Image
+        # Scene cut detection on EVERY frame (cheap — just histogram comparison)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist = cv2.normalize(hist, hist).flatten()
+        if prev_hist is not None and (frame_idx - last_cut_frame) > MIN_CUT_GAP:
+            corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
+            if corr < SCENE_CUT_THRESHOLD:
+                cuts.append(round(t, 3))
+                last_cut_frame = frame_idx
+        prev_hist = hist
+
+        # Face detection only at sample intervals (expensive)
+        if frame_idx % frame_interval == 0:
+            frame_h, frame_w = frame.shape[:2]
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-
-            # Detect faces
             result = detector.detect(mp_image)
 
             if result.detections:
-                # Use the most confident detection
                 best = max(result.detections, key=lambda d: d.categories[0].score)
                 bbox = best.bounding_box
-                frame_h, frame_w = frame.shape[:2]
-                # Face center x (normalized 0-1)
                 cx = (bbox.origin_x + bbox.width / 2.0) / frame_w
                 cx = max(0.0, min(1.0, cx))
                 keyframes.append({"t": round(t, 3), "x": round(cx, 4)})
             else:
-                # No face detected — mark as None for interpolation
-                keyframes.append({"t": round(t, 3), "x": None})
+                # Full-frame detection failed — try tiled detection for wide shots
+                cx = _detect_face_tiled(frame, detector, frame_w, frame_h)
+                if cx is not None:
+                    keyframes.append({"t": round(t, 3), "x": round(cx, 4)})
+                else:
+                    keyframes.append({"t": round(t, 3), "x": None})
 
         frame_idx += 1
 
     cap.release()
     detector.close()
 
-    return keyframes
+    if cuts:
+        print(f"Detected {len(cuts)} scene cuts at: {cuts}")
+
+    return keyframes, cuts
 
 
-def fill_gaps(keyframes):
-    """Fill None (no-face) keyframes by interpolating between neighbors."""
+def _split_at_cuts(keyframes, cuts):
+    """Split keyframes into segments at scene cut boundaries.
+
+    Cuts have precise per-frame timestamps that may not align with keyframe
+    sample times. Splits at the first keyframe at or after each cut.
+    """
+    if not cuts:
+        return [keyframes]
+    segments = []
+    current = []
+    cut_idx = 0
+    for kf in keyframes:
+        if cut_idx < len(cuts) and kf["t"] >= cuts[cut_idx]:
+            if current:
+                segments.append(current)
+            current = [kf]
+            cut_idx += 1
+        else:
+            current.append(kf)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _fill_gaps_segment(keyframes, fallback_x=0.5):
+    """Fill None (no-face) keyframes within a single segment."""
     if not keyframes:
-        return [{"t": 0.0, "x": 0.5}]
+        return [{"t": 0.0, "x": fallback_x}]
 
-    # Find first and last valid x
     valid = [kf for kf in keyframes if kf["x"] is not None]
     if not valid:
-        # No faces detected at all — center fallback
-        return [{"t": kf["t"], "x": 0.5} for kf in keyframes]
+        # No faces in this segment — use fallback (last known position)
+        return [{"t": kf["t"], "x": fallback_x} for kf in keyframes]
 
-    # Fill leading Nones with first valid value
     first_valid = valid[0]["x"]
     last_valid = valid[-1]["x"]
 
@@ -135,21 +216,17 @@ def fill_gaps(keyframes):
             break
         kf["x"] = first_valid
 
-    # Fill trailing Nones with last valid value
     for kf in reversed(keyframes):
         if kf["x"] is not None:
             break
         kf["x"] = last_valid
 
-    # Fill interior Nones by linear interpolation
     i = 0
     while i < len(keyframes):
         if keyframes[i]["x"] is None:
-            # Find next valid
             j = i + 1
             while j < len(keyframes) and keyframes[j]["x"] is None:
                 j += 1
-            # Interpolate between i-1 and j
             x_start = keyframes[i - 1]["x"]
             x_end = keyframes[j]["x"]
             t_start = keyframes[i - 1]["t"]
@@ -162,6 +239,25 @@ def fill_gaps(keyframes):
             i += 1
 
     return keyframes
+
+
+def fill_gaps(keyframes, cuts):
+    """Fill None keyframes by interpolating — independently within each segment.
+
+    When a segment has no face detections (e.g. wide shot), carries forward the
+    last known face position from the previous segment instead of centering.
+    """
+    segments = _split_at_cuts(keyframes, cuts)
+    result = []
+    last_valid_x = 0.5
+    for seg in segments:
+        filled = _fill_gaps_segment(seg, fallback_x=last_valid_x)
+        result.extend(filled)
+        # Track last valid face position across segments
+        valid_in_seg = [kf for kf in seg if kf["x"] is not None]
+        if valid_in_seg:
+            last_valid_x = valid_in_seg[-1]["x"]
+    return result
 
 
 def _gaussian_kernel(sigma):
@@ -192,18 +288,8 @@ def _gaussian_smooth(xs, sigma):
     return out
 
 
-def smooth(keyframes):
-    """Apply dead zone + bidirectional Gaussian smoothing.
-
-    Unlike EMA (which only looks backward and introduces lag), Gaussian smoothing
-    is non-causal — it looks both ahead and behind each point, producing smooth
-    curves without the camera "chasing" the face.
-
-    Pipeline:
-      Pass 1: Dead zone — collapse micro-jitter below DEAD_ZONE threshold
-      Pass 2: Gaussian smooth (sigma=6 ≈ 3s look-ahead/behind at 0.5s intervals)
-      Pass 3: Second Gaussian pass for extra cinematic smoothness
-    """
+def _smooth_segment(keyframes):
+    """Apply dead zone + bidirectional Gaussian smoothing to a single segment."""
     if len(keyframes) <= 1:
         return keyframes
 
@@ -219,8 +305,7 @@ def smooth(keyframes):
 
     xs = [kf["x"] for kf in dejittered]
 
-    # Pass 2 & 3: double Gaussian for very smooth, lag-free curves
-    # sigma=6 at 0.5s intervals = ~3 second look-ahead/behind window
+    # Double Gaussian for smooth, lag-free curves (within this segment only)
     xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
     xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
 
@@ -229,6 +314,15 @@ def smooth(keyframes):
         smoothed.append({"t": kf["t"], "x": round(xs[i], 4)})
 
     return smoothed
+
+
+def smooth(keyframes, cuts):
+    """Apply smoothing independently within each segment (never across scene cuts)."""
+    segments = _split_at_cuts(keyframes, cuts)
+    result = []
+    for seg in segments:
+        result.extend(_smooth_segment(seg))
+    return result
 
 
 def main():
@@ -244,13 +338,13 @@ def main():
         sys.exit(1)
 
     print(f"Detecting faces in: {os.path.basename(video_path)}")
-    keyframes = detect_faces(video_path)
+    keyframes, cuts = detect_faces(video_path)
     print(f"Sampled {len(keyframes)} frames, {sum(1 for kf in keyframes if kf['x'] is not None)} with faces")
 
-    keyframes = fill_gaps(keyframes)
-    keyframes = smooth(keyframes)
+    keyframes = fill_gaps(keyframes, cuts)
+    keyframes = smooth(keyframes, cuts)
 
-    result = {"keyframes": keyframes}
+    result = {"keyframes": keyframes, "cuts": cuts}
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w") as f:
