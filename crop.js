@@ -80,10 +80,10 @@ function smoothstep(t) {
  * Build FFmpeg crop filter with hold-and-pan face tracking.
  *
  * Behaves like a camera operator: locks position, only pans when the face
- * has genuinely moved to a new region, then glides there smoothly.
- * Result: mostly static with a few cinematic pans.
+ * has genuinely moved within a shot. At scene cuts, snaps instantly to the
+ * new face position — no animation across cuts.
  */
-function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH) {
+function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH, cuts) {
   // Calculate crop dimensions (same logic as center crop)
   let cropW, cropH;
   if (videoWidth / videoHeight > targetW / targetH) {
@@ -108,64 +108,94 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     return { t: kf.t, offset };
   });
 
-  // --- Hold-and-pan: lock position, only move when face has truly relocated ---
-  const HOLD_THRESHOLD_PX = 80;   // face must move this far to trigger a pan
-  const PAN_SPEED = 200;          // pixels per second during pans
-  const MIN_PAN_SEC = 0.8;        // minimum pan duration
-  const MAX_PAN_SEC = 2.0;        // maximum pan duration
-  const PAN_EASE_STEPS = 10;      // interpolation points per pan
-
-  // 1. Group keyframes into hold zones (face stays within threshold of zone mean)
-  const zones = [{ sum: pixelKfs[0].offset, count: 1, startT: pixelKfs[0].t, endT: pixelKfs[0].t }];
-  for (let i = 1; i < pixelKfs.length; i++) {
-    const kf = pixelKfs[i];
-    const zone = zones[zones.length - 1];
-    const mean = zone.sum / zone.count;
-    if (Math.abs(kf.offset - mean) < HOLD_THRESHOLD_PX) {
-      zone.sum += kf.offset;
-      zone.count++;
-      zone.endT = kf.t;
-    } else {
-      zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t });
+  // Map precise cut times to the first keyframe at or after each cut
+  const cutTimes = (cuts || []).sort((a, b) => a - b);
+  const cutMap = new Map(); // keyframe time → precise cut time
+  let cutIdx = 0;
+  for (let i = 1; i < pixelKfs.length && cutIdx < cutTimes.length; i++) {
+    if (pixelKfs[i].t >= cutTimes[cutIdx]) {
+      cutMap.set(pixelKfs[i].t, cutTimes[cutIdx]);
+      cutIdx++;
     }
   }
 
-  // 2. Compute hold positions (mean offset per zone, clamped)
+  // --- Hold-and-pan with scene cut awareness ---
+  const HOLD_THRESHOLD_PX = 80;
+  const PAN_SPEED = 200;
+  const MIN_PAN_SEC = 0.8;
+  const MAX_PAN_SEC = 2.0;
+  const PAN_EASE_STEPS = 10;
+
+  // 1. Group keyframes into hold zones — break at scene cuts unconditionally
+  const zones = [{ sum: pixelKfs[0].offset, count: 1, startT: pixelKfs[0].t, endT: pixelKfs[0].t, cutT: null }];
+  for (let i = 1; i < pixelKfs.length; i++) {
+    const kf = pixelKfs[i];
+    const preciseCutT = cutMap.get(kf.t);
+
+    if (preciseCutT !== undefined) {
+      // Scene cut — always start a new zone, store precise cut time
+      zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t, cutT: preciseCutT });
+    } else {
+      const zone = zones[zones.length - 1];
+      const mean = zone.sum / zone.count;
+      if (Math.abs(kf.offset - mean) < HOLD_THRESHOLD_PX) {
+        zone.sum += kf.offset;
+        zone.count++;
+        zone.endT = kf.t;
+      } else {
+        zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t, cutT: null });
+      }
+    }
+  }
+
+  // 2. Compute hold positions
   const holds = zones.map(z => ({
     offset: Math.max(0, Math.min(maxOffset, Math.round(z.sum / z.count))),
     startT: z.startT,
     endT: z.endT,
+    cutT: z.cutT, // precise cut time (null = same shot, number = scene cut)
   }));
 
-  console.log(`   📊 ${holds.length} hold positions (from ${pixelKfs.length} raw keyframes)`);
+  const cutCount = holds.filter(h => h.cutT !== null).length;
+  console.log(`   📊 ${holds.length} hold positions (${cutCount} scene cuts, from ${pixelKfs.length} raw keyframes)`);
 
-  // 3. Build output keyframes: flat holds with smoothstep pans between them
+  // 3. Build output keyframes: instant snap at cuts, smoothstep pan within shots
   const output = [];
   for (let i = 0; i < holds.length; i++) {
     const hold = holds[i];
 
     if (i > 0) {
       const prev = holds[i - 1];
-      const dist = Math.abs(hold.offset - prev.offset);
-      const panDur = Math.max(MIN_PAN_SEC, Math.min(MAX_PAN_SEC, dist / PAN_SPEED));
-      const panStart = Math.max(prev.startT, hold.startT - panDur);
-      const panEnd = hold.startT;
 
-      // End of previous hold (flat until pan starts)
-      output.push({ t: panStart, offset: prev.offset });
+      if (hold.cutT !== null) {
+        // Scene cut — end previous hold at precise cut time, then snap instantly
+        const snapT = hold.cutT; // precise per-frame cut timestamp
+        const epsilon = 0.001;
+        output.push({ t: Math.round((snapT - epsilon) * 1000) / 1000, offset: prev.offset });
+        // New position starts at exactly the cut timestamp
+      } else {
+        // Same shot — smooth pan
+        const dist = Math.abs(hold.offset - prev.offset);
+        const panDur = Math.max(MIN_PAN_SEC, Math.min(MAX_PAN_SEC, dist / PAN_SPEED));
+        const panStart = Math.max(prev.startT, hold.startT - panDur);
+        const panEnd = hold.startT;
 
-      // Smoothstep pan
-      for (let s = 1; s <= PAN_EASE_STEPS; s++) {
-        const frac = s / (PAN_EASE_STEPS + 1);
-        output.push({
-          t: Math.round((panStart + (panEnd - panStart) * frac) * 1000) / 1000,
-          offset: Math.round(prev.offset + (hold.offset - prev.offset) * smoothstep(frac)),
-        });
+        output.push({ t: panStart, offset: prev.offset });
+
+        for (let s = 1; s <= PAN_EASE_STEPS; s++) {
+          const frac = s / (PAN_EASE_STEPS + 1);
+          output.push({
+            t: Math.round((panStart + (panEnd - panStart) * frac) * 1000) / 1000,
+            offset: Math.round(prev.offset + (hold.offset - prev.offset) * smoothstep(frac)),
+          });
+        }
       }
     }
 
     // Hold start and end (flat line)
-    output.push({ t: hold.startT, offset: hold.offset });
+    // For cuts, start at the precise cut time, not the keyframe sample time
+    const holdStart = (hold.cutT !== null) ? hold.cutT : hold.startT;
+    output.push({ t: holdStart, offset: hold.offset });
     if (hold.endT > hold.startT) {
       output.push({ t: hold.endT, offset: hold.offset });
     }
@@ -274,7 +304,7 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
       const trackData = runFaceTracking(inputFile, reelsDir, id);
       if (trackData && trackData.keyframes && trackData.keyframes.length > 0) {
         const { width, height } = probeVideo(inputFile);
-        cropFilter = buildFaceTrackCropFilter(trackData.keyframes, width, height, w, h);
+        cropFilter = buildFaceTrackCropFilter(trackData.keyframes, width, height, w, h, trackData.cuts);
         console.log(`   📐 reel-${id}: face-tracking crop to ${ratio}...`);
       } else {
         // Fallback to center crop
