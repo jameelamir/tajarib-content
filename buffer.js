@@ -93,7 +93,7 @@ async function getChannels(organizationId, token) {
  * Create a post on a specific channel.
  * Handles service-specific metadata (TikTok, LinkedIn, Facebook, YouTube, Instagram).
  */
-async function createPost({ channelId, service, text, videoUrl, videoThumbnailUrl, schedulingType = "automatic", mode = "shareNow" }) {
+async function createPost({ channelId, service, text, videoUrl, videoThumbnailUrl, schedulingType = "automatic", mode = "addToQueue" }) {
   // Build service-specific metadata
   const metadata = {};
 
@@ -174,7 +174,7 @@ async function createPost({ channelId, service, text, videoUrl, videoThumbnailUr
  * Publish a video with caption to all configured channels.
  * Returns results per channel.
  */
-async function publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels }) {
+async function publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels, mode }) {
   const results = [];
 
   for (const ch of channels) {
@@ -185,6 +185,7 @@ async function publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, chan
         text: caption,
         videoUrl,
         videoThumbnailUrl,
+        mode,
       });
       results.push({ channel: ch.name, service: ch.service, success: true, result });
     } catch (err) {
@@ -200,7 +201,7 @@ async function publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, chan
  * 1. Load config to get enabled channels
  * 2. Post to each channel
  */
-async function publish({ caption, videoUrl, videoThumbnailUrl }) {
+async function publish({ caption, videoUrl, videoThumbnailUrl, mode }) {
   const config = loadConfig();
   if (!config.accessToken) throw new Error("Buffer API token not configured");
   if (!config.channels || Object.keys(config.channels).length === 0) {
@@ -213,7 +214,7 @@ async function publish({ caption, videoUrl, videoThumbnailUrl }) {
     throw new Error("No Buffer channels enabled for publishing.");
   }
 
-  return publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels: enabledChannels });
+  return publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels: enabledChannels, mode });
 }
 
 /**

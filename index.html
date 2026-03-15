@@ -92,6 +92,7 @@
         .reel-list-item-chips .reel-chip { font-size: 0.55rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
         .reel-list-item-chips .reel-chip.done { background: #064e3b; color: #34d399; }
         .reel-list-item-chips .reel-chip.pending { background: #1a1a1a; color: #555; }
+        .reel-list-item-chips .reel-chip.missing { background: #4a1c1c; color: #f87171; }
         .reel-list-bulk { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
         .reel-list-bulk button { font-size: 0.6rem; padding: 3px 8px; }
 
@@ -332,6 +333,163 @@
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         <div class="progress-text" id="progress-text">Uploading...</div>
     </div>
+
+    <!-- Collapsible: Publishing -->
+    <div class="sidebar-section" id="section-publishing">
+        <div class="sidebar-section-header" onclick="toggleSection('publishing')">
+            <span>📤 Publishing</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="buffer-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:8px;">
+                <!-- Publish method selector -->
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:4px;">Publish via</label>
+                    <div style="display:flex; gap:4px;">
+                        <button id="pub-method-zapier" class="pub-method-btn active" onclick="setPublishMethod('zapier')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Zapier</button>
+                        <button id="pub-method-buffer" class="pub-method-btn" onclick="setPublishMethod('buffer')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Buffer API</button>
+                    </div>
+                </div>
+                <!-- Buffer config (hidden by default) -->
+                <div id="buffer-config-panel" style="display:none;">
+                    <div style="margin-bottom:6px;">
+                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Scheduling Mode</label>
+                        <div style="display:flex; gap:3px;">
+                            <button id="buf-mode-addToQueue" class="pub-method-btn active" onclick="setBufferMode('addToQueue')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Queue</button>
+                            <button id="buf-mode-shareNow" class="pub-method-btn" onclick="setBufferMode('shareNow')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Now</button>
+                            <button id="buf-mode-customScheduled" class="pub-method-btn" onclick="setBufferMode('customScheduled')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Scheduled</button>
+                        </div>
+                        <div id="buf-mode-desc" style="font-size:0.55rem; color:#555; margin-top:3px;">Posts added to Buffer's queue</div>
+                    </div>
+                    <div style="margin-bottom:6px;">
+                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Buffer API Token</label>
+                        <div style="display:flex; gap:4px;">
+                            <input type="password" id="buffer-token-input" placeholder="API token" style="flex:1; font-size:0.65rem; padding:4px 6px;">
+                            <button onclick="saveBufferToken()" style="font-size:0.65rem; padding:4px 8px;">Save</button>
+                        </div>
+                        <div id="buffer-token-status" style="font-size:0.6rem; color:#666; margin-top:3px;"></div>
+                    </div>
+                    <button onclick="fetchBufferChannels()" style="font-size:0.65rem; padding:4px 8px; width:100%; margin-bottom:6px;">Refresh Channels</button>
+                    <div id="buffer-channels-list" style="font-size:0.6rem;"></div>
+                </div>
+                <!-- Zapier info -->
+                <div id="zapier-info-panel">
+                    <div style="color:#666; font-size:0.6rem;">Reels sent to Zapier webhook for TikTok, Instagram, etc.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsible: Transcription -->
+    <div class="sidebar-section" id="section-transcription">
+        <div class="sidebar-section-header" onclick="toggleSection('transcription')">
+            <span>🎙️ Transcription</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="api-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:6px 8px;">
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                    <span id="api-status-text" style="font-size:0.65rem; color:#666;">Checking...</span>
+                </div>
+                <button onclick="openTranscriptionModal()" style="font-size:0.65rem; padding:5px 8px; width:100%;">
+                    Configure API Key
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsible: Generation (API Key + Model) -->
+    <div class="sidebar-section" id="section-generation">
+        <div class="sidebar-section-header" onclick="toggleSection('generation')">
+            <span>🤖 Generation</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="gen-key-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:6px 8px;">
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">API Key</label>
+                <div style="display:flex; gap:4px;">
+                    <input type="password"
+                        id="gen-api-key"
+                        placeholder="sk-..."
+                        style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; flex:1; font-family:monospace;"
+                        autocomplete="off"
+                        spellcheck="false"
+                    />
+                </div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Base URL <span style="color:#555;">(optional)</span></label>
+                <input type="text"
+                    id="gen-base-url"
+                    placeholder="https://api.haimaker.ai/v1"
+                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%; font-family:monospace;"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div style="font-size:0.55rem; margin-top:3px; color:#555;">Leave empty for direct Anthropic API</div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Model</label>
+                <input type="text"
+                    id="sidebar-model-select"
+                    placeholder="haimaker/auto"
+                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%;"
+                    oninput="debouncedValidateSidebarModel(this)"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for default</div>
+                <div style="border-top:1px solid #222; margin:8px 0;"></div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                    <button onclick="saveLLMConfig()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap; flex:1;">Save All</button>
+                </div>
+                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsible: Storage -->
+    <div class="sidebar-section" id="section-storage">
+        <div class="sidebar-section-header" onclick="toggleSection('storage')">
+            <span>Storage</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="storage-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:8px;">
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#666; margin-bottom:4px;">
+                        <span id="storage-used-label">-- GB</span>
+                        <span id="storage-quota-label">/ -- GB</span>
+                    </div>
+                    <div class="progress-bar" style="height:8px;">
+                        <div class="progress-fill" id="storage-bar-fill" style="width:0%; transition:width 0.5s, background 0.3s;"></div>
+                    </div>
+                    <div id="storage-percent-label" style="font-size:0.55rem; color:#555; text-align:center; margin-top:3px;">0%</div>
+                </div>
+                <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
+                    <label style="font-size:0.6rem; color:#666; white-space:nowrap;">Quota:</label>
+                    <input type="number" id="storage-quota-input" min="1" max="10000" step="10"
+                        style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.65rem; width:60px; text-align:right;"
+                    />
+                    <span style="font-size:0.6rem; color:#666;">GB</span>
+                    <button onclick="saveStorageQuota()" style="font-size:0.6rem; padding:3px 8px; margin-left:auto;">Set</button>
+                </div>
+                <button onclick="openStorageBrowser()" style="font-size:0.65rem; padding:5px 8px; width:100%;">Browse Projects</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="ep-list-divider"></div>
 
     <!-- Episode List -->
     <div class="ep-list" id="ep-list"></div>
@@ -1859,14 +2017,12 @@ function updateLogs() {
         rfEl.textContent = logs[currentSlug] || '';
         rfEl.scrollTop = rfEl.scrollHeight;
     }
-    // Per-reel console
-    if (selectedReelId) {
-        var reelEl = document.getElementById('logs-output-reel');
-        var reelKey = currentSlug + ':' + selectedReelId;
-        if (reelEl) {
-            reelEl.textContent = reelLogs[reelKey] || logs[currentSlug] || '';
-            reelEl.scrollTop = reelEl.scrollHeight;
-        }
+    // Per-reel console (also shows episode-level logs as fallback)
+    var reelEl = document.getElementById('logs-output-reel');
+    if (reelEl) {
+        var reelKey = selectedReelId ? (currentSlug + ':' + selectedReelId) : '';
+        reelEl.textContent = (reelKey && reelLogs[reelKey]) || logs[currentSlug] || '';
+        reelEl.scrollTop = reelEl.scrollHeight;
     }
 }
 
@@ -2003,13 +2159,16 @@ function renderReelList(ep) {
     listEl.innerHTML = ep.reelStatuses.map(function(r) {
         var isActive = selectedReelId === r.id;
         var chipDefs = [
+            {key: 'cut', label: 'CUT'},
             {key: 'generated', label: 'CAP'},
             {key: 'cropped', label: 'CROP'},
             {key: 'subtitled', label: 'SUB'},
             {key: 'final', label: 'OVR'}
         ];
         var chips = chipDefs.map(function(c) {
-            return '<span class="reel-chip ' + (r[c.key] ? 'done' : 'pending') + '">' + c.label + '</span>';
+            var cls = r[c.key] ? 'done' : 'pending';
+            if (c.key === 'cut' && !r.cut) cls = 'missing';
+            return '<span class="reel-chip ' + cls + '">' + c.label + '</span>';
         }).join('');
 
         return '<div class="reel-list-item ' + (isActive ? 'active' : '') + '" onclick="selectReel(\'' + r.id + '\')">' +
@@ -2037,6 +2196,21 @@ function renderReelDetail(ep, reelId) {
     var r = ep.reelStatuses.find(function(x) { return x.id === reelId; });
     if (!r) return;
 
+    // Warning if source clip is missing/empty
+    var warningEl = document.getElementById('reel-cut-warning');
+    if (!warningEl) {
+        warningEl = document.createElement('div');
+        warningEl.id = 'reel-cut-warning';
+        var scrollEl = document.querySelector('.reel-detail-scroll');
+        scrollEl.insertBefore(warningEl, document.getElementById('reel-preview'));
+    }
+    if (!r.cut) {
+        warningEl.style.display = '';
+        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — re-run Cut to regenerate before cropping' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
+    } else {
+        warningEl.style.display = 'none';
+    }
+
     // Video preview — only recreate if reel changed to avoid interrupting playback
     var previewEl = document.getElementById('reel-preview');
     if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
@@ -2058,11 +2232,11 @@ function renderReelDetail(ep, reelId) {
             var reelNum = parseInt(reelId, 10);
             reelContent = ep.content.reels.find(function(rc) { return rc.id === reelNum || String(rc.id).padStart(2, '0') === reelId; });
         }
-        if (reelContent && reelContent.caption) {
+        if (reelContent) {
             captionEl.style.display = '';
             captionEl.innerHTML =
                 '<div style="font-size:0.7rem; color:#666; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
-                '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;">' + escHtml(reelContent.caption) + '</textarea>' +
+                '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
                 '<div style="display:flex; gap:6px; margin-top:6px;">' +
                     '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
                     '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
@@ -2698,6 +2872,22 @@ async function runStep(step) {
 
 // ── Publishing (Zapier or Buffer) ─────────────────────────────────────────
 var publishMethod = localStorage.getItem('tajarib-publish-method') || 'zapier';
+var bufferMode = localStorage.getItem('tajarib-buffer-mode') || 'addToQueue';
+
+var bufferModeDescs = {
+    addToQueue: "Posts added to Buffer's queue",
+    shareNow: "Publishes immediately to all channels",
+    customScheduled: "Schedule for a specific date/time"
+};
+
+function setBufferMode(mode) {
+    bufferMode = mode;
+    localStorage.setItem('tajarib-buffer-mode', mode);
+    ['addToQueue', 'shareNow', 'customScheduled'].forEach(function(m) {
+        document.getElementById('buf-mode-' + m).classList.toggle('active', m === mode);
+    });
+    document.getElementById('buf-mode-desc').textContent = bufferModeDescs[mode] || '';
+}
 
 function setPublishMethod(method) {
     publishMethod = method;
@@ -2712,11 +2902,12 @@ async function publishNow() {
     if (!currentSlug) return;
     var service = publishMethod;
     try {
-        showToast('Publishing via ' + (service === 'buffer' ? 'Buffer' : 'Zapier') + '...', 'success');
+        var modeLabel = service === 'buffer' ? (bufferMode === 'shareNow' ? ' (now)' : bufferMode === 'customScheduled' ? ' (scheduled)' : ' (queue)') : '';
+        showToast('Publishing via ' + (service === 'buffer' ? 'Buffer' + modeLabel : 'Zapier') + '...', 'success');
         const res = await fetch('/api/publish', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug, service: service})
+            body: JSON.stringify({slug: currentSlug, service: service, bufferMode: bufferMode})
         });
         const data = await res.json();
         if (data.success) {
@@ -2828,6 +3019,7 @@ async function loadBufferConfig() {
 
 // Init publish method UI
 setPublishMethod(publishMethod);
+setBufferMode(bufferMode);
 loadBufferConfig();
 
 document.getElementById('stop-btn').onclick = function() {
