@@ -318,7 +318,7 @@
     <div class="upload-zone" id="upload-zone">
         <div style="font-size:1.3rem; margin-bottom:4px;">📁</div>
         <div>Drop video or <strong>click to upload</strong></div>
-        <div style="font-size:0.65rem; margin-top:3px; color:#444;">MP4, MKV, MOV — up to 10 GB</div>
+        <div style="font-size:0.65rem; margin-top:3px; color:#444;">MP4, MKV, MOV — up to 25 GB</div>
         <input type="file" id="file-input" accept=".mp4,.mkv,.mov,.avi">
     </div>
 
@@ -835,6 +835,8 @@ let runningStep = {};  // slug -> step name currently running
 let pendingRun = null;
 let pendingFile = null;
 let selectedMediaType = 'episode';
+let currentUpload = null;
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB - must match server
 let contentEditorData = null;
 let textEditorData = null;
 let guestHistory = [];
@@ -1640,7 +1642,7 @@ function clearSrtFile() {
     document.querySelector('.field:has(#radio-local)').style.opacity = '1';
 }
 
-function confirmUpload() {
+async function confirmUpload() {
     const slug = document.getElementById('upload-slug').value.trim();
     const guest = getSelectedGuest();
     const role = document.getElementById('upload-role').value.trim();
@@ -1693,70 +1695,145 @@ function confirmUpload() {
             alert('Multi-track requires both speaker and guest video files');
             return;
         }
-    } else {
-        if (!pendingFile) return;
-    }
-
-    const formData = new FormData();
-    formData.append('slug', slug);
-    formData.append('mediaType', uploadMediaType);
-    formData.append('transcribeMethod', transcribeMethod);
-    formData.append('multiTrack', isMultiTrack ? 'true' : 'false');
-    if (guest) formData.append('guest', guest);
-    if (role) formData.append('role', role);
-
-    if (pendingSrtFile) {
-        formData.append('srt', pendingSrtFile);
-    }
-
-    if (isMultiTrack) {
+        // Multi-track still uses FormData (files are smaller)
+        const formData = new FormData();
+        formData.append('slug', slug);
+        formData.append('mediaType', uploadMediaType);
+        formData.append('transcribeMethod', transcribeMethod);
+        formData.append('multiTrack', 'true');
+        if (guest) formData.append('guest', guest);
+        if (role) formData.append('role', role);
         formData.append('speaker', pendingSpeakerFile);
         formData.append('guestTrack', pendingGuestFile);
-    } else {
-        formData.append('video', pendingFile);
+        if (pendingSrtFile) formData.append('srt', pendingSrtFile);
+
+        const xhr = new XMLHttpRequest();
+        const progressEl = document.getElementById('upload-progress');
+        const fillEl = document.getElementById('progress-fill');
+        const textEl = document.getElementById('progress-text');
+        progressEl.classList.add('active');
+        dropZone.style.display = 'none';
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                fillEl.style.width = pct + '%';
+                textEl.textContent = 'Uploading: ' + (e.loaded / 1024 / 1024).toFixed(0) + ' / ' + (e.total / 1024 / 1024).toFixed(0) + ' MB (' + pct + '%)';
+            }
+        };
+        xhr.onload = function() {
+            progressEl.classList.remove('active');
+            dropZone.style.display = '';
+            if (xhr.status === 200) {
+                showToast('Upload complete!', 'success');
+                refresh().then(() => selectEp(slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()));
+            } else {
+                showToast('Upload failed: ' + xhr.responseText, 'error');
+            }
+            pendingFile = null; pendingSrtFile = null;
+        };
+        xhr.onerror = function() {
+            progressEl.classList.remove('active');
+            dropZone.style.display = '';
+            showToast('Upload failed', 'error');
+            pendingFile = null; pendingSrtFile = null;
+        };
+        xhr.open('POST', '/api/upload');
+        xhr.send(formData);
+        return;
     }
 
-    const xhr = new XMLHttpRequest();
+    // Single file: use chunked upload for reliability with large files
+    await startChunkedUpload(pendingFile, slug, guest, role, uploadMediaType, transcribeMethod);
+    pendingFile = null;
+    pendingSrtFile = null;
+}
+
+async function startChunkedUpload(file, slug, guest, role, mediaType, transcribeMethod) {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const progressEl = document.getElementById('upload-progress');
     const fillEl = document.getElementById('progress-fill');
     const textEl = document.getElementById('progress-text');
 
     progressEl.classList.add('active');
     dropZone.style.display = 'none';
+    fillEl.style.width = '0%';
+    textEl.textContent = 'Initializing...';
 
-    xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            fillEl.style.width = pct + '%';
-            const mb = (e.loaded / 1024 / 1024).toFixed(0);
-            const totalMb = (e.total / 1024 / 1024).toFixed(0);
-            textEl.textContent = 'Uploading: ' + mb + ' / ' + totalMb + ' MB (' + pct + '%)';
-        }
-    };
-
-    xhr.onload = function() {
+    // Initialize upload on server
+    let uploadId;
+    try {
+        const initRes = await fetch('/api/upload-init', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ filename: file.name, fileSize: file.size, slug, guest, role, mediaType, transcribeMethod })
+        });
+        const initData = await initRes.json();
+        if (!initData.success) throw new Error(initData.error);
+        uploadId = initData.uploadId;
+    } catch (err) {
         progressEl.classList.remove('active');
         dropZone.style.display = '';
-        if (xhr.status === 200) {
-            showToast('Upload complete!', 'success');
-            refresh().then(() => selectEp(slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()));
-        } else {
-            showToast('Upload failed: ' + xhr.responseText, 'error');
-        }
-        pendingFile = null;
-        pendingSrtFile = null;
-    };
+        showToast('Failed to start upload: ' + err.message, 'error');
+        return;
+    }
 
-    xhr.onerror = function() {
+    // Upload chunks with retry
+    for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        let retries = 3;
+        let success = false;
+        while (retries > 0 && !success) {
+            try {
+                const res = await fetch(`/api/upload-chunk?uploadId=${uploadId}&chunkIndex=${i}`, {
+                    method: 'POST',
+                    body: chunk
+                });
+                if (!res.ok) throw new Error('Chunk upload failed');
+                success = true;
+
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
+                fillEl.style.width = pct + '%';
+                const uploadedMb = ((i + 1) * CHUNK_SIZE / 1024 / 1024).toFixed(0);
+                const totalMb = (file.size / 1024 / 1024).toFixed(0);
+                textEl.textContent = `Uploading: ${uploadedMb} / ${totalMb} MB (${pct}%)`;
+            } catch (err) {
+                retries--;
+                if (retries === 0) {
+                    progressEl.classList.remove('active');
+                    dropZone.style.display = '';
+                    showToast(`Upload failed at chunk ${i + 1}/${totalChunks}`, 'error');
+                    return;
+                }
+                await new Promise(r => setTimeout(r, 1000 * (4 - retries)));
+            }
+        }
+    }
+
+    // Complete upload
+    try {
+        textEl.textContent = 'Finalizing...';
+        const completeRes = await fetch('/api/upload-complete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ uploadId })
+        });
+        const completeData = await completeRes.json();
+        if (!completeData.success) throw new Error(completeData.error);
+
         progressEl.classList.remove('active');
         dropZone.style.display = '';
-        showToast('Upload failed', 'error');
-        pendingFile = null;
-        pendingSrtFile = null;
-    };
-
-    xhr.open('POST', '/api/upload');
-    xhr.send(formData);
+        showToast('Upload complete!', 'success');
+        const finalSlug = completeData.slug || slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+        await refresh();
+        selectEp(finalSlug);
+    } catch (err) {
+        progressEl.classList.remove('active');
+        dropZone.style.display = '';
+        showToast('Failed to finalize upload: ' + err.message, 'error');
+    }
 }
 
 // Data functions

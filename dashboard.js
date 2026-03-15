@@ -652,6 +652,8 @@ async function publishViaBuffer(slug, caption, videoPath, bufferMode) {
 // ─── Server Setup ────────────────────────────────────────────────────────────
 
 const server = http.createServer(handler);
+server.requestTimeout = 0;  // Disable — large file uploads can take well over 5 minutes
+server.timeout = 0;         // Disable socket inactivity timeout for long uploads
 const io = socketIo(server, { maxHttpBufferSize: 5e9 });
 const activeProcesses = {};
 const activeSteps = {};     // slug -> step name currently running
