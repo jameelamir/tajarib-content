@@ -1872,15 +1872,17 @@ async function handler(req, res) {
         const ext = path.extname(upload.filename) || ".mp4";
         const dest = path.join(epDir, `raw${ext}`);
         
-        // Write chunks in order
+        // Write chunks in order (with back-pressure handling for large files)
         const writeStream = fs.createWriteStream(dest);
         for (let i = 0; i < upload.totalChunks; i++) {
           const chunkPath = path.join(chunkDir, `chunk-${i}`);
           const chunkData = fs.readFileSync(chunkPath);
-          writeStream.write(chunkData);
+          if (!writeStream.write(chunkData)) {
+            await new Promise(resolve => writeStream.once("drain", resolve));
+          }
         }
         writeStream.end();
-        
+
         await new Promise((resolve, reject) => {
           writeStream.on("finish", resolve);
           writeStream.on("error", reject);
