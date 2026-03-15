@@ -10,7 +10,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 
@@ -73,12 +73,24 @@ async function cut(slug, videoPath, force = false) {
     }
   }
 
+  // Probe video stream duration to skip reels beyond it
+  let videoDuration = Infinity;
+  try {
+    const probe = JSON.parse(execFileSync("ffprobe", [
+      "-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=duration", "-of", "json", videoPath
+    ], { encoding: "utf8" }));
+    const streamDur = parseFloat(probe.streams?.[0]?.duration);
+    if (streamDur > 0) videoDuration = streamDur;
+  } catch {}
+
   console.log(`✂️  Cutting ${reels.length} reels from: ${videoPath}`);
+  if (videoDuration < Infinity) console.log(`   Video stream duration: ${(videoDuration / 60).toFixed(1)} min`);
 
   for (const reel of reels) {
     const outFile = path.join(reelsDir, `reel-${String(reel.id).padStart(2, "0")}.mp4`);
 
-    if (fs.existsSync(outFile) && !force) {
+    if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0 && !force) {
       console.log(`⏭️  Reel ${reel.id} already cut: ${outFile}`);
       continue;
     }
@@ -87,25 +99,33 @@ async function cut(slug, videoPath, force = false) {
     const endSec = snapToWord(words, toSeconds(reel.end), "end");
     const duration = endSec - startSec;
 
+    if (startSec >= videoDuration) {
+      console.log(`   ⏭️  Reel ${reel.id}: ${reel.start} is beyond video duration (${(videoDuration / 60).toFixed(1)} min), skipping`);
+      continue;
+    }
+
     console.log(`   ✂️  Reel ${reel.id}: ${reel.start}→${reel.end} (${duration.toFixed(1)}s) → ${path.basename(outFile)}`);
 
-    const cmd = [
-      "ffmpeg -y",
-      `-ss ${startSec.toFixed(3)}`,
-      `-i "${videoPath}"`,
-      `-t ${duration.toFixed(3)}`,
-      `-c:v libx264 -crf 18 -preset fast`,
-      `-c:a aac -b:a 192k`,
-      `-movflags +faststart`,
-      `"${outFile}"`
-    ].join(" ");
+    const ffmpegArgs = [
+      "-y",
+      "-ss", startSec.toFixed(3),
+      "-i", videoPath,
+      "-t", duration.toFixed(3),
+      "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+      "-c:a", "aac", "-b:a", "192k",
+      "-movflags", "+faststart",
+      outFile
+    ];
 
     try {
-      execSync(cmd, { stdio: "pipe" });
+      execFileSync("ffmpeg", ffmpegArgs, { stdio: "pipe" });
       const size = (fs.statSync(outFile).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ ${size} MB`);
     } catch (e) {
-      console.error(`   ❌ Reel ${reel.id} failed:`, e.message);
+      const stderr = e.stderr?.toString().slice(-200) || "";
+      console.error(`   ❌ Reel ${reel.id} failed: ${stderr || e.message}`);
+      // Clean up 0-byte files
+      try { if (fs.existsSync(outFile) && fs.statSync(outFile).size === 0) fs.unlinkSync(outFile); } catch {}
     }
   }
 

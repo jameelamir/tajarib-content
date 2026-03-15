@@ -253,14 +253,17 @@ function getEpisodes() {
       // Per-reel status data
       const reelStatuses = [];
       const reelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
+      const validCutIds = new Set(reelIds.filter(id => {
+        try { return fs.statSync(path.join(reelsDir, `reel-${id}.mp4`)).size > 0; } catch { return false; }
+      }));
       const analysisData = loadJSON(path.join(dir, "analysis.json"));
       const contentData = loadJSON(path.join(dir, "content.json"));
-      const generatedReelIds = new Set((contentData?.reels || []).map(r => String(r.id).padStart(2, "0")));
+      const generatedReelIds = new Set((contentData?.reels || []).filter(r => r.caption).map(r => String(r.id).padStart(2, "0")));
       for (const id of reelIds) {
         const reelInfo = analysisData?.reels?.find(r => String(r.id).padStart(2, "0") === id) || {};
         reelStatuses.push({
           id,
-          cut: true,
+          cut: validCutIds.has(id),
           generated: generatedReelIds.has(id),
           cropped: reelFiles.includes(`reel-${id}-cropped.mp4`),
           subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
@@ -538,11 +541,11 @@ function compressForPublish(videoPath, slug) {
     }
 
     // Get duration to calculate target bitrate
-    const { execSync } = require("child_process");
+    const { execFileSync } = require("child_process");
     let duration;
     try {
-      const probe = execSync(
-        `ffprobe -v quiet -print_format json -show_format "${videoPath}"`,
+      const probe = execFileSync(
+        "ffprobe", ["-v", "quiet", "-print_format", "json", "-show_format", videoPath],
         { encoding: "utf8" }
       );
       duration = parseFloat(JSON.parse(probe).format.duration);
@@ -636,7 +639,7 @@ async function publishViaZapier(slug, caption, videoPath) {
   return { success: true, service: "zapier" };
 }
 
-async function publishViaBuffer(slug, caption, videoPath) {
+async function publishViaBuffer(slug, caption, videoPath, bufferMode) {
   // Upload video to temp public host so Buffer can access it
   io.emit("log", { slug, text: `\n📤 Uploading video for Buffer...\n` });
   io.emit("toast", { type: "success", message: "Uploading video to public host..." });
@@ -645,7 +648,7 @@ async function publishViaBuffer(slug, caption, videoPath) {
   console.log(`[Buffer] Uploaded to: ${publicVideoUrl}`);
   io.emit("log", { slug, text: `✅ Uploaded: ${publicVideoUrl}\n` });
 
-  const results = await buffer.publish({ caption, videoUrl: publicVideoUrl });
+  const results = await buffer.publish({ caption, videoUrl: publicVideoUrl, mode: bufferMode });
 
   const failed = results.filter(r => !r.success);
   if (failed.length > 0 && failed.length === results.length) {
@@ -1018,10 +1021,11 @@ async function handler(req, res) {
     const reelIdSet = new Set();
     files.forEach(f => { const m = f.match(/^reel-(\d+)/); if (m) reelIdSet.add(m[1]); });
     const reels = [...reelIdSet].sort().map(id => {
-      const hasCut = files.includes(`reel-${id}.mp4`);
+      const cutFile = path.join(reelsDir, `reel-${id}.mp4`);
+      const hasCut = files.includes(`reel-${id}.mp4`) && (() => { try { return fs.statSync(cutFile).size > 0; } catch { return false; } })();
       const hasCropped = files.includes(`reel-${id}-cropped.mp4`);
       const hasSubtitled = files.includes(`reel-${id}-subtitled.mp4`);
-      const serving = hasCropped ? "cropped" : hasSubtitled ? "subtitled" : "cut";
+      const serving = hasCut ? (hasCropped ? "cropped" : hasSubtitled ? "subtitled" : "cut") : (hasCropped ? "cropped_orphan" : null);
       return { id, hasCut, hasCropped, hasSubtitled, serving };
     });
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -1519,8 +1523,8 @@ Choose clips that:
     // Cache: only regenerate if thumb doesn't exist or is older than source
     if (!fs.existsSync(thumbFile) || fs.statSync(thumbFile).mtimeMs < fs.statSync(reelFile).mtimeMs) {
       try {
-        const { execSync } = require("child_process");
-        execSync(`ffmpeg -y -i "${reelFile}" -ss 3 -frames:v 1 -q:v 4 "${thumbFile}"`, { stdio: "pipe" });
+        const { execFileSync } = require("child_process");
+        execFileSync("ffmpeg", ["-y", "-i", reelFile, "-ss", "3", "-frames:v", "1", "-q:v", "4", thumbFile], { stdio: "pipe" });
       } catch (e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Thumbnail generation failed" }));
@@ -1964,9 +1968,11 @@ Choose clips that:
   // ── Server Storage Status ─────────────────────────────────────────────────
   if (req.method === "GET" && url.pathname === "/api/server-status") {
     try {
-      const { execSync } = require("child_process");
+      const { execFileSync } = require("child_process");
       // Get disk usage for the workspace filesystem
-      const dfOutput = execSync(`df -B1 "${WORKSPACE_DIR}" | tail -1`, { encoding: "utf8" }).trim();
+      const dfRaw = execFileSync("df", ["-B1", WORKSPACE_DIR], { encoding: "utf8" }).trim();
+      const dfLines = dfRaw.split("\n");
+      const dfOutput = dfLines[dfLines.length - 1];
       const parts = dfOutput.split(/\s+/);
       const total = parseInt(parts[1]);
       const used = parseInt(parts[2]);
@@ -2047,7 +2053,7 @@ Choose clips that:
     req.on("data", chunk => body += chunk);
     req.on("end", async () => {
       try {
-        const { slug, service } = JSON.parse(body);
+        const { slug, service, bufferMode } = JSON.parse(body);
         const useBuffer = service === "buffer";
         const meta = loadMeta(slug);
         const content = loadJSON(path.join(EPISODES_DIR, slug, "content.json"));
@@ -2089,7 +2095,7 @@ Choose clips that:
 
         let result;
         if (useBuffer) {
-          result = await publishViaBuffer(slug, caption, publishVideoPath);
+          result = await publishViaBuffer(slug, caption, publishVideoPath, bufferMode);
           const successCount = result.results.filter(r => r.success).length;
           const failCount = result.results.filter(r => !r.success).length;
           let toastMsg = `Buffer: ${successCount} channel(s) posted`;
@@ -2728,7 +2734,7 @@ Choose clips that:
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, step, force, model, ratio, faceTrack, reelId } = JSON.parse(body);
+        const { slug, step, force, model, ratio, faceTrack, reelId, preferSide } = JSON.parse(body);
         if (!slug || !step) throw new Error("slug + step required");
 
         const meta = loadMeta(slug);
@@ -2753,7 +2759,7 @@ Choose clips that:
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
 
-        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId });
+        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide });
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -2836,7 +2842,7 @@ Choose clips that:
 
 // ─── Run Pipeline Step ───────────────────────────────────────────────────────
 
-function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, resume, resumeRound }) {
+function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound }) {
   if (activeProcesses[slug]) {
     io.emit("toast", { type: "error", message: `${slug} is already running` });
     return;
@@ -2892,6 +2898,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
       if (ratio) args.push("--ratio", ratio);
       if (faceTrack) args.push("--face-track");
       if (reelId) args.push("--reel-id", reelId);
+      if (preferSide) args.push("--prefer-side", preferSide);
       if (force) args.push("--force");
       break;
     case "subtitle":

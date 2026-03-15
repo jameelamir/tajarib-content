@@ -15,6 +15,7 @@ Falls back to x=0.5 (center) if no face is detected.
 import sys
 import json
 import os
+import math
 
 def check_dependencies():
     """Check and report missing dependencies."""
@@ -51,8 +52,9 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "blaze_face_short_range.tflite")
 
 
-def detect_faces(video_path):
-    """Sample frames from video and detect face center x-coordinates."""
+def detect_faces(video_path, prefer_side=None):
+    """Sample frames from video and detect face center x-coordinates.
+    prefer_side: 'left', 'right', or None (default: pick largest face)."""
     if not os.path.exists(MODEL_PATH):
         print(f"Face detection model not found at: {MODEL_PATH}", file=sys.stderr)
         print("Download from: https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite", file=sys.stderr)
@@ -96,10 +98,17 @@ def detect_faces(video_path):
             result = detector.detect(mp_image)
 
             if result.detections:
-                # Use the most confident detection
-                best = max(result.detections, key=lambda d: d.categories[0].score)
-                bbox = best.bounding_box
                 frame_h, frame_w = frame.shape[:2]
+                if len(result.detections) > 1 and prefer_side:
+                    # Multiple faces: prefer the one on the specified side
+                    def side_score(d):
+                        cx = (d.bounding_box.origin_x + d.bounding_box.width / 2.0) / frame_w
+                        return cx if prefer_side == 'right' else (1.0 - cx)
+                    best = max(result.detections, key=side_score)
+                else:
+                    # Single face or no preference: pick the largest face (closest to camera)
+                    best = max(result.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height)
+                bbox = best.bounding_box
                 # Face center x (normalized 0-1)
                 cx = (bbox.origin_x + bbox.width / 2.0) / frame_w
                 cx = max(0.0, min(1.0, cx))
@@ -166,54 +175,83 @@ def fill_gaps(keyframes):
 
 
 def smooth(keyframes):
-    """Apply adaptive exponential smoothing — small moves are heavily dampened, large moves react faster.
-    Also applies a dead zone to completely ignore tiny jitter."""
+    """Apply Gaussian smoothing (non-causal) for cinema-quality panning.
+    Unlike EMA which only looks backward, Gaussian looks ahead and behind,
+    producing genuinely smooth curves without lag or overshoot."""
     if len(keyframes) <= 1:
         return keyframes
 
-    # Pass 1: dead zone — replace tiny jitters with previous value
-    dejittered = [keyframes[0].copy()]
-    for i in range(1, len(keyframes)):
-        prev_x = dejittered[-1]["x"]
-        raw_x = keyframes[i]["x"]
-        if abs(raw_x - prev_x) < DEAD_ZONE:
-            dejittered.append({"t": keyframes[i]["t"], "x": prev_x})
-        else:
-            dejittered.append(keyframes[i].copy())
+    n = len(keyframes)
+    xs = [kf["x"] for kf in keyframes]
 
-    # Pass 2: adaptive exponential smoothing
-    smoothed = [dejittered[0].copy()]
-    for i in range(1, len(dejittered)):
-        prev_x = smoothed[-1]["x"]
-        raw_x = dejittered[i]["x"]
-        delta = abs(raw_x - prev_x)
-        # Adaptive alpha: small movements get much heavier smoothing
-        if delta < SMALL_MOVE_THRESHOLD:
-            alpha = SMOOTHING_ALPHA_SMALL
+    # Pass 1: dead zone — collapse tiny jitters to previous value
+    dejittered = [xs[0]]
+    for i in range(1, n):
+        if abs(xs[i] - dejittered[-1]) < DEAD_ZONE:
+            dejittered.append(dejittered[-1])
         else:
-            # Lerp between small and large alpha based on movement magnitude
-            t = min(delta / (SMALL_MOVE_THRESHOLD * 3), 1.0)
-            alpha = SMOOTHING_ALPHA_SMALL + t * (SMOOTHING_ALPHA_LARGE - SMOOTHING_ALPHA_SMALL)
-        s_x = alpha * raw_x + (1 - alpha) * prev_x
-        smoothed.append({"t": keyframes[i]["t"], "x": round(s_x, 4)})
+            dejittered.append(xs[i])
 
-    return smoothed
+    # Pass 2: Gaussian smooth — sigma=6 samples = ~3 seconds of look-ahead/behind
+    sigma = 6.0
+    half_w = int(sigma * 3)  # kernel radius
+    kernel = [math.exp(-0.5 * (i / sigma) ** 2) for i in range(-half_w, half_w + 1)]
+
+    gaussian = []
+    for i in range(n):
+        weighted_sum = 0.0
+        weight_sum = 0.0
+        for j in range(-half_w, half_w + 1):
+            idx = i + j
+            if 0 <= idx < n:
+                w = kernel[j + half_w]
+                weighted_sum += dejittered[idx] * w
+                weight_sum += w
+        gaussian.append(weighted_sum / weight_sum)
+
+    # Pass 3: second Gaussian pass for extra smoothness (double-smooth)
+    double_smoothed = []
+    for i in range(n):
+        weighted_sum = 0.0
+        weight_sum = 0.0
+        for j in range(-half_w, half_w + 1):
+            idx = i + j
+            if 0 <= idx < n:
+                w = kernel[j + half_w]
+                weighted_sum += gaussian[idx] * w
+                weight_sum += w
+        double_smoothed.append(weighted_sum / weight_sum)
+
+    return [{"t": keyframes[i]["t"], "x": round(double_smoothed[i], 4)} for i in range(n)]
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python3 face_track.py <input_video> <output_json>", file=sys.stderr)
+    # Parse args: face_track.py <input_video> <output_json> [--prefer left|right]
+    args = sys.argv[1:]
+    prefer_side = None
+    if "--prefer" in args:
+        idx = args.index("--prefer")
+        if idx + 1 < len(args):
+            prefer_side = args[idx + 1]
+            args = args[:idx] + args[idx + 2:]
+        else:
+            print("--prefer requires 'left' or 'right'", file=sys.stderr)
+            sys.exit(1)
+
+    if len(args) != 2:
+        print("Usage: python3 face_track.py <input_video> <output_json> [--prefer left|right]", file=sys.stderr)
         sys.exit(1)
 
-    video_path = sys.argv[1]
-    output_path = sys.argv[2]
+    video_path = args[0]
+    output_path = args[1]
 
     if not os.path.exists(video_path):
         print(f"Video not found: {video_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Detecting faces in: {os.path.basename(video_path)}")
-    keyframes = detect_faces(video_path)
+    mode = f"prefer {prefer_side}" if prefer_side else "largest face"
+    print(f"Detecting faces in: {os.path.basename(video_path)} ({mode})")
+    keyframes = detect_faces(video_path, prefer_side=prefer_side)
     print(f"Sampled {len(keyframes)} frames, {sum(1 for kf in keyframes if kf['x'] is not None)} with faces")
 
     keyframes = fill_gaps(keyframes)

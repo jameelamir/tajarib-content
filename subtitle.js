@@ -11,7 +11,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 
@@ -264,19 +264,19 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     fs.copyFileSync(srtPath, tmpSRT);
     const escapedSRT = tmpSRT.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
-    const cmd = [
-      "ffmpeg -y",
-      `-i "${sourceVideo}"`,
-      `-vf "subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H00000000,BackColour=&H800080,BorderStyle=4,Bold=1,Alignment=2,MarginV=50'"`,
-      `-c:a copy`,
-      `"${tmpFullOut}"`
-    ].join(" ");
+    const ffmpegArgs = [
+      "-y",
+      "-i", sourceVideo,
+      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H00000000,BackColour=&H800080,BorderStyle=4,Bold=1,Alignment=2,MarginV=50'`,
+      "-c:a", "copy",
+      tmpFullOut
+    ];
 
     console.log(`\n⏳ Running ffmpeg (this may take a while)...`);
     const startTime = Date.now();
 
     try {
-      execSync(cmd, { stdio: "inherit" });
+      execFileSync("ffmpeg", ffmpegArgs, { stdio: "inherit" });
       fs.copyFileSync(tmpFullOut, subtitledPath);
       fs.unlinkSync(tmpFullOut);
       fs.unlinkSync(tmpSRT);
@@ -346,17 +346,17 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
     // ASS has embedded styles — no force_style needed, avoids FFmpeg filter parsing issues
-    const cmd = [
-      "ffmpeg -y",
-      `-i "${videoPath}"`,
-      `-vf "ass='${escapedSubtitle}'"`,
-      `-c:a copy`,
-      `"${tmpOut}"`
-    ].join(" ");
+    const ffmpegArgs = [
+      "-y",
+      "-i", videoPath,
+      "-vf", `ass='${escapedSubtitle}'`,
+      "-c:a", "copy",
+      tmpOut
+    ];
 
     const startTime = Date.now();
     try {
-      execSync(cmd, { stdio: "inherit" });
+      execFileSync("ffmpeg", ffmpegArgs, { stdio: "inherit" });
       // Move result back to the real output path
       fs.copyFileSync(tmpOut, subtitledPath);
       fs.unlinkSync(tmpOut);

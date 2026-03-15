@@ -12,7 +12,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync, spawn } = require("child_process");
+const { execSync, execFileSync, spawn } = require("child_process");
 const llm = require("./llm");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
@@ -139,22 +139,25 @@ function formatTime(sec) {
 function composeSplit(speakerPath, guestPath, outputPath) {
   console.log("📐 Composing 50/50 vertical split (no switching)...");
 
-  const cmd = [
-    "ffmpeg -y",
-    `-i "${speakerPath}"`,
-    `-i "${guestPath}"`,
-    `-filter_complex "`,
-    `[0:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1[top];`,
-    `[1:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1[bot];`,
-    `[top][bot]vstack,drawbox=x=0:y=959:w=1080:h=2:color=0x333333@0.8:t=fill[out]"`,
-    `-map "[out]" -map 0:a`,
-    `-c:v libx264 -crf 18 -preset fast`,
-    `-c:a aac -b:a 192k`,
-    `-movflags +faststart`,
-    `"${outputPath}"`
-  ].join(" ");
+  const filter = [
+    `[0:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1[top]`,
+    `[1:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2,setsar=1[bot]`,
+    `[top][bot]vstack,drawbox=x=0:y=959:w=1080:h=2:color=0x333333@0.8:t=fill[out]`
+  ].join(";");
 
-  return cmd;
+  const args = [
+    "-y",
+    "-i", speakerPath,
+    "-i", guestPath,
+    "-filter_complex", filter,
+    "-map", "[out]", "-map", "0:a",
+    "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+    "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart",
+    outputPath
+  ];
+
+  return args;
 }
 
 /**
@@ -220,19 +223,19 @@ function composeWithSwitching(speakerPath, guestPath, outputPath, switches, dura
     `[mid][gst_full]overlay=0:0:format=auto[out]`
   ].join(";");
 
-  const cmd = [
-    "ffmpeg -y",
-    `-i "${speakerPath}"`,
-    `-i "${guestPath}"`,
-    `-filter_complex "${filter}"`,
-    `-map "[out]" -map 0:a`,
-    `-c:v libx264 -crf 18 -preset fast`,
-    `-c:a aac -b:a 192k`,
-    `-movflags +faststart`,
-    `"${outputPath}"`
-  ].join(" ");
+  const args = [
+    "-y",
+    "-i", speakerPath,
+    "-i", guestPath,
+    "-filter_complex", filter,
+    "-map", "[out]", "-map", "0:a",
+    "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+    "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart",
+    outputPath
+  ];
 
-  return cmd;
+  return args;
 }
 
 /**
@@ -240,8 +243,9 @@ function composeWithSwitching(speakerPath, guestPath, outputPath, switches, dura
  */
 function getVideoDuration(videoPath) {
   try {
-    const probe = execSync(
-      `ffprobe -v quiet -print_format json -show_format "${videoPath}"`,
+    const probe = execFileSync(
+      "ffprobe",
+      ["-v", "quiet", "-print_format", "json", "-show_format", videoPath],
       { encoding: "utf8" }
     );
     return parseFloat(JSON.parse(probe).format.duration) || 0;
@@ -300,19 +304,19 @@ async function compose(slug, options) {
   const duration = getVideoDuration(speakerPath);
   console.log(`⏱️  Video duration: ${formatTime(duration)} (${duration.toFixed(1)}s)`);
 
-  let cmd;
+  let ffmpegArgs;
   if (switches && switches.length > 0) {
-    cmd = composeWithSwitching(speakerPath, guestPath, outputPath, switches, duration);
+    ffmpegArgs = composeWithSwitching(speakerPath, guestPath, outputPath, switches, duration);
   } else {
     console.log("ℹ️  No switch points — creating simple 50/50 split");
-    cmd = composeSplit(speakerPath, guestPath, outputPath);
+    ffmpegArgs = composeSplit(speakerPath, guestPath, outputPath);
   }
 
   console.log(`\n⏳ Running FFmpeg...\n`);
   const startTime = Date.now();
 
   try {
-    execSync(cmd, { stdio: "inherit" });
+    execFileSync("ffmpeg", ffmpegArgs, { stdio: "inherit" });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     const size = (fs.statSync(outputPath).size / 1024 / 1024).toFixed(1);
     console.log(`\n✅ Composed in ${elapsed}s (${size} MB) → ${outputPath}`);

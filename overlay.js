@@ -13,7 +13,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const ASSETS_DIR = path.join(__dirname, "assets");
@@ -29,7 +29,7 @@ function loadJSON(p) {
  */
 function probeVideoDimensions(videoPath) {
   try {
-    const out = execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`, { stdio: "pipe" }).toString().trim();
+    const out = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", videoPath], { stdio: "pipe" }).toString().trim();
     const [w, h] = out.split("x").map(Number);
     return { width: w || 1920, height: h || 1080 };
   } catch (_) {
@@ -91,7 +91,7 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
   if (config.sponsor && config.sponsor.enabled) {
     const sponsorFile = path.join(ASSETS_DIR, "sponsor.mov");
     if (fs.existsSync(sponsorFile)) {
-      inputs.push(`-i "${sponsorFile}"`);
+      inputs.push(sponsorFile);
       const scale = config.sponsor.scale || 180;
       const x = Math.round((config.sponsor.x / 100) * videoWidth);
       const y = Math.round((config.sponsor.y / 100) * videoHeight);
@@ -105,7 +105,7 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
   if (config.logo && config.logo.enabled) {
     const logoFile = path.join(ASSETS_DIR, "logo.mov");
     if (fs.existsSync(logoFile)) {
-      inputs.push(`-i "${logoFile}"`);
+      inputs.push(logoFile);
       const scale = config.logo.scale || 140;
       const x = Math.round((config.logo.x / 100) * videoWidth);
       const y = Math.round((config.logo.y / 100) * videoHeight);
@@ -120,7 +120,7 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
   if (config.cta && config.cta.enabled && config.cta.mode === "image") {
     const ctaFile = findCTAAsset();
     if (ctaFile) {
-      inputs.push(`-i "${ctaFile}"`);
+      inputs.push(ctaFile);
       const scale = config.cta.scale || 200;
       const x = Math.round((config.cta.x / 100) * videoWidth);
       const y = Math.round((config.cta.y / 100) * videoHeight);
@@ -295,13 +295,13 @@ async function overlay(slug, options) {
     } else {
       // Legacy --all / --sponsor / --logo mode
       if (doSponsor && fs.existsSync(path.join(ASSETS_DIR, "sponsor.mov"))) {
-        movInputs.push(`-i "${path.join(ASSETS_DIR, "sponsor.mov")}"`);
+        movInputs.push(path.join(ASSETS_DIR, "sponsor.mov"));
         movChain += `[1:v]scale=180:-1[sponsor];{LAST}[sponsor]overlay=10:10:shortest=1:enable='between(t,0,5)'[after_sponsor]`;
         movLastLabel = "[after_sponsor]";
       }
       if (doLogo && fs.existsSync(path.join(ASSETS_DIR, "logo.mov"))) {
         const idx = movInputs.length + 1;
-        movInputs.push(`-i "${path.join(ASSETS_DIR, "logo.mov")}"`);
+        movInputs.push(path.join(ASSETS_DIR, "logo.mov"));
         if (movChain) movChain += ";";
         movChain += `[${idx}:v]scale=140:-1[logo];{LAST}[logo]overlay=W-w-10:10:shortest=1:enable='between(t,0,5)'[after_logo]`;
         movLastLabel = "[after_logo]";
@@ -337,18 +337,18 @@ async function overlay(slug, options) {
       const finalLabel = outputLabels.length > 0 ? outputLabels[outputLabels.length - 1] : "[drawn]";
       fullChain += ";" + resolvedMov;
 
-      const cmd = [
-        "ffmpeg -y",
-        `-i "${video.input}"`,
-        ...movInputs,
-        `-filter_complex "${fullChain}"`,
-        `-map "${finalLabel}" -map 0:a`,
-        `-c:v libx264 -crf 18 -preset fast`,
-        `-c:a copy`,
-        `"${video.output}"`
-      ].join(" ");
+      const ffArgs = [
+        "-y",
+        "-i", video.input,
+        ...movInputs.flatMap(f => ["-i", f]),
+        "-filter_complex", fullChain,
+        "-map", finalLabel, "-map", "0:a",
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-c:a", "copy",
+        video.output
+      ];
 
-      runFFmpeg(cmd, video);
+      runFFmpeg(ffArgs, video);
 
     } else if (hasMovOverlays) {
       // Only image overlays
@@ -367,31 +367,31 @@ async function overlay(slug, options) {
       const outputLabels = resolved.match(/\[after_\w+\]/g) || [];
       const finalLabel = outputLabels.length > 0 ? outputLabels[outputLabels.length - 1] : "[0:v]";
 
-      const cmd = [
-        "ffmpeg -y",
-        `-i "${video.input}"`,
-        ...movInputs,
-        `-filter_complex "${resolved}"`,
-        `-map "${finalLabel}" -map 0:a`,
-        `-c:v libx264 -crf 18 -preset fast`,
-        `-c:a copy`,
-        `"${video.output}"`
-      ].join(" ");
+      const ffArgs = [
+        "-y",
+        "-i", video.input,
+        ...movInputs.flatMap(f => ["-i", f]),
+        "-filter_complex", resolved,
+        "-map", finalLabel, "-map", "0:a",
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-c:a", "copy",
+        video.output
+      ];
 
-      runFFmpeg(cmd, video);
+      runFFmpeg(ffArgs, video);
 
     } else if (hasDrawtext) {
       // Only drawtext filters
-      const cmd = [
-        "ffmpeg -y",
-        `-i "${video.input}"`,
-        `-vf "${vfFilters.join(",")}"`,
-        `-c:v libx264 -crf 18 -preset fast`,
-        `-c:a copy`,
-        `"${video.output}"`
-      ].join(" ");
+      const ffArgs = [
+        "-y",
+        "-i", video.input,
+        "-vf", vfFilters.join(","),
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-c:a", "copy",
+        video.output
+      ];
 
-      runFFmpeg(cmd, video);
+      runFFmpeg(ffArgs, video);
 
     } else {
       console.log(`   ⏭️  No overlays to apply for ${video.label}`);
@@ -401,10 +401,10 @@ async function overlay(slug, options) {
   console.log(`\n✅ Overlay complete for ${slug}`);
 }
 
-function runFFmpeg(cmd, video) {
+function runFFmpeg(ffArgs, video) {
   const startTime = Date.now();
   try {
-    execSync(cmd, { stdio: "pipe" });
+    execFileSync("ffmpeg", ffArgs, { stdio: "pipe" });
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     const size = (fs.statSync(video.output).size / 1024 / 1024).toFixed(1);
     console.log(`   ✅ Done in ${duration}s (${size} MB) → ${path.basename(video.output)}`);
