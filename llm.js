@@ -24,7 +24,7 @@ function loadConfig() {
   // Priority 1: auth.json
   try {
     const data = JSON.parse(fs.readFileSync(AUTH_PATH, "utf8"));
-    if (data.llm && data.llm.key) return data.llm;
+    if (data.llm && (data.llm.key || data.llm.manualMode)) return data.llm;
     // Backwards compat: old { anthropic: { key } } format
     if (data.anthropic?.key) {
       return { key: data.anthropic.key, baseUrl: "", model: "" };
@@ -56,11 +56,18 @@ function getConfig() {
     key: process.env.LLM_API_KEY || process.env.ANTHROPIC_API_KEY || config.key || "",
     baseUrl: process.env.LLM_BASE_URL || config.baseUrl || "",
     model: config.model || DEFAULT_MODEL,
+    manualMode: !!config.manualMode,
   };
 }
 
 function hasKey() {
-  return !!getConfig().key;
+  const config = getConfig();
+  if (config.manualMode) return false; // Manual mode overrides API key
+  return !!config.key;
+}
+
+function isManualMode() {
+  return getConfig().manualMode;
 }
 
 // ─── Chat ──────────────────────────────────────────────────────────
@@ -79,7 +86,7 @@ async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
   const config = getConfig();
   const model = modelOverride || config.model || DEFAULT_MODEL;
 
-  if (!config.key) return null; // No key — caller handles manual mode
+  if (config.manualMode || !config.key) return null; // Manual mode or no key — caller handles
 
   if (config.baseUrl) {
     // ── OpenAI-compatible endpoint ──
@@ -173,4 +180,4 @@ async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
   }
 }
 
-module.exports = { getConfig, hasKey, chat, loadConfig, DEFAULT_MODEL };
+module.exports = { getConfig, hasKey, isManualMode, chat, loadConfig, DEFAULT_MODEL };

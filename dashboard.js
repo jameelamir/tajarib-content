@@ -132,9 +132,33 @@ function startTranscription(slug, finalPath, transcribeMethod) {
 const llm = require("./llm");
 const prompts = require("./prompts");
 
-async function callClaude(systemPrompt, userMessage, maxTokens = 4096) {
+// Pending manual LLM responses for dashboard-level calls (requestId → {resolve, reject, timeout})
+const pendingManualLLM = new Map();
+
+async function callClaude(systemPrompt, userMessage, maxTokens = 4096, manualOpts = {}) {
   const result = await llm.chat({ system: systemPrompt, user: userMessage, maxTokens });
-  if (!result) throw new Error("No API key configured. Set up your LLM provider in the Generation settings.");
+  if (!result) {
+    // No API or manual mode — emit prompt to frontend for manual paste
+    const requestId = 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingManualLLM.delete(requestId);
+        reject(new Error("Manual LLM response timed out (10 minutes)"));
+      }, 10 * 60 * 1000);
+      pendingManualLLM.set(requestId, {
+        resolve: (text) => { clearTimeout(timeout); resolve(text); },
+        reject: (err) => { clearTimeout(timeout); reject(err); }
+      });
+      io.emit("llm-prompt", {
+        requestId,
+        slug: manualOpts.slug || '',
+        step: manualOpts.step || 'dashboard',
+        system: systemPrompt,
+        user: userMessage,
+        expectedFormat: manualOpts.expectedFormat || 'text',
+      });
+    });
+  }
 
   // Reasoning models (e.g. DeepSeek R1 via haimaker/auto) may exhaust tokens on
   // internal thinking and return empty content. Detect and report this clearly.
@@ -316,7 +340,7 @@ function getEpisodes() {
 
 // ─── Model API for Feedback Loop ─────────────────────────────────────────────
 
-async function callModelForRevision(originalContent, feedback, transcriptText = null) {
+async function callModelForRevision(originalContent, feedback, transcriptText = null, slug = "") {
   let transcriptSection = '';
   if (transcriptText) {
     transcriptSection = `\n\n---FULL TRANSCRIPT (for context on what was actually said)---\n${transcriptText.substring(0, 8000)}${transcriptText.length > 8000 ? '...' : ''}\n---END TRANSCRIPT---`;
@@ -331,7 +355,7 @@ async function callModelForRevision(originalContent, feedback, transcriptText = 
 
   // Use 4096 max_tokens — reasoning models (DeepSeek R1 via haimaker/auto) need
   // extra budget for internal thinking before producing the actual revised content.
-  return callClaude(systemPrompt, prompt, 4096);
+  return callClaude(systemPrompt, prompt, 4096, { slug, step: "feedback", expectedFormat: "text" });
 }
 
 // ─── Zapier Webhook Integration ─────────────────────────────────────────────
@@ -366,7 +390,7 @@ function cleanupUploadState(uploadId) {
  * Generate a slug/title from transcript text using AI.
  * Returns { title: "...", slug: "..." }
  */
-async function generateTitleFromTranscript(transcriptText, guest, role) {
+async function generateTitleFromTranscript(transcriptText, guest, role, slug = "") {
   const snippet = transcriptText.substring(0, 4000);
   const guestInfo = guest ? `Guest: ${guest}${role ? ' (' + role + ')' : ''}` : '';
 
@@ -376,7 +400,7 @@ async function generateTitleFromTranscript(transcriptText, guest, role) {
     snippet,
   });
 
-  const result = await callClaude(systemPrompt, prompt, 100);
+  const result = await callClaude(systemPrompt, prompt, 100, { slug, step: "generate-title", expectedFormat: "text" });
   const rawSlug = result.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return rawSlug || "untitled-episode";
 }
@@ -452,14 +476,14 @@ async function handlePostTranscription(slug) {
     
     io.emit("log", { slug, text: "\n🤖 Generating AI title from transcript...\n" });
     
-    const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role);
+    const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug);
     const finalSlug = deduplicateSlug(aiSlug);
-    
+
     io.emit("log", { slug, text: `📝 AI suggested: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
-    
+
     // Rename the episode
     const newSlug = renameEpisode(slug, finalSlug);
-    
+
     // Clear the pending flag
     const newMeta = loadMeta(newSlug);
     delete newMeta.pendingAiTitle;
@@ -776,6 +800,7 @@ async function handler(req, res) {
       hasKey: !!config.key,
       baseUrl: config.baseUrl || "",
       model: config.model || "",
+      manualMode: config.manualMode || false,
     }));
     return;
   }
@@ -792,7 +817,7 @@ async function handler(req, res) {
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { apiKey, baseUrl, model } = JSON.parse(body);
+        const { apiKey, baseUrl, model, manualMode } = JSON.parse(body);
         if (apiKey !== undefined && apiKey && apiKey.length < 10) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
@@ -804,10 +829,11 @@ async function handler(req, res) {
         if (apiKey !== undefined) existing.llm.key = apiKey || "";
         if (baseUrl !== undefined) existing.llm.baseUrl = baseUrl || "";
         if (model !== undefined) existing.llm.model = model || "";
+        if (manualMode !== undefined) existing.llm.manualMode = !!manualMode;
         // Clean up old format
         if (existing.anthropic) delete existing.anthropic;
         saveJSON(authPath, existing);
-        console.log("[LLM] Config saved:", { hasKey: !!existing.llm.key, baseUrl: existing.llm.baseUrl, model: existing.llm.model });
+        console.log("[LLM] Config saved:", { hasKey: !!existing.llm.key, baseUrl: existing.llm.baseUrl, model: existing.llm.model, manualMode: !!existing.llm.manualMode });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
         io.emit("toast", { type: "success", message: "LLM settings saved" });
@@ -1140,7 +1166,7 @@ async function handler(req, res) {
         const systemPrompt = prompts.load("topic-clip-system");
         const prompt = prompts.load("topic-clip-user", { topic, transcriptText });
 
-        const aiResult = await callClaude(systemPrompt, prompt, 1024);
+        const aiResult = await callClaude(systemPrompt, prompt, 1024, { slug, step: "topic-clip", expectedFormat: "json" });
         const clipData = JSON.parse(aiResult.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
         
         // Create content.json for this topic clip
@@ -1261,7 +1287,7 @@ async function handler(req, res) {
           segments,
         });
 
-        const aiContent = await callClaude(systemPrompt, prompt, 2048);
+        const aiContent = await callClaude(systemPrompt, prompt, 2048, { slug, step: "analyze-clips", expectedFormat: "json" });
 
         // Extract JSON
         const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
@@ -2352,9 +2378,24 @@ async function handler(req, res) {
     req.on("data", chunk => body += chunk);
     req.on("end", async () => {
       try {
-        const { slug, step, response: llmResponse, round } = JSON.parse(body);
-        if (!slug || !step || !llmResponse) {
-          throw new Error("slug, step, response all required");
+        const { slug, step, response: llmResponse, round, requestId } = JSON.parse(body);
+        if (!llmResponse) {
+          throw new Error("response is required");
+        }
+
+        // Dashboard-level manual response (has requestId from callClaude Promise)
+        if (requestId && pendingManualLLM.has(requestId)) {
+          const pending = pendingManualLLM.get(requestId);
+          pendingManualLLM.delete(requestId);
+          pending.resolve(llmResponse);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+          return;
+        }
+
+        // Pipeline-level manual response (resume child process)
+        if (!slug || !step) {
+          throw new Error("slug and step required for pipeline resume");
         }
 
         const epDir = path.join(EPISODES_DIR, slug);
@@ -2431,7 +2472,7 @@ async function handler(req, res) {
         }
 
         console.log(`[feedback] Sending to LLM (transcript context: ${transcriptText ? 'yes' : 'no'})...`);
-        const revised = await callModelForRevision(currentContent, feedback, transcriptText);
+        const revised = await callModelForRevision(currentContent, feedback, transcriptText, slug);
         console.log(`[feedback] LLM returned ${revised ? revised.length : 0} chars`);
 
         // Safety check: never save empty revision (can happen with reasoning models)
@@ -2487,14 +2528,14 @@ async function handler(req, res) {
         
         io.emit("log", { slug, text: "\n🤖 Generating AI title from transcript...\n" });
         
-        const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role);
+        const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug);
         const finalSlug = deduplicateSlug(aiSlug);
-        
+
         io.emit("log", { slug, text: `📝 AI suggested: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
-        
+
         // Rename the episode
         const newSlug = renameEpisode(slug, finalSlug);
-        
+
         // Clear any pending flag
         const newMeta = loadMeta(newSlug);
         delete newMeta.pendingAiTitle;
