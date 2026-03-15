@@ -240,15 +240,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
 
   let totalTokens2 = 0; // separate var to avoid shadowing
 
-  // Reel captions — filter by selected reels if available
-  const selectedReelsPath = path.join(EPISODES_DIR, slug, "selected-reels.json");
   let reelsToProcess = analysis.reels || [];
-  if (fs.existsSync(selectedReelsPath)) {
-    const selectedData = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
-    const selectedIds = new Set(selectedData.reels.map(r => r.id));
-    reelsToProcess = reelsToProcess.filter(r => selectedIds.has(r.id));
-    log(`📋 Using ${reelsToProcess.length} selected reels (of ${(analysis.reels || []).length} total)`);
-  }
 
   // Per-reel filter
   if (reelId) {

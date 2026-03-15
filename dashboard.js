@@ -242,7 +242,7 @@ function getEpisodes() {
       const transcript = fs.existsSync(path.join(dir, "transcript.json"));
       const analysis = fs.existsSync(path.join(dir, "analysis.json"));
       const content = loadJSON(path.join(dir, "content.json"));
-      const selectedReels = loadJSON(path.join(dir, "selected-reels.json"));
+
 
       const reelsDir = path.join(dir, "reels");
       const reelFiles = fs.existsSync(reelsDir) ? fs.readdirSync(reelsDir) : [];
@@ -277,6 +277,7 @@ function getEpisodes() {
 
       // Per-reel status data — discover from both filesystem AND analysis.json
       const reelStatuses = [];
+      const hiddenReels = new Set(meta.hiddenReels || []);
       const fileReelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
       const validCutIds = new Set(fileReelIds.filter(id => {
         try { return fs.statSync(path.join(reelsDir, `reel-${id}.mp4`)).size > 0; } catch { return false; }
@@ -296,6 +297,7 @@ function getEpisodes() {
           cropped: reelFiles.includes(`reel-${id}-cropped.mp4`),
           subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
           final: reelFiles.includes(`reel-${id}-final.mp4`),
+          hidden: hiddenReels.has(id),
           hook: reelInfo.hook || reelInfo.title || "",
           duration: reelInfo.duration || null,
           start: reelInfo.start || null,
@@ -315,7 +317,7 @@ function getEpisodes() {
         steps: {
           transcribed: transcript,
           analyzed: analysis,
-          reelsSelected: !!selectedReels,
+          reelsSelected: true,  // no longer needed as a gate
           generated: !!content,
           cut: reelCount > 0,
           subtitled: finalCount > 0,
@@ -324,7 +326,6 @@ function getEpisodes() {
           cropped: hasCropped,
           published: meta.published || false
         },
-        selectedReels: selectedReels ? selectedReels.reels : null,
         reelStatuses,
         content,
         counts: { reels: reelCount, final: finalCount },
@@ -2876,23 +2877,64 @@ async function handler(req, res) {
     return;
   }
 
-  // ── Save selected reels API ──────────────────────────────────────────────
-  if (req.method === "POST" && url.pathname === "/api/save-selected-reels") {
+  // ── Hide reel API ────────────────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/hide-reel") {
     let body = "";
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, reels } = JSON.parse(body);
-        if (!slug || !reels) throw new Error("slug + reels required");
-        const selectedReelsPath = path.join(EPISODES_DIR, slug, "selected-reels.json");
-        const selected = reels.filter(r => r.selected);
-        saveJSON(selectedReelsPath, {
-          slug,
-          selected_at: new Date().toISOString(),
-          reels: selected
-        });
+        const { slug, reelId } = JSON.parse(body);
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        const meta = loadMeta(slug);
+        const hiddenReels = new Set(meta.hiddenReels || []);
+        const wasHidden = hiddenReels.has(reelId);
+        if (wasHidden) hiddenReels.delete(reelId);
+        else hiddenReels.add(reelId);
+        saveMeta(slug, { hiddenReels: [...hiddenReels] });
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, count: selected.length }));
+        res.end(JSON.stringify({ success: true, hidden: !wasHidden }));
+        io.emit("status-update", {});
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Delete reel API ────────────────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/delete-reel") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, reelId } = JSON.parse(body);
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+        const padded = String(reelId).padStart(2, "0");
+        // Delete all reel video files for this ID
+        if (fs.existsSync(reelsDir)) {
+          const files = fs.readdirSync(reelsDir).filter(f => f.startsWith(`reel-${padded}`));
+          for (const f of files) {
+            fs.unlinkSync(path.join(reelsDir, f));
+          }
+        }
+        // Remove from analysis.json
+        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+        if (fs.existsSync(analysisPath)) {
+          const analysis = JSON.parse(fs.readFileSync(analysisPath, "utf8"));
+          if (analysis.reels) {
+            analysis.reels = analysis.reels.filter(r => String(r.id).padStart(2, "0") !== padded);
+            saveJSON(analysisPath, analysis);
+          }
+        }
+        // Remove from hiddenReels if present
+        const meta = loadMeta(slug);
+        if (meta.hiddenReels) {
+          saveMeta(slug, { hiddenReels: meta.hiddenReels.filter(id => id !== reelId) });
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
         io.emit("status-update", {});
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -2971,8 +3013,6 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
       args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)];
       if (reelId) {
         args.push("--reel-id", reelId);
-      } else if (fs.existsSync(path.join(dir, "selected-reels.json"))) {
-        args.push("--selected-only");
       }
       if (force) args.push("--force");
       break;

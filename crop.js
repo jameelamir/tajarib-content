@@ -3,7 +3,7 @@
  * Step 6: Crop reels to target aspect ratio using FFmpeg.
  * Supports center crop (default) and face-tracking crop.
  *
- * Reads:  episodes/{slug}/selected-reels.json (or analysis.json fallback)
+ * Reads:  episodes/{slug}/analysis.json
  * Input:  episodes/{slug}/reels/reel-XX.mp4
  * Output: episodes/{slug}/reels/reel-XX-cropped.mp4
  *
@@ -242,14 +242,10 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
   }
 
   // Determine which reels to crop
-  const selectedReelsPath = path.join(dir, "selected-reels.json");
   const analysisPath = path.join(dir, "analysis.json");
   let reelIds = [];
 
-  if (fs.existsSync(selectedReelsPath)) {
-    const selected = JSON.parse(fs.readFileSync(selectedReelsPath, "utf8"));
-    reelIds = selected.reels.map(r => String(r.id).padStart(2, "0"));
-  } else if (fs.existsSync(analysisPath)) {
+  if (fs.existsSync(analysisPath)) {
     const analysis = JSON.parse(fs.readFileSync(analysisPath, "utf8"));
     reelIds = (analysis.reels || []).map(r => String(r.id).padStart(2, "0"));
   } else {
