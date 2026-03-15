@@ -2450,6 +2450,9 @@ Choose clips that:
           throw new Error("slug, field, currentContent, feedback all required");
         }
 
+        console.log(`[feedback] Revising field "${field}" for slug "${slug}"`);
+        console.log(`[feedback] User feedback: "${feedback}"`);
+
         // Load transcript for context if available
         let transcriptText = null;
         const transcriptPath = path.join(EPISODES_DIR, slug, "transcript.json");
@@ -2460,7 +2463,9 @@ Choose clips that:
           } catch (_) {}
         }
 
+        console.log(`[feedback] Sending to LLM (transcript context: ${transcriptText ? 'yes' : 'no'})...`);
         const revised = await callModelForRevision(currentContent, feedback, transcriptText);
+        console.log(`[feedback] LLM returned ${revised ? revised.length : 0} chars`);
 
         // Safety check: never save empty revision (can happen with reasoning models)
         if (!revised || !revised.trim()) {
@@ -2475,12 +2480,16 @@ Choose clips that:
           for (let i = 0; i < parts.length - 1; i++) ref = ref[parts[i]];
           ref[parts[parts.length - 1]] = revised;
           saveJSON(contentPath, content);
+          console.log(`[feedback] Saved revised content to content.json`);
+        } else {
+          console.error(`[feedback] WARNING: content.json not found at ${contentPath} — revision not saved to disk`);
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true, revised }));
         io.emit("toast", { type: "success", message: "Content revised by AI" });
       } catch (err) {
+        console.error(`[feedback] ERROR: ${err.message}`);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
       }
