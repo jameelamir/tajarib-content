@@ -20,7 +20,7 @@ function toSeconds(ts) {
   return parts[0] * 3600 + parts[1] * 60 + parts[2];
 }
 
-// Find the nearest word boundary in transcript for accurate FFmpeg cut
+// Find the nearest word/segment boundary in transcript for accurate FFmpeg cut
 function snapToWord(words, targetSec, direction = "nearest") {
   if (!words || words.length === 0) return targetSec;
   let best = words[0];
@@ -54,7 +54,8 @@ async function cut(slug, videoPath, force = false, reelId = null) {
 
   const analysis = JSON.parse(fs.readFileSync(analysisPath, "utf8"));
   const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
-  const words = transcript.words || [];
+  // Use word-level timestamps if available, otherwise fall back to segments
+  const words = (transcript.words && transcript.words.length > 0) ? transcript.words : (transcript.segments || []);
 
   fs.mkdirSync(reelsDir, { recursive: true });
 
