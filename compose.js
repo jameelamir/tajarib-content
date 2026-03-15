@@ -14,6 +14,7 @@ const fs = require("fs");
 const path = require("path");
 const { execSync, execFileSync, spawn } = require("child_process");
 const llm = require("./llm");
+const prompts = require("./prompts");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 
@@ -48,36 +49,13 @@ async function generateAISwitchPoints(slug) {
   const guestName = meta.guest || "the guest";
   const duration = transcript.duration_seconds || 3600;
 
-  const systemPrompt = "You are a professional video editor. Return only valid JSON, no explanation.";
-  const userPrompt = `You are a podcast video editor for the "Tajarib" podcast. The podcast has two camera tracks:
-- "speaker" camera: on the host
-- "guest" camera: on ${guestName}
-
-Analyze this transcript and decide when to switch camera views. There are three view modes:
-- "dual": 50/50 split showing both cameras (good for introductions, casual conversation)
-- "speaker": full screen on the host (when host is making a key point or asking an important question)
-- "guest": full screen on the guest (when guest is sharing an insight, story, or important answer)
-
-Rules:
-- Start with "dual" for the first 10-15 seconds
-- Switch to single-camera views during powerful moments, stories, or key arguments
-- Use "dual" during back-and-forth exchanges
-- Don't switch too frequently — aim for segments of at least 15-30 seconds
-- End with "dual" for the last 10 seconds
-
-Transcript (with timestamps):
-${segmentText.substring(0, 8000)}${segmentText.length > 8000 ? "\n... (truncated)" : ""}
-
-Total duration: ${formatTime(duration)}
-
-Return ONLY valid JSON:
-{
-  "switches": [
-    { "time": 0, "view": "dual", "reason": "Opening" },
-    { "time": 15, "view": "guest", "reason": "Guest introduces themselves" },
-    ...
-  ]
-}`;
+  const systemPrompt = prompts.load("compose-system");
+  const truncatedText = segmentText.substring(0, 8000) + (segmentText.length > 8000 ? "\n... (truncated)" : "");
+  const userPrompt = prompts.load("compose-user", {
+    guestName,
+    segmentText: truncatedText,
+    duration: formatTime(duration),
+  });
 
   const isResume = process.argv.includes("--resume");
   let text;
