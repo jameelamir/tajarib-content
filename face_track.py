@@ -53,6 +53,43 @@ MODEL_PATH = os.path.join(SCRIPT_DIR, "blaze_face_short_range.tflite")
 SCENE_CUT_THRESHOLD = 0.4  # histogram correlation below this = scene cut
 
 
+def _detect_face_tiled(frame, detector, frame_w, frame_h):
+    """Fallback for wide shots: scan overlapping tiles to find small faces.
+
+    When BlazeFace can't detect faces in the full frame (too small/far),
+    we crop into overlapping halves and run detection on each tile,
+    mapping coordinates back to full frame.
+    """
+    tile_w = frame_w // 2
+    tiles = [
+        (0, tile_w),                    # left half
+        (frame_w // 4, frame_w // 4 + tile_w),  # center half
+        (frame_w - tile_w, frame_w),    # right half
+    ]
+
+    best_score = 0
+    best_cx = None
+
+    for (x1, x2) in tiles:
+        tile = frame[:, x1:x2]
+        rgb = cv2.cvtColor(tile, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = detector.detect(mp_image)
+
+        if result.detections:
+            det = max(result.detections, key=lambda d: d.categories[0].score)
+            score = det.categories[0].score
+            if score > best_score:
+                bbox = det.bounding_box
+                # Map tile-local x back to full frame
+                tile_cx = bbox.origin_x + bbox.width / 2.0
+                full_cx = (x1 + tile_cx) / frame_w
+                best_score = score
+                best_cx = max(0.0, min(1.0, full_cx))
+
+    return best_cx
+
+
 def detect_faces(video_path):
     """Sample frames from video and detect face positions + scene cuts."""
     if not os.path.exists(MODEL_PATH):
@@ -107,6 +144,7 @@ def detect_faces(video_path):
 
         # Face detection only at sample intervals (expensive)
         if frame_idx % frame_interval == 0:
+            frame_h, frame_w = frame.shape[:2]
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = detector.detect(mp_image)
@@ -114,12 +152,16 @@ def detect_faces(video_path):
             if result.detections:
                 best = max(result.detections, key=lambda d: d.categories[0].score)
                 bbox = best.bounding_box
-                frame_h, frame_w = frame.shape[:2]
                 cx = (bbox.origin_x + bbox.width / 2.0) / frame_w
                 cx = max(0.0, min(1.0, cx))
                 keyframes.append({"t": round(t, 3), "x": round(cx, 4)})
             else:
-                keyframes.append({"t": round(t, 3), "x": None})
+                # Full-frame detection failed — try tiled detection for wide shots
+                cx = _detect_face_tiled(frame, detector, frame_w, frame_h)
+                if cx is not None:
+                    keyframes.append({"t": round(t, 3), "x": round(cx, 4)})
+                else:
+                    keyframes.append({"t": round(t, 3), "x": None})
 
         frame_idx += 1
 
@@ -156,14 +198,15 @@ def _split_at_cuts(keyframes, cuts):
     return segments
 
 
-def _fill_gaps_segment(keyframes):
+def _fill_gaps_segment(keyframes, fallback_x=0.5):
     """Fill None (no-face) keyframes within a single segment."""
     if not keyframes:
-        return [{"t": 0.0, "x": 0.5}]
+        return [{"t": 0.0, "x": fallback_x}]
 
     valid = [kf for kf in keyframes if kf["x"] is not None]
     if not valid:
-        return [{"t": kf["t"], "x": 0.5} for kf in keyframes]
+        # No faces in this segment — use fallback (last known position)
+        return [{"t": kf["t"], "x": fallback_x} for kf in keyframes]
 
     first_valid = valid[0]["x"]
     last_valid = valid[-1]["x"]
@@ -199,11 +242,21 @@ def _fill_gaps_segment(keyframes):
 
 
 def fill_gaps(keyframes, cuts):
-    """Fill None keyframes by interpolating — independently within each segment."""
+    """Fill None keyframes by interpolating — independently within each segment.
+
+    When a segment has no face detections (e.g. wide shot), carries forward the
+    last known face position from the previous segment instead of centering.
+    """
     segments = _split_at_cuts(keyframes, cuts)
     result = []
+    last_valid_x = 0.5
     for seg in segments:
-        result.extend(_fill_gaps_segment(seg))
+        filled = _fill_gaps_segment(seg, fallback_x=last_valid_x)
+        result.extend(filled)
+        # Track last valid face position across segments
+        valid_in_seg = [kf for kf in seg if kf["x"] is not None]
+        if valid_in_seg:
+            last_valid_x = valid_in_seg[-1]["x"]
     return result
 
 
