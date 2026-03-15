@@ -2329,8 +2329,8 @@ function renderReelDetail(ep, reelId) {
     if (!warningEl) {
         warningEl = document.createElement('div');
         warningEl.id = 'reel-cut-warning';
-        var scrollEl = document.querySelector('.reel-detail-scroll');
-        scrollEl.insertBefore(warningEl, document.getElementById('reel-preview'));
+        var modularEl = document.getElementById('reel-detail-modular');
+        modularEl.insertBefore(warningEl, document.getElementById('reel-preview'));
     }
     if (!r.cut) {
         warningEl.style.display = '';
