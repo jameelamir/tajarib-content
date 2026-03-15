@@ -15,7 +15,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync, execFileSync } = require("child_process");
+const { execSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const PYTHON = "python3";
@@ -31,10 +31,8 @@ const RATIOS = {
  * Get video dimensions via ffprobe.
  */
 function probeVideo(filePath) {
-  const out = JSON.parse(execFileSync("ffprobe", [
-    "-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=width,height", "-of", "json", filePath
-  ], { encoding: "utf8" }));
+  const cmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of json "${filePath}"`;
+  const out = JSON.parse(execSync(cmd, { encoding: "utf8" }));
   const s = out.streams[0];
   return { width: s.width, height: s.height };
 }
@@ -42,14 +40,15 @@ function probeVideo(filePath) {
 /**
  * Run face_track.py on a video and return the keyframes JSON.
  */
-function runFaceTracking(inputFile, reelsDir, id, preferSide) {
+function runFaceTracking(inputFile, reelsDir, id) {
   const trackFile = path.join(reelsDir, `reel-${id}-facetrack.json`);
 
-  const args = [FACE_TRACK_SCRIPT, inputFile, trackFile];
-  if (preferSide) args.push("--prefer", preferSide);
-  console.log(`   🔍 reel-${id}: detecting faces...${preferSide ? ` (prefer ${preferSide})` : ""}`);
+  console.log(`   🔍 reel-${id}: detecting faces...`);
   try {
-    execFileSync(PYTHON, args, { stdio: ["pipe", "pipe", "pipe"], timeout: 120000 });
+    execSync(
+      `${PYTHON} "${FACE_TRACK_SCRIPT}" "${inputFile}" "${trackFile}"`,
+      { stdio: ["pipe", "pipe", "pipe"], timeout: 120000 }
+    );
   } catch (e) {
     const stderr = e.stderr?.toString() || e.message;
     if (stderr.includes("Missing dependencies")) {
@@ -71,24 +70,26 @@ function runFaceTracking(inputFile, reelsDir, id, preferSide) {
 }
 
 /**
- * Smoothstep: ease-in-ease-out curve.  t in [0,1] → [0,1].
+ * Smoothstep easing — cubic ease-in-ease-out (0→1 maps to 0→1 with soft start/stop).
  */
 function smoothstep(t) {
-  t = Math.max(0, Math.min(1, t));
   return t * t * (3 - 2 * t);
 }
 
 /**
  * Build FFmpeg crop filter expression with face-tracking interpolation.
- * Uses smoothstep-eased transitions for cinematic camera panning.
+ * Reduces keyframes to significant anchors, inserts smoothstep-eased intermediate
+ * points for cinematic camera panning, then generates nested if(lt(t,...)).
  */
 function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH) {
   // Calculate crop dimensions (same logic as center crop)
   let cropW, cropH;
   if (videoWidth / videoHeight > targetW / targetH) {
+    // Video is wider than target — crop width, keep height
     cropH = videoHeight;
     cropW = Math.floor(videoHeight * targetW / targetH);
   } else {
+    // Video is taller — crop height, keep width
     cropW = videoWidth;
     cropH = Math.floor(videoWidth * targetH / targetW);
   }
@@ -99,6 +100,7 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
 
   const maxOffset = videoWidth - cropW;
   if (maxOffset <= 0) {
+    // Video is narrower than or equal to crop — no panning possible, center it
     return `crop=${cropW}:${cropH}:(iw-${cropW})/2:0,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
   }
 
@@ -109,8 +111,9 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     return { t: kf.t, offset };
   });
 
-  // Reduce to significant movement points — these become our "hold" positions.
-  const MIN_CHANGE_PX = 50;
+  // Reduce keyframes to significant movement anchors only.
+  // Keeps first, last, and points where position shifted ≥ MIN_CHANGE_PX.
+  const MIN_CHANGE_PX = 60;
   const anchors = [pixelKeyframes[0]];
   for (let i = 1; i < pixelKeyframes.length - 1; i++) {
     const prev = anchors[anchors.length - 1];
@@ -120,33 +123,33 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
   }
   anchors.push(pixelKeyframes[pixelKeyframes.length - 1]);
 
-  // Expand each transition with smoothstep-interpolated intermediate points.
-  // This bakes ease-in-ease-out directly into the keyframes so FFmpeg's
-  // linear interpolation naturally follows the eased curve.
-  const EASE_STEPS = 6; // intermediate points per transition
+  // Expand anchors with smoothstep-eased intermediate points.
+  // This turns abrupt linear transitions into smooth ease-in-ease-out curves.
+  // FFmpeg then linearly interpolates between these pre-eased points,
+  // which naturally follows the curved trajectory.
+  const EASE_STEPS = 6;
   const expanded = [anchors[0]];
   for (let i = 0; i < anchors.length - 1; i++) {
     const a = anchors[i];
     const b = anchors[i + 1];
     const dt = b.t - a.t;
     const dOffset = b.offset - a.offset;
-    if (dOffset === 0 || dt <= 0) {
-      expanded.push(b);
-      continue;
+
+    if (dt > 0 && dOffset !== 0) {
+      for (let s = 1; s <= EASE_STEPS; s++) {
+        const frac = s / (EASE_STEPS + 1);
+        const eased = smoothstep(frac);
+        expanded.push({
+          t: Math.round((a.t + dt * frac) * 1000) / 1000,
+          offset: Math.round(a.offset + dOffset * eased),
+        });
+      }
     }
-    // Insert intermediate eased points
-    for (let s = 1; s <= EASE_STEPS; s++) {
-      const frac = s / (EASE_STEPS + 1);
-      const eased = smoothstep(frac);
-      expanded.push({
-        t: Math.round((a.t + dt * frac) * 1000) / 1000,
-        offset: Math.round(a.offset + dOffset * eased)
-      });
-    }
+
     expanded.push(b);
   }
 
-  // Cap total keyframes for FFmpeg expression depth
+  // Cap total keyframes to avoid overly deep FFmpeg nesting
   const MAX_KEYFRAMES = 80;
   if (expanded.length > MAX_KEYFRAMES) {
     const step = Math.ceil(expanded.length / MAX_KEYFRAMES);
@@ -160,14 +163,15 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     pixelKeyframes = expanded;
   }
 
-  console.log(`   📊 Using ${pixelKeyframes.length} keyframes (${anchors.length} anchors, smoothstep-eased)`);
+  console.log(`   📊 Using ${pixelKeyframes.length} keyframes for crop expression`);
 
-  // Build nested if() expression — linear interpolation between the
-  // already-eased keyframes produces smooth, cinematic panning.
+  // Build nested if() expression for linear interpolation between eased keyframes.
+  // Uses \, escaping for commas (NOT single quotes) so FFmpeg parses them correctly.
   let expr;
   if (pixelKeyframes.length === 1) {
     expr = String(pixelKeyframes[0].offset);
   } else {
+    // Build from the last keyframe backwards
     expr = String(pixelKeyframes[pixelKeyframes.length - 1].offset);
     for (let i = pixelKeyframes.length - 2; i >= 0; i--) {
       const curr = pixelKeyframes[i];
@@ -182,10 +186,11 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     }
   }
 
+  // No single quotes around expression — \, handles comma escaping within filter args
   return `crop=${cropW}:${cropH}:${expr}:0,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
 }
 
-async function crop(slug, ratio, force = false, faceTrack = false, reelId = null, preferSide = null) {
+async function crop(slug, ratio, force = false, faceTrack = false, reelId = null) {
   const dir = path.join(EPISODES_DIR, slug);
   const reelsDir = path.join(dir, "reels");
 
@@ -245,8 +250,8 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
     const inputFile = path.join(reelsDir, `reel-${id}.mp4`);
     const outputFile = path.join(reelsDir, `reel-${id}-cropped.mp4`);
 
-    if (!fs.existsSync(inputFile) || fs.statSync(inputFile).size === 0) {
-      console.log(`   ⏭️  reel-${id}.mp4 missing or empty, skipping (re-run cut first)`);
+    if (!fs.existsSync(inputFile)) {
+      console.log(`   ⏭️  reel-${id}.mp4 not found, skipping`);
       continue;
     }
 
@@ -259,7 +264,7 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
 
     if (faceTrack) {
       // Face-tracking crop
-      const trackData = runFaceTracking(inputFile, reelsDir, id, preferSide);
+      const trackData = runFaceTracking(inputFile, reelsDir, id);
       if (trackData && trackData.keyframes && trackData.keyframes.length > 0) {
         const { width, height } = probeVideo(inputFile);
         cropFilter = buildFaceTrackCropFilter(trackData.keyframes, width, height, w, h);
@@ -275,17 +280,18 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
       console.log(`   📐 reel-${id}: cropping to ${ratio}...`);
     }
 
-    const ffmpegArgs = [
-      "-y", "-i", inputFile,
-      "-vf", cropFilter,
-      "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-      "-c:a", "copy",
-      "-movflags", "+faststart",
-      outputFile
-    ];
+    const cmd = [
+      "ffmpeg -y",
+      `-i "${inputFile}"`,
+      `-vf "${cropFilter}"`,
+      `-c:v libx264 -crf 18 -preset fast`,
+      `-c:a copy`,
+      `-movflags +faststart`,
+      `"${outputFile}"`
+    ].join(" ");
 
     try {
-      execFileSync("ffmpeg", ffmpegArgs, { stdio: "pipe" });
+      execSync(cmd, { stdio: "pipe" });
       const size = (fs.statSync(outputFile).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ ${size} MB → reel-${id}-cropped.mp4`);
     } catch (e) {
@@ -304,10 +310,9 @@ const ratio = get("--ratio") || "9:16";
 const force = args.includes("--force");
 const faceTrack = args.includes("--face-track");
 const reelId = get("--reel-id");
-const preferSide = get("--prefer-side");
 
 if (!slug) {
-  console.error("Usage: node crop.js --slug <slug> --ratio 9:16|1:1|4:5 [--force] [--face-track] [--prefer-side left|right]");
+  console.error("Usage: node crop.js --slug <slug> --ratio 9:16|1:1|4:5 [--force] [--face-track]");
   process.exit(1);
 }
-crop(slug, ratio, force, faceTrack, reelId, preferSide).catch(err => { console.error("❌", err.message); process.exit(1); });
+crop(slug, ratio, force, faceTrack, reelId).catch(err => { console.error("❌", err.message); process.exit(1); });

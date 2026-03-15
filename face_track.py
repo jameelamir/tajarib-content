@@ -42,19 +42,16 @@ from mediapipe.tasks.python import vision
 
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
-SMOOTHING_ALPHA_LARGE = 0.20  # smoothing for large movements (lower = smoother)
-SMOOTHING_ALPHA_SMALL = 0.008 # smoothing for small movements (barely reacts — very smooth)
-SMALL_MOVE_THRESHOLD = 0.06  # normalized units — moves below this are "small"
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
+GAUSSIAN_SIGMA = 6.0  # smoothing width in samples (~3s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "blaze_face_short_range.tflite")
 
 
-def detect_faces(video_path, prefer_side=None):
-    """Sample frames from video and detect face center x-coordinates.
-    prefer_side: 'left', 'right', or None (default: pick largest face)."""
+def detect_faces(video_path):
+    """Sample frames from video and detect face center x-coordinates."""
     if not os.path.exists(MODEL_PATH):
         print(f"Face detection model not found at: {MODEL_PATH}", file=sys.stderr)
         print("Download from: https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite", file=sys.stderr)
@@ -98,17 +95,10 @@ def detect_faces(video_path, prefer_side=None):
             result = detector.detect(mp_image)
 
             if result.detections:
-                frame_h, frame_w = frame.shape[:2]
-                if len(result.detections) > 1 and prefer_side:
-                    # Multiple faces: prefer the one on the specified side
-                    def side_score(d):
-                        cx = (d.bounding_box.origin_x + d.bounding_box.width / 2.0) / frame_w
-                        return cx if prefer_side == 'right' else (1.0 - cx)
-                    best = max(result.detections, key=side_score)
-                else:
-                    # Single face or no preference: pick the largest face (closest to camera)
-                    best = max(result.detections, key=lambda d: d.bounding_box.width * d.bounding_box.height)
+                # Use the most confident detection
+                best = max(result.detections, key=lambda d: d.categories[0].score)
                 bbox = best.bounding_box
+                frame_h, frame_w = frame.shape[:2]
                 # Face center x (normalized 0-1)
                 cx = (bbox.origin_x + bbox.width / 2.0) / frame_w
                 cx = max(0.0, min(1.0, cx))
@@ -174,84 +164,87 @@ def fill_gaps(keyframes):
     return keyframes
 
 
+def _gaussian_kernel(sigma):
+    """Build a normalized 1D Gaussian kernel."""
+    half_w = int(sigma * 3)
+    kernel = []
+    for i in range(-half_w, half_w + 1):
+        kernel.append(math.exp(-0.5 * (i / sigma) ** 2))
+    total = sum(kernel)
+    return [k / total for k in kernel], half_w
+
+
+def _gaussian_smooth(xs, sigma):
+    """Apply non-causal (bidirectional) Gaussian smoothing to a list of floats."""
+    kernel, half_w = _gaussian_kernel(sigma)
+    n = len(xs)
+    out = []
+    for i in range(n):
+        val = 0.0
+        weight = 0.0
+        for j, k in enumerate(kernel):
+            idx = i + (j - half_w)
+            # Clamp to edges instead of ignoring — avoids shrinking at boundaries
+            idx = max(0, min(n - 1, idx))
+            val += xs[idx] * k
+            weight += k
+        out.append(val / weight if weight > 0 else xs[i])
+    return out
+
+
 def smooth(keyframes):
-    """Apply Gaussian smoothing (non-causal) for cinema-quality panning.
-    Unlike EMA which only looks backward, Gaussian looks ahead and behind,
-    producing genuinely smooth curves without lag or overshoot."""
+    """Apply dead zone + bidirectional Gaussian smoothing.
+
+    Unlike EMA (which only looks backward and introduces lag), Gaussian smoothing
+    is non-causal — it looks both ahead and behind each point, producing smooth
+    curves without the camera "chasing" the face.
+
+    Pipeline:
+      Pass 1: Dead zone — collapse micro-jitter below DEAD_ZONE threshold
+      Pass 2: Gaussian smooth (sigma=6 ≈ 3s look-ahead/behind at 0.5s intervals)
+      Pass 3: Second Gaussian pass for extra cinematic smoothness
+    """
     if len(keyframes) <= 1:
         return keyframes
 
-    n = len(keyframes)
-    xs = [kf["x"] for kf in keyframes]
-
-    # Pass 1: dead zone — collapse tiny jitters to previous value
-    dejittered = [xs[0]]
-    for i in range(1, n):
-        if abs(xs[i] - dejittered[-1]) < DEAD_ZONE:
-            dejittered.append(dejittered[-1])
+    # Pass 1: dead zone — replace tiny jitters with previous value
+    dejittered = [keyframes[0].copy()]
+    for i in range(1, len(keyframes)):
+        prev_x = dejittered[-1]["x"]
+        raw_x = keyframes[i]["x"]
+        if abs(raw_x - prev_x) < DEAD_ZONE:
+            dejittered.append({"t": keyframes[i]["t"], "x": prev_x})
         else:
-            dejittered.append(xs[i])
+            dejittered.append(keyframes[i].copy())
 
-    # Pass 2: Gaussian smooth — sigma=6 samples = ~3 seconds of look-ahead/behind
-    sigma = 6.0
-    half_w = int(sigma * 3)  # kernel radius
-    kernel = [math.exp(-0.5 * (i / sigma) ** 2) for i in range(-half_w, half_w + 1)]
+    xs = [kf["x"] for kf in dejittered]
 
-    gaussian = []
-    for i in range(n):
-        weighted_sum = 0.0
-        weight_sum = 0.0
-        for j in range(-half_w, half_w + 1):
-            idx = i + j
-            if 0 <= idx < n:
-                w = kernel[j + half_w]
-                weighted_sum += dejittered[idx] * w
-                weight_sum += w
-        gaussian.append(weighted_sum / weight_sum)
+    # Pass 2 & 3: double Gaussian for very smooth, lag-free curves
+    # sigma=6 at 0.5s intervals = ~3 second look-ahead/behind window
+    xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
+    xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
 
-    # Pass 3: second Gaussian pass for extra smoothness (double-smooth)
-    double_smoothed = []
-    for i in range(n):
-        weighted_sum = 0.0
-        weight_sum = 0.0
-        for j in range(-half_w, half_w + 1):
-            idx = i + j
-            if 0 <= idx < n:
-                w = kernel[j + half_w]
-                weighted_sum += gaussian[idx] * w
-                weight_sum += w
-        double_smoothed.append(weighted_sum / weight_sum)
+    smoothed = []
+    for i, kf in enumerate(dejittered):
+        smoothed.append({"t": kf["t"], "x": round(xs[i], 4)})
 
-    return [{"t": keyframes[i]["t"], "x": round(double_smoothed[i], 4)} for i in range(n)]
+    return smoothed
 
 
 def main():
-    # Parse args: face_track.py <input_video> <output_json> [--prefer left|right]
-    args = sys.argv[1:]
-    prefer_side = None
-    if "--prefer" in args:
-        idx = args.index("--prefer")
-        if idx + 1 < len(args):
-            prefer_side = args[idx + 1]
-            args = args[:idx] + args[idx + 2:]
-        else:
-            print("--prefer requires 'left' or 'right'", file=sys.stderr)
-            sys.exit(1)
-
-    if len(args) != 2:
-        print("Usage: python3 face_track.py <input_video> <output_json> [--prefer left|right]", file=sys.stderr)
+    if len(sys.argv) != 3:
+        print("Usage: python3 face_track.py <input_video> <output_json>", file=sys.stderr)
         sys.exit(1)
 
-    video_path = args[0]
-    output_path = args[1]
+    video_path = sys.argv[1]
+    output_path = sys.argv[2]
 
     if not os.path.exists(video_path):
         print(f"Video not found: {video_path}", file=sys.stderr)
         sys.exit(1)
 
-    mode = f"prefer {prefer_side}" if prefer_side else "largest face"
-    print(f"Detecting faces in: {os.path.basename(video_path)} ({mode})")
-    keyframes = detect_faces(video_path, prefer_side=prefer_side)
+    print(f"Detecting faces in: {os.path.basename(video_path)}")
+    keyframes = detect_faces(video_path)
     print(f"Sampled {len(keyframes)} frames, {sum(1 for kf in keyframes if kf['x'] is not None)} with faces")
 
     keyframes = fill_gaps(keyframes)
