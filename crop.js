@@ -70,8 +70,16 @@ function runFaceTracking(inputFile, reelsDir, id) {
 }
 
 /**
+ * Smoothstep easing — cubic ease-in-ease-out (0→1 maps to 0→1 with soft start/stop).
+ */
+function smoothstep(t) {
+  return t * t * (3 - 2 * t);
+}
+
+/**
  * Build FFmpeg crop filter expression with face-tracking interpolation.
- * Reduces keyframes to max ~30, then generates nested if(lt(t,...)) for smooth panning.
+ * Reduces keyframes to significant anchors, inserts smoothstep-eased intermediate
+ * points for cinematic camera panning, then generates nested if(lt(t,...)).
  */
 function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH) {
   // Calculate crop dimensions (same logic as center crop)
@@ -103,38 +111,61 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     return { t: kf.t, offset };
   });
 
-  // Reduce keyframes to avoid overly deep nesting in FFmpeg expressions.
-  // Keep first, last, and points where position changes significantly.
-  // Larger dead zone means small jitters are ignored → smoother panning.
-  const MAX_KEYFRAMES = 30;
-  const MIN_CHANGE_PX = 60; // only keep a keyframe if position shifted ≥60px — smoother panning
-  if (pixelKeyframes.length > MAX_KEYFRAMES) {
-    const reduced = [pixelKeyframes[0]];
-    for (let i = 1; i < pixelKeyframes.length - 1; i++) {
-      const prev = reduced[reduced.length - 1];
-      if (Math.abs(pixelKeyframes[i].offset - prev.offset) >= MIN_CHANGE_PX) {
-        reduced.push(pixelKeyframes[i]);
-      }
+  // Reduce keyframes to significant movement anchors only.
+  // Keeps first, last, and points where position shifted ≥ MIN_CHANGE_PX.
+  const MIN_CHANGE_PX = 60;
+  const anchors = [pixelKeyframes[0]];
+  for (let i = 1; i < pixelKeyframes.length - 1; i++) {
+    const prev = anchors[anchors.length - 1];
+    if (Math.abs(pixelKeyframes[i].offset - prev.offset) >= MIN_CHANGE_PX) {
+      anchors.push(pixelKeyframes[i]);
     }
-    reduced.push(pixelKeyframes[pixelKeyframes.length - 1]);
+  }
+  anchors.push(pixelKeyframes[pixelKeyframes.length - 1]);
 
-    // If still too many, uniformly sample
-    if (reduced.length > MAX_KEYFRAMES) {
-      const step = Math.ceil(reduced.length / MAX_KEYFRAMES);
-      const sampled = [];
-      for (let i = 0; i < reduced.length; i += step) sampled.push(reduced[i]);
-      if (sampled[sampled.length - 1].t !== reduced[reduced.length - 1].t) {
-        sampled.push(reduced[reduced.length - 1]);
+  // Expand anchors with smoothstep-eased intermediate points.
+  // This turns abrupt linear transitions into smooth ease-in-ease-out curves.
+  // FFmpeg then linearly interpolates between these pre-eased points,
+  // which naturally follows the curved trajectory.
+  const EASE_STEPS = 6;
+  const expanded = [anchors[0]];
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i];
+    const b = anchors[i + 1];
+    const dt = b.t - a.t;
+    const dOffset = b.offset - a.offset;
+
+    if (dt > 0 && dOffset !== 0) {
+      for (let s = 1; s <= EASE_STEPS; s++) {
+        const frac = s / (EASE_STEPS + 1);
+        const eased = smoothstep(frac);
+        expanded.push({
+          t: Math.round((a.t + dt * frac) * 1000) / 1000,
+          offset: Math.round(a.offset + dOffset * eased),
+        });
       }
-      pixelKeyframes = sampled;
-    } else {
-      pixelKeyframes = reduced;
     }
+
+    expanded.push(b);
+  }
+
+  // Cap total keyframes to avoid overly deep FFmpeg nesting
+  const MAX_KEYFRAMES = 80;
+  if (expanded.length > MAX_KEYFRAMES) {
+    const step = Math.ceil(expanded.length / MAX_KEYFRAMES);
+    const sampled = [];
+    for (let i = 0; i < expanded.length; i += step) sampled.push(expanded[i]);
+    if (sampled[sampled.length - 1].t !== expanded[expanded.length - 1].t) {
+      sampled.push(expanded[expanded.length - 1]);
+    }
+    pixelKeyframes = sampled;
+  } else {
+    pixelKeyframes = expanded;
   }
 
   console.log(`   📊 Using ${pixelKeyframes.length} keyframes for crop expression`);
 
-  // Build nested if() expression for linear interpolation between keyframes.
+  // Build nested if() expression for linear interpolation between eased keyframes.
   // Uses \, escaping for commas (NOT single quotes) so FFmpeg parses them correctly.
   let expr;
   if (pixelKeyframes.length === 1) {
