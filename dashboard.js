@@ -130,6 +130,7 @@ function startTranscription(slug, finalPath, transcribeMethod) {
 // ─── LLM Helper (supports Haimaker / OpenAI-compatible + direct Anthropic) ──
 
 const llm = require("./llm");
+const prompts = require("./prompts");
 
 async function callClaude(systemPrompt, userMessage, maxTokens = 4096) {
   const result = await llm.chat({ system: systemPrompt, user: userMessage, maxTokens });
@@ -315,20 +316,16 @@ async function callModelForRevision(originalContent, feedback, transcriptText = 
     transcriptSection = `\n\n---FULL TRANSCRIPT (for context on what was actually said)---\n${transcriptText.substring(0, 8000)}${transcriptText.length > 8000 ? '...' : ''}\n---END TRANSCRIPT---`;
   }
 
-  const prompt = `You generated the following Arabic content for the Tajarib podcast:
-
----BEGIN CONTENT---
-${originalContent}
----END CONTENT---${transcriptSection}
-
-The user has provided this feedback:
-"${feedback}"
-
-Please return a revised version that incorporates the feedback exactly, keeping the same format and language style (Iraqi white Arabic). Use the transcript as reference for what was actually said in the audio. Output only the revised content — no explanations, no extra text.`;
+  const systemPrompt = prompts.load("revision-system");
+  const prompt = prompts.load("revision-user", {
+    originalContent,
+    transcriptSection,
+    feedback,
+  });
 
   // Use 4096 max_tokens — reasoning models (DeepSeek R1 via haimaker/auto) need
   // extra budget for internal thinking before producing the actual revised content.
-  return callClaude("أنت كاتب محتوى لبودكاست تجارب. راجع المحتوى بناءً على ملاحظات المستخدم.", prompt, 4096);
+  return callClaude(systemPrompt, prompt, 4096);
 }
 
 // ─── Zapier Webhook Integration ─────────────────────────────────────────────
@@ -367,19 +364,13 @@ async function generateTitleFromTranscript(transcriptText, guest, role) {
   const snippet = transcriptText.substring(0, 4000);
   const guestInfo = guest ? `Guest: ${guest}${role ? ' (' + role + ')' : ''}` : '';
 
-  const prompt = `You are a slug generator for a podcast called "Tajarib" (تجارب). Based on this transcript snippet, generate a short, descriptive slug for the episode directory name.
+  const systemPrompt = prompts.load("slug-system");
+  const prompt = prompts.load("slug-user", {
+    guestInfo: guestInfo ? guestInfo + '\n' : '',
+    snippet,
+  });
 
-${guestInfo ? guestInfo + '\n' : ''}Transcript:
-${snippet}
-
-Rules:
-- The slug should be in English transliteration (lowercase, hyphens only, no special chars)
-- Keep it short: 2-4 words max (e.g. "muhannad-siemens", "energy-crisis-iraq", "startup-journey")
-- If a guest name is provided, include a transliteration of their first name
-- Focus on the main topic discussed
-- Output ONLY the slug, nothing else — no quotes, no explanation`;
-
-  const result = await callClaude("You generate short URL-safe slugs for podcast episodes. Output only the slug.", prompt, 100);
+  const result = await callClaude(systemPrompt, prompt, 100);
   const rawSlug = result.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   return rawSlug || "untitled-episode";
 }
@@ -1139,23 +1130,11 @@ async function handler(req, res) {
         const transcript = loadJSON(transcriptPath);
         
         // Call AI to find relevant segments for the topic
-        const prompt = `I have a podcast transcript and I want to extract a clip about: "${topic}"
+        const transcriptText = transcript.full_text || transcript.segments.map(s => s.text).join(' ');
+        const systemPrompt = prompts.load("topic-clip-system");
+        const prompt = prompts.load("topic-clip-user", { topic, transcriptText });
 
-Transcript:
-${transcript.full_text || transcript.segments.map(s => s.text).join(' ')}
-
-Find the most relevant continuous segment (30-90 seconds) that discusses "${topic}".
-Return ONLY a JSON object with this format:
-{
-  "start_time": <seconds>,
-  "end_time": <seconds>,
-  "hook": "<engaging one-sentence hook>",
-  "caption": "<arabic caption for social media with emojis and hashtags>"
-}
-
-The hook should be attention-grabbing and the caption should be ready for Instagram/TikTok.`;
-
-        const aiResult = await callClaude("You are a video editor for the Tajarib podcast. Extract the best clips based on topics.", prompt, 1024);
+        const aiResult = await callClaude(systemPrompt, prompt, 1024);
         const clipData = JSON.parse(aiResult.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
         
         // Create content.json for this topic clip
@@ -1264,47 +1243,19 @@ The hook should be attention-grabbing and the caption should be ready for Instag
         const transcript = loadJSON(transcriptPath);
         
         // Call Claude for reel suggestions
-        const prompt = `You are a video editor for the Tajarib podcast. Analyze this transcript and identify the 3-5 best clips for social media reels.
+        function fmtTime(sec) {
+          const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+          return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+        }
+        const segments = transcript.segments.map(s => `[${fmtTime(s.start)} - ${fmtTime(s.end)}] ${s.text}`).slice(0, 100).join('\n');
+        const systemPrompt = prompts.load("reel-suggest-system");
+        const prompt = prompts.load("reel-suggest-user", {
+          guest: guest || "Unknown",
+          role: role || "Unknown",
+          segments,
+        });
 
-Guest: ${guest || "Unknown"}
-Role: ${role || "Unknown"}
-
-Transcript segments with timestamps:
-${transcript.segments.map(s => `[${formatTime(s.start)} - ${formatTime(s.end)}] ${s.text}`).slice(0, 100).join('\n')}
-
-For each clip, provide exact timestamps and details:
-1. A short, memorable hook (why this clip works)
-2. Start and end timestamps (HH:MM:SS format)
-3. Duration in seconds
-4. A social media caption (Arabic, with emojis)
-5. Whether this is a short (30-45s), medium (45-90s), or long (90-180s) clip
-
-Return ONLY valid JSON in this exact format:
-{
-  "clips": [
-    {
-      "id": 1,
-      "start": "00:02:15",
-      "end": "00:02:52",
-      "startSeconds": 135,
-      "endSeconds": 172,
-      "durationSeconds": 37,
-      "type": "short",
-      "hook": "One sentence explaining why this clip is attention-grabbing",
-      "caption": "Arabic caption with emojis for TikTok/Instagram",
-      "keyQuote": "Short quote from the clip"
-    }
-  ],
-  "analysis": "Brief analysis of why these clips were chosen"
-}
-
-Choose clips that:
-- Have strong hooks in first 3 seconds
-- Stand alone without context
-- Have emotional impact or valuable insights
-- Have natural speech boundaries`;
-
-        const aiContent = await callClaude("You are an expert video editor and social media strategist for the Tajarib Arabic podcast.", prompt, 2048);
+        const aiContent = await callClaude(systemPrompt, prompt, 2048);
 
         // Extract JSON
         const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
