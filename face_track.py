@@ -15,6 +15,7 @@ Falls back to x=0.5 (center) if no face is detected.
 import sys
 import json
 import os
+import math
 
 def check_dependencies():
     """Check and report missing dependencies."""
@@ -41,10 +42,8 @@ from mediapipe.tasks.python import vision
 
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
-SMOOTHING_ALPHA_LARGE = 0.20  # smoothing for large movements (lower = smoother)
-SMOOTHING_ALPHA_SMALL = 0.008 # smoothing for small movements (barely reacts — very smooth)
-SMALL_MOVE_THRESHOLD = 0.06  # normalized units — moves below this are "small"
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
+GAUSSIAN_SIGMA = 6.0  # smoothing width in samples (~3s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -165,9 +164,46 @@ def fill_gaps(keyframes):
     return keyframes
 
 
+def _gaussian_kernel(sigma):
+    """Build a normalized 1D Gaussian kernel."""
+    half_w = int(sigma * 3)
+    kernel = []
+    for i in range(-half_w, half_w + 1):
+        kernel.append(math.exp(-0.5 * (i / sigma) ** 2))
+    total = sum(kernel)
+    return [k / total for k in kernel], half_w
+
+
+def _gaussian_smooth(xs, sigma):
+    """Apply non-causal (bidirectional) Gaussian smoothing to a list of floats."""
+    kernel, half_w = _gaussian_kernel(sigma)
+    n = len(xs)
+    out = []
+    for i in range(n):
+        val = 0.0
+        weight = 0.0
+        for j, k in enumerate(kernel):
+            idx = i + (j - half_w)
+            # Clamp to edges instead of ignoring — avoids shrinking at boundaries
+            idx = max(0, min(n - 1, idx))
+            val += xs[idx] * k
+            weight += k
+        out.append(val / weight if weight > 0 else xs[i])
+    return out
+
+
 def smooth(keyframes):
-    """Apply adaptive exponential smoothing — small moves are heavily dampened, large moves react faster.
-    Also applies a dead zone to completely ignore tiny jitter."""
+    """Apply dead zone + bidirectional Gaussian smoothing.
+
+    Unlike EMA (which only looks backward and introduces lag), Gaussian smoothing
+    is non-causal — it looks both ahead and behind each point, producing smooth
+    curves without the camera "chasing" the face.
+
+    Pipeline:
+      Pass 1: Dead zone — collapse micro-jitter below DEAD_ZONE threshold
+      Pass 2: Gaussian smooth (sigma=6 ≈ 3s look-ahead/behind at 0.5s intervals)
+      Pass 3: Second Gaussian pass for extra cinematic smoothness
+    """
     if len(keyframes) <= 1:
         return keyframes
 
@@ -181,21 +217,16 @@ def smooth(keyframes):
         else:
             dejittered.append(keyframes[i].copy())
 
-    # Pass 2: adaptive exponential smoothing
-    smoothed = [dejittered[0].copy()]
-    for i in range(1, len(dejittered)):
-        prev_x = smoothed[-1]["x"]
-        raw_x = dejittered[i]["x"]
-        delta = abs(raw_x - prev_x)
-        # Adaptive alpha: small movements get much heavier smoothing
-        if delta < SMALL_MOVE_THRESHOLD:
-            alpha = SMOOTHING_ALPHA_SMALL
-        else:
-            # Lerp between small and large alpha based on movement magnitude
-            t = min(delta / (SMALL_MOVE_THRESHOLD * 3), 1.0)
-            alpha = SMOOTHING_ALPHA_SMALL + t * (SMOOTHING_ALPHA_LARGE - SMOOTHING_ALPHA_SMALL)
-        s_x = alpha * raw_x + (1 - alpha) * prev_x
-        smoothed.append({"t": keyframes[i]["t"], "x": round(s_x, 4)})
+    xs = [kf["x"] for kf in dejittered]
+
+    # Pass 2 & 3: double Gaussian for very smooth, lag-free curves
+    # sigma=6 at 0.5s intervals = ~3 second look-ahead/behind window
+    xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
+    xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
+
+    smoothed = []
+    for i, kf in enumerate(dejittered):
+        smoothed.append({"t": kf["t"], "x": round(xs[i], 4)})
 
     return smoothed
 
