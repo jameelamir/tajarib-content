@@ -40,6 +40,15 @@
         .sidebar-section .chevron { transition: transform 0.2s; font-size: 0.6rem; }
         .sidebar-section.open .chevron { transform: rotate(90deg); }
 
+        .settings-btn { background: none; border: none; color: #555; cursor: pointer; font-size: 1.1rem; padding: 4px; transition: color 0.15s; line-height: 1; }
+        .settings-btn:hover { color: var(--accent); background: none; }
+        .settings-status-dots { display: flex; gap: 5px; align-items: center; margin-right: 4px; }
+        .settings-status-dots span { width: 6px; height: 6px; border-radius: 50%; background: #333; }
+        .settings-modal-body { display: flex; flex-direction: column; gap: 16px; }
+        .settings-group { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+        .settings-group h4 { font-size: 0.8rem; color: #888; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        .settings-group h4 .dot { width: 6px; height: 6px; border-radius: 50%; background: #333; }
+
         .ep-list-divider { height: 1px; background: var(--border); margin: 4px 12px; }
 
         .upload-zone { margin: 12px; padding: 16px; border: 2px dashed #333; border-radius: 8px; text-align: center; cursor: pointer; transition: 0.2s; color: #555; font-size: 0.8rem; }
@@ -237,7 +246,6 @@
         .storage-file-del:hover { opacity: 1; background: rgba(239,68,68,0.15); }
         .storage-bar-warning .progress-fill, .progress-fill.storage-bar-warning { background: var(--warning) !important; }
         .storage-bar-danger .progress-fill, .progress-fill.storage-bar-danger { background: var(--error) !important; }
-        #section-storage.open .sidebar-section-body { max-height: 250px; }
 
         /* ── Mobile Responsive Styles ──────────────────────────────────────────── */
         @media (max-width: 768px) {
@@ -284,7 +292,16 @@
 <div class="sidebar">
     <div class="sidebar-header">
         <span>🎙️ Tajarib</span>
-        <span style="font-size:0.65rem; color:#555;">v7 Mobile</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:0.65rem; color:#555;">v7 Mobile</span>
+            <div class="settings-status-dots">
+                <span id="settings-dot-publishing" title="Publishing"></span>
+                <span id="settings-dot-transcription" title="Transcription"></span>
+                <span id="settings-dot-generation" title="Generation"></span>
+                <span id="settings-dot-storage" title="Storage"></span>
+            </div>
+            <button class="settings-btn" onclick="openSettingsModal()" title="Settings">⚙</button>
+        </div>
     </div>
 
     <!-- Default Media Type -->
@@ -315,154 +332,6 @@
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         <div class="progress-text" id="progress-text">Uploading...</div>
     </div>
-
-    <!-- Collapsible: Publishing -->
-    <div class="sidebar-section" id="section-publishing">
-        <div class="sidebar-section-header" onclick="toggleSection('publishing')">
-            <span>📤 Publishing</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="buffer-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:8px;">
-                <!-- Publish method selector -->
-                <div style="margin-bottom:8px;">
-                    <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:4px;">Publish via</label>
-                    <div style="display:flex; gap:4px;">
-                        <button id="pub-method-zapier" class="pub-method-btn active" onclick="setPublishMethod('zapier')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Zapier</button>
-                        <button id="pub-method-buffer" class="pub-method-btn" onclick="setPublishMethod('buffer')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Buffer API</button>
-                    </div>
-                </div>
-                <!-- Buffer config (hidden by default) -->
-                <div id="buffer-config-panel" style="display:none;">
-                    <div style="margin-bottom:6px;">
-                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Buffer API Token</label>
-                        <div style="display:flex; gap:4px;">
-                            <input type="password" id="buffer-token-input" placeholder="API token" style="flex:1; font-size:0.65rem; padding:4px 6px;">
-                            <button onclick="saveBufferToken()" style="font-size:0.65rem; padding:4px 8px;">Save</button>
-                        </div>
-                        <div id="buffer-token-status" style="font-size:0.6rem; color:#666; margin-top:3px;"></div>
-                    </div>
-                    <button onclick="fetchBufferChannels()" style="font-size:0.65rem; padding:4px 8px; width:100%; margin-bottom:6px;">Refresh Channels</button>
-                    <div id="buffer-channels-list" style="font-size:0.6rem;"></div>
-                </div>
-                <!-- Zapier info -->
-                <div id="zapier-info-panel">
-                    <div style="color:#666; font-size:0.6rem;">Reels sent to Zapier webhook for TikTok, Instagram, etc.</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Transcription -->
-    <div class="sidebar-section" id="section-transcription">
-        <div class="sidebar-section-header" onclick="toggleSection('transcription')">
-            <span>🎙️ Transcription</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="api-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:6px 8px;">
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                    <span id="api-status-text" style="font-size:0.65rem; color:#666;">Checking...</span>
-                </div>
-                <button onclick="openTranscriptionModal()" style="font-size:0.65rem; padding:5px 8px; width:100%;">
-                    Configure API Key
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Generation (API Key + Model) -->
-    <div class="sidebar-section" id="section-generation">
-        <div class="sidebar-section-header" onclick="toggleSection('generation')">
-            <span>🤖 Generation</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="gen-key-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:6px 8px;">
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">API Key</label>
-                <div style="display:flex; gap:4px;">
-                    <input type="password"
-                        id="gen-api-key"
-                        placeholder="sk-..."
-                        style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; flex:1; font-family:monospace;"
-                        autocomplete="off"
-                        spellcheck="false"
-                    />
-                </div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Base URL <span style="color:#555;">(optional)</span></label>
-                <input type="text"
-                    id="gen-base-url"
-                    placeholder="https://api.haimaker.ai/v1"
-                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%; font-family:monospace;"
-                    autocomplete="off"
-                    spellcheck="false"
-                />
-                <div style="font-size:0.55rem; margin-top:3px; color:#555;">Leave empty for direct Anthropic API</div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Model</label>
-                <input type="text"
-                    id="sidebar-model-select"
-                    placeholder="haimaker/auto"
-                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%;"
-                    oninput="debouncedValidateSidebarModel(this)"
-                    autocomplete="off"
-                    spellcheck="false"
-                />
-                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for default</div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <div style="display:flex; gap:4px; align-items:center;">
-                    <button onclick="saveLLMConfig()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap; flex:1;">Save All</button>
-                </div>
-                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Storage -->
-    <div class="sidebar-section" id="section-storage">
-        <div class="sidebar-section-header" onclick="toggleSection('storage')">
-            <span>Storage</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="storage-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:8px;">
-                <div style="margin-bottom:8px;">
-                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#666; margin-bottom:4px;">
-                        <span id="storage-used-label">-- GB</span>
-                        <span id="storage-quota-label">/ -- GB</span>
-                    </div>
-                    <div class="progress-bar" style="height:8px;">
-                        <div class="progress-fill" id="storage-bar-fill" style="width:0%; transition:width 0.5s, background 0.3s;"></div>
-                    </div>
-                    <div id="storage-percent-label" style="font-size:0.55rem; color:#555; text-align:center; margin-top:3px;">0%</div>
-                </div>
-                <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
-                    <label style="font-size:0.6rem; color:#666; white-space:nowrap;">Quota:</label>
-                    <input type="number" id="storage-quota-input" min="1" max="10000" step="10"
-                        style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.65rem; width:60px; text-align:right;"
-                    />
-                    <span style="font-size:0.6rem; color:#666;">GB</span>
-                    <button onclick="saveStorageQuota()" style="font-size:0.6rem; padding:3px 8px; margin-left:auto;">Set</button>
-                </div>
-                <button onclick="openStorageBrowser()" style="font-size:0.65rem; padding:5px 8px; width:100%;">Browse Projects</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="ep-list-divider"></div>
 
     <!-- Episode List -->
     <div class="ep-list" id="ep-list"></div>
@@ -841,6 +710,115 @@
         <div id="storage-browser-list" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; max-height:60vh;"></div>
         <div class="modal-actions" style="margin-top:16px;">
             <button onclick="closeStorageBrowser()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal" id="settings-modal">
+    <div class="modal-box" style="width:520px; max-height:85vh; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>Settings</h3>
+            <button onclick="closeSettingsModal()" style="background:none; border:none; color:#666; font-size:1.2rem; cursor:pointer; padding:4px 8px;">&times;</button>
+        </div>
+        <div class="settings-modal-body">
+            <!-- Publishing -->
+            <div class="settings-group">
+                <h4><span class="dot" id="buffer-status-dot"></span> Publishing</h4>
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:0.7rem; color:#666; display:block; margin-bottom:4px;">Publish via</label>
+                    <div style="display:flex; gap:4px;">
+                        <button id="pub-method-zapier" class="pub-method-btn active" onclick="setPublishMethod('zapier')" style="flex:1; font-size:0.7rem; padding:6px 8px;">Zapier</button>
+                        <button id="pub-method-buffer" class="pub-method-btn" onclick="setPublishMethod('buffer')" style="flex:1; font-size:0.7rem; padding:6px 8px;">Buffer API</button>
+                    </div>
+                </div>
+                <div id="buffer-config-panel" style="display:none;">
+                    <div style="margin-bottom:8px;">
+                        <label style="font-size:0.7rem; color:#666; display:block; margin-bottom:3px;">Buffer API Token</label>
+                        <div style="display:flex; gap:4px;">
+                            <input type="password" id="buffer-token-input" placeholder="API token" style="flex:1; font-size:0.7rem; padding:6px 8px;">
+                            <button onclick="saveBufferToken()" style="font-size:0.7rem; padding:6px 10px;">Save</button>
+                        </div>
+                        <div id="buffer-token-status" style="font-size:0.7rem; color:#666; margin-top:4px;"></div>
+                    </div>
+                    <button onclick="fetchBufferChannels()" style="font-size:0.7rem; padding:6px 10px; width:100%; margin-bottom:6px;">Refresh Channels</button>
+                    <div id="buffer-channels-list" style="font-size:0.7rem;"></div>
+                </div>
+                <div id="zapier-info-panel">
+                    <div style="color:#666; font-size:0.7rem;">Reels sent to Zapier webhook for TikTok, Instagram, etc.</div>
+                </div>
+            </div>
+
+            <!-- Transcription -->
+            <div class="settings-group">
+                <h4><span class="dot" id="api-status-dot"></span> Transcription</h4>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                    <span id="api-status-text" style="font-size:0.75rem; color:#666;">Checking...</span>
+                </div>
+                <button onclick="openTranscriptionModal()" style="font-size:0.75rem; padding:6px 10px; width:100%;">
+                    Configure API Key
+                </button>
+            </div>
+
+            <!-- Generation -->
+            <div class="settings-group">
+                <h4><span class="dot" id="gen-key-dot"></span> Generation (LLM)</h4>
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">API Key</label>
+                <input type="password"
+                    id="gen-api-key"
+                    placeholder="sk-..."
+                    style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; font-family:monospace; margin-bottom:10px;"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Base URL <span style="color:#555;">(optional)</span></label>
+                <input type="text"
+                    id="gen-base-url"
+                    placeholder="https://api.haimaker.ai/v1"
+                    style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; font-family:monospace; margin-bottom:4px;"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div style="font-size:0.65rem; margin-bottom:10px; color:#555;">Leave empty for direct Anthropic API</div>
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Model</label>
+                <input type="text"
+                    id="sidebar-model-select"
+                    placeholder="haimaker/auto"
+                    style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; margin-bottom:4px;"
+                    oninput="debouncedValidateSidebarModel(this)"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <div id="sidebar-model-validation" style="font-size:0.7rem; margin-top:4px; color:#666;">Leave empty for default</div>
+                <div style="display:flex; gap:6px; align-items:center; margin-top:10px;">
+                    <button onclick="saveLLMConfig()" style="font-size:0.75rem; padding:6px 12px; flex:1;">Save All</button>
+                </div>
+                <div id="gen-key-status" style="font-size:0.7rem; margin-top:6px; color:#666;">Checking...</div>
+            </div>
+
+            <!-- Storage -->
+            <div class="settings-group">
+                <h4><span class="dot" id="storage-status-dot"></span> Storage</h4>
+                <div style="margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#666; margin-bottom:4px;">
+                        <span id="storage-used-label">-- GB</span>
+                        <span id="storage-quota-label">/ -- GB</span>
+                    </div>
+                    <div class="progress-bar" style="height:8px;">
+                        <div class="progress-fill" id="storage-bar-fill" style="width:0%; transition:width 0.5s, background 0.3s;"></div>
+                    </div>
+                    <div id="storage-percent-label" style="font-size:0.65rem; color:#555; text-align:center; margin-top:3px;">0%</div>
+                </div>
+                <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+                    <label style="font-size:0.7rem; color:#666; white-space:nowrap;">Quota:</label>
+                    <input type="number" id="storage-quota-input" min="1" max="10000" step="10"
+                        style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:6px; font-size:0.75rem; width:70px; text-align:right;"
+                    />
+                    <span style="font-size:0.7rem; color:#666;">GB</span>
+                    <button onclick="saveStorageQuota()" style="font-size:0.75rem; padding:5px 10px; margin-left:auto;">Set</button>
+                </div>
+                <button onclick="openStorageBrowser()" style="font-size:0.75rem; padding:6px 10px; width:100%;">Browse Projects</button>
+            </div>
         </div>
     </div>
 </div>
@@ -1423,6 +1401,31 @@ function toggleSection(name) {
         if (el) el.classList.add('open');
     }
 });
+
+// Settings modal
+function openSettingsModal() {
+    document.getElementById('settings-modal').classList.add('open');
+}
+function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.remove('open');
+}
+
+// Sync header status dots with the settings modal dots
+function syncSettingsDots() {
+    var pairs = [
+        ['buffer-status-dot', 'settings-dot-publishing'],
+        ['api-status-dot', 'settings-dot-transcription'],
+        ['gen-key-dot', 'settings-dot-generation'],
+        ['storage-status-dot', 'settings-dot-storage']
+    ];
+    pairs.forEach(function(p) {
+        var src = document.getElementById(p[0]);
+        var dst = document.getElementById(p[1]);
+        if (src && dst) dst.style.background = src.style.background;
+    });
+}
+// Run syncSettingsDots periodically so header dots stay fresh
+setInterval(syncSettingsDots, 1000);
 
 // Restore saved default media type on load
 (function restoreMediaType() {
