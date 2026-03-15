@@ -3535,6 +3535,7 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
     showToast('Sending to AI...', 'success');
 
     try {
+        console.log('[feedback] Sending revision request:', { slug: currentSlug, field: fieldPath, feedbackLen: feedback.length });
         const res = await fetch('/api/feedback', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -3545,7 +3546,9 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
                 feedback
             })
         });
+        console.log('[feedback] Response status:', res.status);
         const data = await res.json();
+        console.log('[feedback] Response data:', { success: data.success, revisedLen: data.revised ? data.revised.length : 0, error: data.error });
 
         if (data.success) {
             textarea.value = data.revised;
@@ -3560,6 +3563,7 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
             throw new Error(data.error);
         }
     } catch (err) {
+        console.error('[feedback] Revision error:', err);
         hint.textContent = '✗ ' + err.message;
         hint.style.color = '';
         hint.style.fontSize = '';
