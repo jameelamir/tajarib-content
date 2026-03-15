@@ -957,6 +957,53 @@ async function handler(req, res) {
     return;
   }
 
+  // ── Prompts CRUD ──────────────────────────────────────────────────
+  if (req.method === "GET" && url.pathname === "/api/prompts") {
+    try {
+      const files = fs.readdirSync(prompts.PROMPTS_DIR)
+        .filter(f => f.endsWith(".md"))
+        .sort();
+      const result = files.map(f => {
+        const name = f.replace(/\.md$/, "");
+        const content = fs.readFileSync(path.join(prompts.PROMPTS_DIR, f), "utf8");
+        return { name, content };
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname.startsWith("/api/prompts/")) {
+    const promptName = decodeURIComponent(url.pathname.replace("/api/prompts/", ""));
+    if (!promptName || /[\/\\]/.test(promptName)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid prompt name" }));
+      return;
+    }
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { content } = JSON.parse(body);
+        if (typeof content !== "string") throw new Error("content must be a string");
+        const filePath = path.join(prompts.PROMPTS_DIR, `${promptName}.md`);
+        if (!fs.existsSync(filePath)) throw new Error("Prompt not found: " + promptName);
+        fs.writeFileSync(filePath, content, "utf8");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        io.emit("toast", { type: "success", message: `Prompt "${promptName}" saved` });
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/delete-files") {
     let body = "";
     req.on("data", chunk => body += chunk);
