@@ -40,8 +40,23 @@ function formatASSTime(sec) {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
+// Probe video dimensions using ffprobe
+function getVideoDimensions(videoPath) {
+  try {
+    const result = execSync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${videoPath}"`,
+      { encoding: "utf8" }
+    ).trim();
+    const [width, height] = result.split(",").map(Number);
+    if (width && height) return { width, height };
+  } catch (e) {
+    console.log(`   ⚠️  Could not probe video dimensions, defaulting to 1080x1920`);
+  }
+  return { width: 1080, height: 1920 };
+}
+
 // Generate ASS format with support for title card styling
-function generateASS(words, startOffset = 0, titleCard = null) {
+function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null) {
   const chunks = [];
   let current = { words: [], start: null, end: null };
 
@@ -77,16 +92,26 @@ function generateASS(words, startOffset = 0, titleCard = null) {
     dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${chunk.text}`);
   }
 
+  // Scale font sizes and margins relative to actual video dimensions
+  const vd = videoDimensions || { width: 1080, height: 1920 };
+  const scale = vd.height / 1920;
+  const titleSize = Math.round(72 * scale);
+  const defaultSize = Math.round(52 * scale);
+  const marginLR = Math.round(60 * scale);
+  const titleMarginV = Math.round(150 * scale);
+  const defaultMarginV = Math.round(100 * scale);
+  const outline = Math.max(2, Math.round(4 * scale));
+
   return `[Script Info]
 Title: Reel Subtitles
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${vd.width}
+PlayResY: ${vd.height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Title,SomarSans-SemiBold,72,&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,0,0,2,60,60,150,1
-Style: Default,SomarSans-SemiBold,52,&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,0,0,2,60,60,100,1
+Style: Title,SomarSans-SemiBold,${titleSize},&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${titleMarginV},1
+Style: Default,SomarSans-SemiBold,${defaultSize},&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${defaultMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -267,7 +292,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     const cmd = [
       "ffmpeg -y",
       `-i "${sourceVideo}"`,
-      `-vf "subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H00000000,BackColour=&H800080,BorderStyle=4,Bold=1,Alignment=2,MarginV=50'"`,
+      `-vf "subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H009B30FF,BorderStyle=4,Outline=4,Bold=1,Alignment=2,MarginV=100'"`,
       `-c:a copy`,
       `"${tmpFullOut}"`
     ].join(" ");
@@ -327,8 +352,12 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     // Get words in this reel's time range
     const reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
 
+    // Detect actual video dimensions so ASS PlayRes matches
+    const videoDims = getVideoDimensions(videoPath);
+    console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
+
     // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
-    const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null);
+    const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims);
 
     fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
     const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
