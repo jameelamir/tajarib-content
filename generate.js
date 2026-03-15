@@ -13,9 +13,9 @@
 const fs   = require("fs");
 const path = require("path");
 const llm  = require("./llm");
+const prompts = require("./prompts");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
-const FORMATS_DIR  = path.join(__dirname, "formats");
 const CLI_ARGS     = process.argv.slice(2);
 
 // ─── Config ─────────────────────────────────────────────────────
@@ -30,11 +30,6 @@ function loadJSON(filePath) {
 // Force immediate output for dashboard logging
 function log(msg) {
   process.stdout.write(msg + "\n");
-}
-
-function loadFormat(name) {
-  const p = path.join(FORMATS_DIR, `${name}.md`);
-  return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : "";
 }
 
 function extractReelText(transcript, startStr, endStr) {
@@ -111,63 +106,15 @@ async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = 
   return { text, tokens };
 }
 
-// ─── Prompts ──────────────────────────────────────────────────────
-const SYSTEM_REELS = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
-مهمتك: كتابة كابشن لريل إنستغرام بناءً على مقطع من الحلقة.
-
-اقرأ تعليمات الفورمات جيداً واتبعها بدقة.
-
-قواعد اللغة:
-- اكتب بالعربية — لغة بيضاء عراقية (لا فصحى ثقيلة، لا عامية كثيفة)
-- لا تستخدم چ — استخدم ج بدلها
-- قل وية مو ويا
-- تجنب يحجي — استخدم نتكلم، نناقش، نغطي
-- جمل قصيرة ومباشرة
-- لا مبالغة ولا مديح فارغ
-- آراء الضيف دائماً منسوبة إليه، مو حقائق مطلقة
-
-أخرج فقط نص الكابشن — بدون شرح أو تعليق.`;
-
-const SYSTEM_YT = `أنت كاتب محتوى لبودكاست "تجارب" — أبرز بودكاست اقتصادي عراقي.
-مهمتك: كتابة وصف يوتيوب + عنوان + نص إعلان إنستغرام.
-
-اقرأ تعليمات الفورمات جيداً واتبعها بدقة.
-
-قواعد اللغة:
-- اكتب بالعربية — لغة بيضاء عراقية
-- لا چ — استخدم ج. قل وية مو ويا. تجنب يحجي.
-- جمل قصيرة ومباشرة، لا مبالغة
-- آراء الضيف منسوبة إليه دائماً
-
-أخرج JSON بالهيكل التالي بالضبط (بدون نص خارج JSON):
-{
-  "youtube_titles": [
-    "العنوان الأول",
-    "العنوان الثاني",
-    "العنوان الثالث"
-  ],
-  "youtube_description": "نص الوصف الكامل",
-  "announcement_post": "نص منشور الإعلان للإنستغرام"
-}`;
+// ─── Prompts (loaded from prompts/ folder) ───────────────────────
+const SYSTEM_REELS = prompts.load("generate-reels-system");
+const SYSTEM_YT = prompts.load("generate-youtube-system");
 
 // ─── Generate functions ───────────────────────────────────────────
 async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec, slug) {
-  const user = `فورمات الكابشن المطلوب:
-${formatSpec}
-
----
-معلومات الحلقة:
-- اسم الضيف: ${guest}
-- المنصب/الدور: ${role}
-
----
-نص المقطع:
-${reelText}
-
----
-الفكرة المحورية للريل: ${reel.hook}
-
-اكتب الكابشن الآن:`;
+  const user = prompts.load("generate-reels-user", {
+    formatSpec, guest, role, reelText, hook: reel.hook,
+  });
 
   // Note: reasoning models (e.g. DeepSeek R1 via haimaker/auto) need extra token
   // budget because they use tokens for internal reasoning before producing output.
@@ -190,29 +137,11 @@ async function generateYouTubeContent(apiKey, transcript, analysis, guest, role,
   const chaptersText = analysis.chapters?.map(ch => `${ch.start} — ${ch.title}`).join("\n") || "";
   const reelsText    = analysis.reels?.map(r => `• ${r.hook}`).join("\n") || "";
 
-  const user = `فورمات المطلوب:
-${formatSpec}
-
----
-معلومات الحلقة:
-- الضيف: ${guest}
-- المنصب: ${role}
-- المدة: ${analysis.duration_minutes} دقيقة
-
----
-أقسام الحلقة:
-${chaptersText}
-
----
-أبرز الأفكار (من التحليل):
-${reelsText}
-
----
-مقتطف من النص:
-${summary}
-
----
-أخرج JSON فقط.`;
+  const user = prompts.load("generate-youtube-user", {
+    formatSpec, guest, role,
+    durationMinutes: analysis.duration_minutes,
+    chaptersText, reelsText, summary,
+  });
 
   const result = await chat(apiKey, SYSTEM_YT, user, 2048, slug, "youtube");
   const raw = result.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -238,7 +167,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     return outputPath;
   }
 
-  const reelFormat = loadFormat("reel-caption");
+  const reelFormat = prompts.load("reel-caption-format");
   const apiKey     = null; // handled by llm.js
   const config     = llm.getConfig();
 
@@ -307,7 +236,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
   if (!transcript) { process.stderr.write("❌ No transcript.json found. Run transcribe first.\n"); process.exit(1); }
   if (!analysis)   { process.stderr.write("❌ No analysis.json found. Run analyze first.\n");     process.exit(1); }
 
-  const ytFormat = loadFormat("youtube-description");
+  const ytFormat = prompts.load("youtube-description-format");
 
   let totalTokens2 = 0; // separate var to avoid shadowing
 
