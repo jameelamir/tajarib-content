@@ -273,7 +273,10 @@ function getEpisodes() {
           subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
           final: reelFiles.includes(`reel-${id}-final.mp4`),
           hook: reelInfo.hook || reelInfo.title || "",
-          duration: reelInfo.duration || null
+          duration: reelInfo.duration || null,
+          start: reelInfo.start || null,
+          end: reelInfo.end || null,
+          cuts: reelInfo.cuts || []
         });
       }
 
@@ -2742,6 +2745,39 @@ async function handler(req, res) {
         saveJSON(contentPath, content);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Save reel trim (start/end) API ──────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/save-reel-trim") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, reelId, start, end, cuts } = JSON.parse(body);
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        if (!start || !end) throw new Error("start + end required");
+        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+        const analysis = loadJSON(analysisPath);
+        if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+        const padded = String(reelId).padStart(2, "0");
+        const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+        if (!reel) throw new Error("Reel not found in analysis");
+        reel.start = start;
+        reel.end = end;
+        reel.cuts = Array.isArray(cuts) ? cuts.filter(c => c.from && c.to) : [];
+        saveJSON(analysisPath, analysis);
+        // Delete existing cut so re-cut picks it up fresh
+        const reelFile = path.join(EPISODES_DIR, slug, "reels", `reel-${padded}.mp4`);
+        try { if (fs.existsSync(reelFile)) fs.unlinkSync(reelFile); } catch (_) {}
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        io.emit("status-update", {});
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
