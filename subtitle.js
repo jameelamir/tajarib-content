@@ -95,12 +95,12 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
   // Scale font sizes and margins relative to actual video dimensions
   const vd = videoDimensions || { width: 1080, height: 1920 };
   const scale = vd.height / 1920;
-  const titleSize = Math.round(72 * scale);
-  const defaultSize = Math.round(52 * scale);
+  const titleSize = Math.round(100 * scale);
+  const defaultSize = Math.round(80 * scale);
   const marginLR = Math.round(60 * scale);
-  const titleMarginV = Math.round(150 * scale);
-  const defaultMarginV = Math.round(100 * scale);
-  const outline = Math.max(2, Math.round(4 * scale));
+  const titleMarginV = Math.round(550 * scale);
+  const defaultMarginV = Math.round(500 * scale);
+  const outline = Math.max(3, Math.round(5 * scale));
 
   return `[Script Info]
 Title: Reel Subtitles
@@ -110,8 +110,8 @@ PlayResY: ${vd.height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Title,SomarSans-SemiBold,${titleSize},&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${titleMarginV},1
-Style: Default,SomarSans-SemiBold,${defaultSize},&H00FFFFFF,&H000000FF,&H00000000,&H009B30FF,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${defaultMarginV},1
+Style: Title,SomarSans-Bold,${titleSize},&H00FFFFFF,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${titleMarginV},1
+Style: Default,SomarSans-Bold,${defaultSize},&H00FFFFFF,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,4,${outline},0,2,${marginLR},${marginLR},${defaultMarginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -292,7 +292,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     const ffmpegArgs = [
       "-y",
       "-i", sourceVideo,
-      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-SemiBold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H009B30FF,BorderStyle=4,Outline=4,Bold=1,Alignment=2,MarginV=100'`,
+      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00BE2F7B,BorderStyle=4,Outline=4,Bold=1,Alignment=2,MarginV=100'`,
       "-c:a", "copy",
       tmpFullOut
     ];

@@ -128,8 +128,8 @@
         /* Overlay config panel */
         .overlay-config { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 100%; flex-shrink: 0; }
         .overlay-config h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 12px; }
-        .overlay-canvas-wrap { position: relative; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 14px; aspect-ratio: 16/9; }
-        .overlay-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+        .overlay-canvas-wrap { position: relative; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+        .overlay-canvas-wrap canvas { display: block; max-width: 100%; }
         .overlay-elements { display: flex; flex-direction: column; gap: 10px; }
         .overlay-el { background: #1a1a1a; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
         .overlay-el-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -334,161 +334,6 @@
         <div class="progress-text" id="progress-text">Uploading...</div>
     </div>
 
-    <!-- Collapsible: Publishing -->
-    <div class="sidebar-section" id="section-publishing">
-        <div class="sidebar-section-header" onclick="toggleSection('publishing')">
-            <span>📤 Publishing</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="buffer-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:8px;">
-                <!-- Publish method selector -->
-                <div style="margin-bottom:8px;">
-                    <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:4px;">Publish via</label>
-                    <div style="display:flex; gap:4px;">
-                        <button id="pub-method-zapier" class="pub-method-btn active" onclick="setPublishMethod('zapier')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Zapier</button>
-                        <button id="pub-method-buffer" class="pub-method-btn" onclick="setPublishMethod('buffer')" style="flex:1; font-size:0.65rem; padding:4px 6px;">Buffer API</button>
-                    </div>
-                </div>
-                <!-- Buffer config (hidden by default) -->
-                <div id="buffer-config-panel" style="display:none;">
-                    <div style="margin-bottom:6px;">
-                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Scheduling Mode</label>
-                        <div style="display:flex; gap:3px;">
-                            <button id="buf-mode-addToQueue" class="pub-method-btn active" onclick="setBufferMode('addToQueue')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Queue</button>
-                            <button id="buf-mode-shareNow" class="pub-method-btn" onclick="setBufferMode('shareNow')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Now</button>
-                            <button id="buf-mode-customScheduled" class="pub-method-btn" onclick="setBufferMode('customScheduled')" style="flex:1; font-size:0.6rem; padding:3px 4px;">Scheduled</button>
-                        </div>
-                        <div id="buf-mode-desc" style="font-size:0.55rem; color:#555; margin-top:3px;">Posts added to Buffer's queue</div>
-                    </div>
-                    <div style="margin-bottom:6px;">
-                        <label style="font-size:0.6rem; color:#666; display:block; margin-bottom:3px;">Buffer API Token</label>
-                        <div style="display:flex; gap:4px;">
-                            <input type="password" id="buffer-token-input" placeholder="API token" style="flex:1; font-size:0.65rem; padding:4px 6px;">
-                            <button onclick="saveBufferToken()" style="font-size:0.65rem; padding:4px 8px;">Save</button>
-                        </div>
-                        <div id="buffer-token-status" style="font-size:0.6rem; color:#666; margin-top:3px;"></div>
-                    </div>
-                    <button onclick="fetchBufferChannels()" style="font-size:0.65rem; padding:4px 8px; width:100%; margin-bottom:6px;">Refresh Channels</button>
-                    <div id="buffer-channels-list" style="font-size:0.6rem;"></div>
-                </div>
-                <!-- Zapier info -->
-                <div id="zapier-info-panel">
-                    <div style="color:#666; font-size:0.6rem;">Reels sent to Zapier webhook for TikTok, Instagram, etc.</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Transcription -->
-    <div class="sidebar-section" id="section-transcription">
-        <div class="sidebar-section-header" onclick="toggleSection('transcription')">
-            <span>🎙️ Transcription</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="api-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:6px 8px;">
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                    <span id="api-status-text" style="font-size:0.65rem; color:#666;">Checking...</span>
-                </div>
-                <button onclick="openTranscriptionModal()" style="font-size:0.65rem; padding:5px 8px; width:100%;">
-                    Configure API Key
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Generation (API Key + Model) -->
-    <div class="sidebar-section" id="section-generation">
-        <div class="sidebar-section-header" onclick="toggleSection('generation')">
-            <span>🤖 Generation</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="gen-key-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:6px 8px;">
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">API Key</label>
-                <div style="display:flex; gap:4px;">
-                    <input type="password"
-                        id="gen-api-key"
-                        placeholder="sk-..."
-                        style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; flex:1; font-family:monospace;"
-                        autocomplete="off"
-                        spellcheck="false"
-                    />
-                </div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Base URL <span style="color:#555;">(optional)</span></label>
-                <input type="text"
-                    id="gen-base-url"
-                    placeholder="https://api.haimaker.ai/v1"
-                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%; font-family:monospace;"
-                    autocomplete="off"
-                    spellcheck="false"
-                />
-                <div style="font-size:0.55rem; margin-top:3px; color:#555;">Leave empty for direct Anthropic API</div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <label style="font-size:0.6rem; color:#666; margin-bottom:4px; display:block;">Model</label>
-                <input type="text"
-                    id="sidebar-model-select"
-                    placeholder="haimaker/auto"
-                    style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.65rem; width:100%;"
-                    oninput="debouncedValidateSidebarModel(this)"
-                    autocomplete="off"
-                    spellcheck="false"
-                />
-                <div id="sidebar-model-validation" style="font-size:0.6rem; margin-top:4px; color:#666;">Leave empty for default</div>
-                <div style="border-top:1px solid #222; margin:8px 0;"></div>
-                <div style="display:flex; gap:4px; align-items:center;">
-                    <button onclick="saveLLMConfig()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap; flex:1;">Save All</button>
-                </div>
-                <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Collapsible: Storage -->
-    <div class="sidebar-section" id="section-storage">
-        <div class="sidebar-section-header" onclick="toggleSection('storage')">
-            <span>Storage</span>
-            <span style="display:flex; align-items:center; gap:6px;">
-                <span id="storage-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
-                <span class="chevron">&#9656;</span>
-            </span>
-        </div>
-        <div class="sidebar-section-body">
-            <div style="padding:8px;">
-                <div style="margin-bottom:8px;">
-                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#666; margin-bottom:4px;">
-                        <span id="storage-used-label">-- GB</span>
-                        <span id="storage-quota-label">/ -- GB</span>
-                    </div>
-                    <div class="progress-bar" style="height:8px;">
-                        <div class="progress-fill" id="storage-bar-fill" style="width:0%; transition:width 0.5s, background 0.3s;"></div>
-                    </div>
-                    <div id="storage-percent-label" style="font-size:0.55rem; color:#555; text-align:center; margin-top:3px;">0%</div>
-                </div>
-                <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
-                    <label style="font-size:0.6rem; color:#666; white-space:nowrap;">Quota:</label>
-                    <input type="number" id="storage-quota-input" min="1" max="10000" step="10"
-                        style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.65rem; width:60px; text-align:right;"
-                    />
-                    <span style="font-size:0.6rem; color:#666;">GB</span>
-                    <button onclick="saveStorageQuota()" style="font-size:0.6rem; padding:3px 8px; margin-left:auto;">Set</button>
-                </div>
-                <button onclick="openStorageBrowser()" style="font-size:0.65rem; padding:5px 8px; width:100%;">Browse Projects</button>
-            </div>
-        </div>
-    </div>
-
     <div class="ep-list-divider"></div>
 
     <!-- Episode List -->
@@ -604,6 +449,7 @@
                             <div class="reel-actions" id="reel-actions"></div>
                             <div id="reel-caption-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
                             <div id="reel-subtitle-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div id="overlay-config-section" style="display:none;"></div>
                             <div class="reel-console">
                                 <div class="panel-header">
                                     <span id="reel-console-title">Console</span>
@@ -620,8 +466,6 @@
             </div>
         </div>
 
-        <!-- Overlay config section (rendered by JS) -->
-        <div id="overlay-config-section" style="display:none;"></div>
     </div>
 </div>
 
@@ -2151,7 +1995,6 @@ function renderReelList(ep) {
     // Bulk actions
     var bulkEl = document.getElementById('reel-list-bulk');
     bulkEl.innerHTML =
-        '<button onclick="runStep(\'generate\')">Caption All</button>' +
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
         '<button onclick="runStep(\'overlay\')">Overlay All</button>';
@@ -2232,18 +2075,26 @@ function renderReelDetail(ep, reelId) {
             var reelNum = parseInt(reelId, 10);
             reelContent = ep.content.reels.find(function(rc) { return rc.id === reelNum || String(rc.id).padStart(2, '0') === reelId; });
         }
+        captionEl.style.display = '';
+        var captionBtn = '<button class="' + (r.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')" style="font-size:0.7rem;">' +
+            (r.generated ? '↻ Generate' : '▶ Generate') + '</button>';
         if (reelContent) {
-            captionEl.style.display = '';
             captionEl.innerHTML =
-                '<div style="font-size:0.7rem; color:#666; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    captionBtn +
+                '</div>' +
                 '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
                 '<div style="display:flex; gap:6px; margin-top:6px;">' +
                     '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
                     '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
                 '</div>';
         } else {
-            captionEl.style.display = 'none';
-            captionEl.innerHTML = '';
+            captionEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    captionBtn +
+                '</div>';
         }
     }
 
@@ -2430,10 +2281,6 @@ function buildReelActions(ep, reel) {
     var reelId = reel.id;
     var html = '';
 
-    // Caption
-    html += '<button class="' + (reel.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')">' +
-        (reel.generated ? '↻ Caption' : '▶ Caption') + '</button>';
-
     // Crop group
     html += '<div class="reel-actions-group">' +
         '<button class="' + (reel.cropped ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'crop\')">' +
@@ -2452,8 +2299,11 @@ function buildReelActions(ep, reel) {
         (reel.subtitled ? '↻ Subtitle' : '▶ Subtitle') + '</button>';
 
     // Overlay
-    html += '<button class="' + (reel.final ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'overlay\')">' +
-        (reel.final ? '↻ Overlay' : '▶ Overlay') + '</button>';
+    html += '<div class="reel-actions-group">' +
+        '<button class="' + (reel.final ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'overlay\')">' +
+        (reel.final ? '↻ Overlay' : '▶ Overlay') + '</button>' +
+        '<button onclick="toggleOverlayConfig()" style="font-size:0.7rem; padding:6px 8px;" title="Configure overlays">⚙</button>' +
+    '</div>';
 
     return html;
 }
@@ -2581,6 +2431,7 @@ async function runReelStep(reelId, step) {
 let overlayConfig = null;
 let overlayDragging = null;
 let overlayCanvasCtx = null;
+let overlayCanvasRatio = '9:16';
 
 async function toggleOverlayConfig() {
     const section = document.getElementById('overlay-config-section');
@@ -2613,9 +2464,14 @@ function renderOverlayConfig() {
             '<h3>Overlay Configuration</h3>' +
             '<div style="display:flex; gap:16px; flex-wrap:wrap;">' +
                 // Canvas
-                '<div style="flex:1; min-width:280px;">' +
+                '<div style="flex:1; min-width:180px; max-width:300px;">' +
+                    '<div style="display:flex; gap:4px; margin-bottom:6px;">' +
+                        '<button class="' + (overlayCanvasRatio === '16:9' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'16:9\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">16:9</button>' +
+                        '<button class="' + (overlayCanvasRatio === '9:16' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'9:16\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">9:16</button>' +
+                        '<button class="' + (overlayCanvasRatio === '1:1' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'1:1\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">1:1</button>' +
+                    '</div>' +
                     '<div class="overlay-canvas-wrap">' +
-                        '<canvas id="overlay-canvas" width="640" height="360"></canvas>' +
+                        '<canvas id="overlay-canvas" width="' + (overlayCanvasRatio === '9:16' ? 270 : overlayCanvasRatio === '1:1' ? 300 : 640) + '" height="' + (overlayCanvasRatio === '9:16' ? 480 : overlayCanvasRatio === '1:1' ? 300 : 360) + '"></canvas>' +
                     '</div>' +
                     '<div style="font-size:0.65rem; color:#555; margin-top:4px;">Drag elements to reposition</div>' +
                 '</div>' +
@@ -2628,6 +2484,8 @@ function renderOverlayConfig() {
                             '<input type="checkbox" id="ov-sponsor-on" ' + (c.sponsor.enabled ? 'checked' : '') + ' onchange="overlayConfig.sponsor.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
                         '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
+                            '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="80" max="300" value="' + c.sponsor.scale + '" oninput="overlayConfig.sponsor.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.sponsor.scale + 'px</span></div>' +
                         '</div>' +
                     '</div>' +
@@ -2638,6 +2496,8 @@ function renderOverlayConfig() {
                             '<input type="checkbox" id="ov-logo-on" ' + (c.logo.enabled ? 'checked' : '') + ' onchange="overlayConfig.logo.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
                         '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.x + '" oninput="overlayConfig.logo.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.x + '%</span></div>' +
+                            '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.y + '" oninput="overlayConfig.logo.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="60" max="250" value="' + c.logo.scale + '" oninput="overlayConfig.logo.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.logo.scale + 'px</span></div>' +
                         '</div>' +
                     '</div>' +
@@ -2648,6 +2508,17 @@ function renderOverlayConfig() {
                             '<input type="checkbox" id="ov-lt-on" ' + (c.lowerThird.enabled ? 'checked' : '') + ' onchange="overlayConfig.lowerThird.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
                         '<div class="overlay-el-body">' +
+                            '<div class="cta-mode-toggle" style="margin-bottom:6px;">' +
+                                '<button class="' + (c.lowerThird.mode !== 'custom' ? 'active' : '') + '" onclick="overlayConfig.lowerThird.mode=\'auto\'; renderOverlayConfig();" style="font-size:0.65rem;">Auto</button>' +
+                                '<button class="' + (c.lowerThird.mode === 'custom' ? 'active' : '') + '" onclick="overlayConfig.lowerThird.mode=\'custom\'; renderOverlayConfig();" style="font-size:0.65rem;">Custom File</button>' +
+                            '</div>' +
+                            (c.lowerThird.mode === 'custom' ?
+                                '<div class="overlay-row"><label>File</label><input type="file" accept=".mov,.mp4,.png,.gif" onchange="uploadLowerThirdAsset(this.files[0]);" style="font-size:0.65rem; color:#888;"></div>' +
+                                (c.lowerThird.customFile ? '<div style="font-size:0.6rem; color:var(--success); margin-bottom:4px;">✓ ' + c.lowerThird.customFile + '</div>' : '') +
+                                '<div class="overlay-row"><label>Scale</label><input type="range" min="100" max="600" value="' + (c.lowerThird.scale || 300) + '" oninput="overlayConfig.lowerThird.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + (c.lowerThird.scale || 300) + 'px</span></div>' +
+                                '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + (c.lowerThird.x || 5) + '" oninput="overlayConfig.lowerThird.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + (c.lowerThird.x || 5) + '%</span></div>' +
+                                '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + (c.lowerThird.y || 80) + '" oninput="overlayConfig.lowerThird.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + (c.lowerThird.y || 80) + '%</span></div>'
+                            : '') +
                             '<div class="overlay-row"><label>Start</label><input type="range" min="0" max="30" step="0.5" value="' + c.lowerThird.startTime + '" oninput="overlayConfig.lowerThird.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.startTime + 's</span></div>' +
                             '<div class="overlay-row"><label>End</label><input type="range" min="1" max="30" step="0.5" value="' + c.lowerThird.endTime + '" oninput="overlayConfig.lowerThird.endTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.endTime + 's</span></div>' +
                         '</div>' +
@@ -2718,11 +2589,11 @@ function initOverlayCanvas() {
         const my = (e.clientY - rect.top) * scaleY;
         const nx = mx - overlayDragging.offsetX;
         const ny = my - overlayDragging.offsetY;
-        const pctX = (nx / canvas.width) * 100;
-        const pctY = (ny / canvas.height) * 100;
+        const pctX = Math.max(0, Math.min(95, (nx / canvas.width) * 100));
+        const pctY = Math.max(0, Math.min(95, (ny / canvas.height) * 100));
         if (overlayConfig[overlayDragging.key]) {
-            overlayConfig[overlayDragging.key].x = Math.max(0, Math.min(95, pctX));
-            overlayConfig[overlayDragging.key].y = Math.max(0, Math.min(95, pctY));
+            overlayConfig[overlayDragging.key].x = pctX;
+            overlayConfig[overlayDragging.key].y = pctY;
         }
         drawOverlayCanvas();
     });
@@ -2733,7 +2604,9 @@ function initOverlayCanvas() {
 
 function getOverlayElements() {
     const c = overlayConfig;
-    const W = 640, H = 360;
+    const canvas = document.getElementById('overlay-canvas');
+    const W = canvas ? canvas.width : 640;
+    const H = canvas ? canvas.height : 360;
     const els = [];
     if (c.sponsor.enabled) {
         const w = c.sponsor.scale * 0.4;
@@ -2770,10 +2643,18 @@ function drawOverlayCanvas() {
     for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-    // Safe area guide
-    ctx.strokeStyle = '#333';
+    // Safe area guide (15% top/bottom for 9:16 Reels/TikTok, 5% for 16:9)
+    ctx.strokeStyle = '#444';
     ctx.setLineDash([4, 4]);
-    ctx.strokeRect(W * 0.05, H * 0.05, W * 0.9, H * 0.9);
+    if (overlayCanvasRatio === '9:16') {
+        // TikTok/IG Reels safe zone: ~15% top, ~25% bottom, ~5% sides
+        ctx.strokeRect(W * 0.05, H * 0.15, W * 0.9, H * 0.6);
+        ctx.fillStyle = '#333';
+        ctx.font = '9px sans-serif';
+        ctx.fillText('safe zone', W * 0.05 + 4, H * 0.15 + 12);
+    } else {
+        ctx.strokeRect(W * 0.05, H * 0.05, W * 0.9, H * 0.9);
+    }
     ctx.setLineDash([]);
 
     // Draw elements
@@ -2788,6 +2669,23 @@ function drawOverlayCanvas() {
         ctx.font = '11px sans-serif';
         ctx.fillText(el.label, el.x + 4, el.y + 14);
     });
+}
+
+async function uploadLowerThirdAsset(file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('type', 'lower-third');
+    fd.append('file', file);
+    try {
+        const res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+            overlayConfig.lowerThird.customFile = data.file;
+            renderOverlayConfig();
+        }
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
 }
 
 async function uploadCTAAsset(file) {
@@ -2822,7 +2720,11 @@ async function saveOverlayConfig() {
 
 async function saveAndRunOverlay() {
     await saveOverlayConfig();
-    runStep('overlay');
+    if (selectedReelId) {
+        runReelStep(selectedReelId, 'overlay');
+    } else {
+        runStep('overlay');
+    }
     // Collapse panel
     document.getElementById('overlay-config-section').style.display = 'none';
     document.getElementById('overlay-config-section').innerHTML = '';
