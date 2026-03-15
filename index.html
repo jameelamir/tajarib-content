@@ -872,6 +872,16 @@
                     <button onclick="saveLLMConfig()" style="font-size:0.75rem; padding:6px 12px; flex:1;">Save All</button>
                 </div>
                 <div id="gen-key-status" style="font-size:0.7rem; margin-top:6px; color:#666;">Checking...</div>
+
+                <div style="margin-top:12px; padding:8px 10px; background:#1a1a2e; border:1px solid #333; border-radius:6px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.75rem; color:#ddd;">
+                        <input type="checkbox" id="manual-mode-toggle" onchange="toggleManualMode(this.checked)" />
+                        Manual Mode
+                    </label>
+                    <div style="font-size:0.65rem; color:#666; margin-top:4px;">
+                        Skip API calls — copy prompts and paste responses from your own Claude
+                    </div>
+                </div>
             </div>
 
             <!-- Storage -->
@@ -1076,10 +1086,16 @@ async function loadGenKeyStatus() {
         const data = await res.json();
         const dot = document.getElementById('gen-key-dot');
         const status = document.getElementById('gen-key-status');
+        const toggle = document.getElementById('manual-mode-toggle');
         // Populate fields with current config (but not the key)
         if (data.baseUrl) document.getElementById('gen-base-url').value = data.baseUrl;
         if (data.model) document.getElementById('sidebar-model-select').value = data.model;
-        if (data.hasKey) {
+        if (toggle) toggle.checked = !!data.manualMode;
+        if (data.manualMode) {
+            dot.style.background = '#a78bfa';
+            status.innerHTML = '📋 Manual mode — paste prompts into your own Claude';
+            status.style.color = '#a78bfa';
+        } else if (data.hasKey) {
             dot.style.background = 'var(--success)';
             const provider = data.baseUrl ? new URL(data.baseUrl).hostname : 'Anthropic direct';
             status.innerHTML = '✓ Connected — <span style="color:#888;">' + provider + '</span>';
@@ -1138,6 +1154,27 @@ async function saveLLMConfig() {
     } catch (err) {
         status.textContent = '✗ ' + err.message;
         status.style.color = '#ef4444';
+    }
+}
+
+async function toggleManualMode(enabled) {
+    try {
+        const res = await fetch('/api/llm-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ manualMode: enabled })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(enabled ? 'Manual mode enabled' : 'Manual mode disabled', 'success');
+            loadGenKeyStatus();
+        } else {
+            throw new Error(data.error || 'Failed');
+        }
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+        // Revert toggle
+        document.getElementById('manual-mode-toggle').checked = !enabled;
     }
 }
 
@@ -3560,6 +3597,11 @@ function openLlmModal(data) {
         'reel-01': 'Reel Caption',
         'reel-1': 'Reel Caption',
         youtube: 'YouTube Content',
+        feedback: 'Revision',
+        'generate-title': 'Title Generation',
+        'topic-clip': 'Topic Clip',
+        'analyze-clips': 'Reel Suggestions',
+        dashboard: 'AI Request',
     };
     const stepName = stepNames[data.step] || data.step;
     document.getElementById('llm-modal-title').textContent = `📋 Manual LLM — ${stepName}`;
@@ -3612,7 +3654,8 @@ async function submitLlmResponse() {
                 slug: pendingLlmData.slug,
                 step: pendingLlmData.step,
                 response: response,
-                round: pendingLlmData.round || 0
+                round: pendingLlmData.round || 0,
+                requestId: pendingLlmData.requestId || null
             })
         });
         const data = await res.json();
