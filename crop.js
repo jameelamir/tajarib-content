@@ -70,123 +70,130 @@ function runFaceTracking(inputFile, reelsDir, id) {
 }
 
 /**
- * Smoothstep easing — cubic ease-in-ease-out (0→1 maps to 0→1 with soft start/stop).
+ * Smoothstep easing — cubic ease-in-ease-out for smooth camera pans.
  */
 function smoothstep(t) {
   return t * t * (3 - 2 * t);
 }
 
 /**
- * Build FFmpeg crop filter expression with face-tracking interpolation.
- * Reduces keyframes to significant anchors, inserts smoothstep-eased intermediate
- * points for cinematic camera panning, then generates nested if(lt(t,...)).
+ * Build FFmpeg crop filter with hold-and-pan face tracking.
+ *
+ * Behaves like a camera operator: locks position, only pans when the face
+ * has genuinely moved to a new region, then glides there smoothly.
+ * Result: mostly static with a few cinematic pans.
  */
 function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH) {
   // Calculate crop dimensions (same logic as center crop)
   let cropW, cropH;
   if (videoWidth / videoHeight > targetW / targetH) {
-    // Video is wider than target — crop width, keep height
     cropH = videoHeight;
     cropW = Math.floor(videoHeight * targetW / targetH);
   } else {
-    // Video is taller — crop height, keep width
     cropW = videoWidth;
     cropH = Math.floor(videoWidth * targetH / targetW);
   }
-
-  // Ensure even dimensions
   cropW = Math.floor(cropW / 2) * 2;
   cropH = Math.floor(cropH / 2) * 2;
 
   const maxOffset = videoWidth - cropW;
   if (maxOffset <= 0) {
-    // Video is narrower than or equal to crop — no panning possible, center it
     return `crop=${cropW}:${cropH}:(iw-${cropW})/2:0,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
   }
 
-  // Convert normalized x positions to pixel offsets (clamped)
-  let pixelKeyframes = keyframes.map(kf => {
+  // Convert normalized x to pixel offsets
+  const pixelKfs = keyframes.map(kf => {
     let offset = Math.round(kf.x * videoWidth - cropW / 2);
     offset = Math.max(0, Math.min(maxOffset, offset));
     return { t: kf.t, offset };
   });
 
-  // Reduce keyframes to significant movement anchors only.
-  // Keeps first, last, and points where position shifted ≥ MIN_CHANGE_PX.
-  const MIN_CHANGE_PX = 60;
-  const anchors = [pixelKeyframes[0]];
-  for (let i = 1; i < pixelKeyframes.length - 1; i++) {
-    const prev = anchors[anchors.length - 1];
-    if (Math.abs(pixelKeyframes[i].offset - prev.offset) >= MIN_CHANGE_PX) {
-      anchors.push(pixelKeyframes[i]);
+  // --- Hold-and-pan: lock position, only move when face has truly relocated ---
+  const HOLD_THRESHOLD_PX = 80;   // face must move this far to trigger a pan
+  const PAN_SPEED = 200;          // pixels per second during pans
+  const MIN_PAN_SEC = 0.8;        // minimum pan duration
+  const MAX_PAN_SEC = 2.0;        // maximum pan duration
+  const PAN_EASE_STEPS = 10;      // interpolation points per pan
+
+  // 1. Group keyframes into hold zones (face stays within threshold of zone mean)
+  const zones = [{ sum: pixelKfs[0].offset, count: 1, startT: pixelKfs[0].t, endT: pixelKfs[0].t }];
+  for (let i = 1; i < pixelKfs.length; i++) {
+    const kf = pixelKfs[i];
+    const zone = zones[zones.length - 1];
+    const mean = zone.sum / zone.count;
+    if (Math.abs(kf.offset - mean) < HOLD_THRESHOLD_PX) {
+      zone.sum += kf.offset;
+      zone.count++;
+      zone.endT = kf.t;
+    } else {
+      zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t });
     }
   }
-  anchors.push(pixelKeyframes[pixelKeyframes.length - 1]);
 
-  // Expand anchors with smoothstep-eased intermediate points.
-  // This turns abrupt linear transitions into smooth ease-in-ease-out curves.
-  // FFmpeg then linearly interpolates between these pre-eased points,
-  // which naturally follows the curved trajectory.
-  const EASE_STEPS = 6;
-  const expanded = [anchors[0]];
-  for (let i = 0; i < anchors.length - 1; i++) {
-    const a = anchors[i];
-    const b = anchors[i + 1];
-    const dt = b.t - a.t;
-    const dOffset = b.offset - a.offset;
+  // 2. Compute hold positions (mean offset per zone, clamped)
+  const holds = zones.map(z => ({
+    offset: Math.max(0, Math.min(maxOffset, Math.round(z.sum / z.count))),
+    startT: z.startT,
+    endT: z.endT,
+  }));
 
-    if (dt > 0 && dOffset !== 0) {
-      for (let s = 1; s <= EASE_STEPS; s++) {
-        const frac = s / (EASE_STEPS + 1);
-        const eased = smoothstep(frac);
-        expanded.push({
-          t: Math.round((a.t + dt * frac) * 1000) / 1000,
-          offset: Math.round(a.offset + dOffset * eased),
+  console.log(`   📊 ${holds.length} hold positions (from ${pixelKfs.length} raw keyframes)`);
+
+  // 3. Build output keyframes: flat holds with smoothstep pans between them
+  const output = [];
+  for (let i = 0; i < holds.length; i++) {
+    const hold = holds[i];
+
+    if (i > 0) {
+      const prev = holds[i - 1];
+      const dist = Math.abs(hold.offset - prev.offset);
+      const panDur = Math.max(MIN_PAN_SEC, Math.min(MAX_PAN_SEC, dist / PAN_SPEED));
+      const panStart = Math.max(prev.startT, hold.startT - panDur);
+      const panEnd = hold.startT;
+
+      // End of previous hold (flat until pan starts)
+      output.push({ t: panStart, offset: prev.offset });
+
+      // Smoothstep pan
+      for (let s = 1; s <= PAN_EASE_STEPS; s++) {
+        const frac = s / (PAN_EASE_STEPS + 1);
+        output.push({
+          t: Math.round((panStart + (panEnd - panStart) * frac) * 1000) / 1000,
+          offset: Math.round(prev.offset + (hold.offset - prev.offset) * smoothstep(frac)),
         });
       }
     }
 
-    expanded.push(b);
-  }
-
-  // Cap total keyframes to avoid overly deep FFmpeg nesting
-  const MAX_KEYFRAMES = 80;
-  if (expanded.length > MAX_KEYFRAMES) {
-    const step = Math.ceil(expanded.length / MAX_KEYFRAMES);
-    const sampled = [];
-    for (let i = 0; i < expanded.length; i += step) sampled.push(expanded[i]);
-    if (sampled[sampled.length - 1].t !== expanded[expanded.length - 1].t) {
-      sampled.push(expanded[expanded.length - 1]);
+    // Hold start and end (flat line)
+    output.push({ t: hold.startT, offset: hold.offset });
+    if (hold.endT > hold.startT) {
+      output.push({ t: hold.endT, offset: hold.offset });
     }
-    pixelKeyframes = sampled;
-  } else {
-    pixelKeyframes = expanded;
   }
 
-  console.log(`   📊 Using ${pixelKeyframes.length} keyframes for crop expression`);
+  console.log(`   📊 Using ${output.length} keyframes for crop expression`);
 
-  // Build nested if() expression for linear interpolation between eased keyframes.
-  // Uses \, escaping for commas (NOT single quotes) so FFmpeg parses them correctly.
+  // 4. Build nested if() FFmpeg expression
   let expr;
-  if (pixelKeyframes.length === 1) {
-    expr = String(pixelKeyframes[0].offset);
+  if (output.length === 1) {
+    expr = String(output[0].offset);
   } else {
-    // Build from the last keyframe backwards
-    expr = String(pixelKeyframes[pixelKeyframes.length - 1].offset);
-    for (let i = pixelKeyframes.length - 2; i >= 0; i--) {
-      const curr = pixelKeyframes[i];
-      const next = pixelKeyframes[i + 1];
-      const dt = next.t - curr.t;
+    expr = String(output[output.length - 1].offset);
+    for (let i = output.length - 2; i >= 0; i--) {
+      const curr = output[i];
+      const next = output[i + 1];
+      const dt = Math.round((next.t - curr.t) * 1000) / 1000;
       if (dt <= 0) continue;
       const dOffset = next.offset - curr.offset;
+      const tCurr = Math.round(curr.t * 1000) / 1000;
+      const tNext = Math.round(next.t * 1000) / 1000;
       const lerp = dOffset === 0
         ? String(curr.offset)
-        : `${curr.offset}+${dOffset}*(t-${curr.t})/${dt}`;
-      expr = `if(lt(t\\,${next.t})\\,${lerp}\\,${expr})`;
+        : `${curr.offset}+${dOffset}*(t-${tCurr})/${dt}`;
+      expr = `if(lt(t\\,${tNext})\\,${lerp}\\,${expr})`;
     }
   }
 
-  // No single quotes around expression — \, handles comma escaping within filter args
   return `crop=${cropW}:${cropH}:${expr}:0,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
 }
 
@@ -291,11 +298,11 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
     ].join(" ");
 
     try {
-      execSync(cmd, { stdio: "pipe" });
+      execSync(cmd, { stdio: "pipe", maxBuffer: 50 * 1024 * 1024 });
       const size = (fs.statSync(outputFile).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ ${size} MB → reel-${id}-cropped.mp4`);
     } catch (e) {
-      console.error(`   ❌ Crop failed for reel-${id}:`, e.stderr?.toString().slice(-200) || e.message);
+      console.error(`   ❌ Crop failed for reel-${id}:`, e.stderr?.toString().slice(-500) || e.message);
     }
   }
 

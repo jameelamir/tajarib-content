@@ -43,7 +43,7 @@ from mediapipe.tasks.python import vision
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
-GAUSSIAN_SIGMA = 6.0  # smoothing width in samples (~3s look-ahead/behind at 0.5s intervals)
+GAUSSIAN_SIGMA = 8.0  # smoothing width in samples (~4s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -201,7 +201,7 @@ def smooth(keyframes):
 
     Pipeline:
       Pass 1: Dead zone — collapse micro-jitter below DEAD_ZONE threshold
-      Pass 2: Gaussian smooth (sigma=6 ≈ 3s look-ahead/behind at 0.5s intervals)
+      Pass 2: Gaussian smooth (sigma=8 ≈ 4s look-ahead/behind at 0.5s intervals)
       Pass 3: Second Gaussian pass for extra cinematic smoothness
     """
     if len(keyframes) <= 1:
@@ -220,7 +220,7 @@ def smooth(keyframes):
     xs = [kf["x"] for kf in dejittered]
 
     # Pass 2 & 3: double Gaussian for very smooth, lag-free curves
-    # sigma=6 at 0.5s intervals = ~3 second look-ahead/behind window
+    # sigma=8 at 0.5s intervals = ~4 second look-ahead/behind window
     xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
     xs = _gaussian_smooth(xs, sigma=GAUSSIAN_SIGMA)
 
