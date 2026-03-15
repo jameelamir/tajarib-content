@@ -12,6 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 const llm = require("./llm");
+const prompts = require("./prompts");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
 const CLI_ARGS = process.argv.slice(2);
@@ -35,49 +36,7 @@ function formatTranscriptForPrompt(transcript) {
   }).join("\n");
 }
 
-const SYSTEM_PROMPT = `أنت محلل محتوى متخصص لبودكاست "تجارب" العراقي — أبرز بودكاست اقتصادي في العراق.
-مهمتك: تحليل نص الحلقة المدموغ بالتوقيتات وإخراج تحليل منظم بصيغة JSON.
-
-ستقوم بـ:
-1. تحديد أجزاء يمكن حذفها (ممل، مكرر، تقني بدون قيمة)
-2. تحديد أفضل 3-6 لحظات مناسبة للريلز (مثيرة، مفيدة، مثيرة للجدل، ممتعة)
-3. اقتراح أقسام للحلقة (chapters)
-4. ملاحظات عامة
-
-أخرج JSON بالهيكل التالي بالضبط (بدون أي نص خارج JSON):
-{
-  "cuts": [
-    {
-      "start": "MM:SS",
-      "end": "MM:SS",
-      "reason": "سبب الحذف بالعربي"
-    }
-  ],
-  "reels": [
-    {
-      "id": 1,
-      "start": "MM:SS",
-      "end": "MM:SS",
-      "duration_seconds": 45,
-      "hook": "الفكرة المحورية للريل — جملة واحدة",
-      "transcript_excerpt": "مقتطف من النص الذي يمثل هذه اللحظة",
-      "why": "لماذا هذه اللحظة مناسبة للريلز"
-    }
-  ],
-  "chapters": [
-    {
-      "start": "MM:SS",
-      "title": "عنوان القسم"
-    }
-  ],
-  "general_notes": "ملاحظات عامة عن الحلقة"
-}
-
-قواعد مهمة:
-- الريلز المثالي: 30-90 ثانية
-- اختر لحظات فيها رأي جريء أو معلومة مفاجئة أو موقف إنساني أو جدل بنّاء
-- التوقيتات تكون بصيغة MM:SS أو HH:MM:SS إذا تجاوزت ساعة
-- لا تُرجع أي شيء خارج الـ JSON`;
+const SYSTEM_PROMPT = prompts.load("analyze-system");
 
 async function analyze(slug, force = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
@@ -94,13 +53,10 @@ async function analyze(slug, force = false) {
 
   const formattedTranscript = formatTranscriptForPrompt(transcript);
 
-  const userMessage = `فيما يلي نص حلقة بودكاست "تجارب" مع التوقيتات. حللها وأخرج JSON بالهيكل المطلوب:
-
-المدة الإجمالية: ${Math.round(transcript.duration_seconds / 60)} دقيقة
-
----
-${formattedTranscript}
----`;
+  const userMessage = prompts.load("analyze-user", {
+    durationMinutes: Math.round(transcript.duration_seconds / 60),
+    formattedTranscript,
+  });
 
   const epDir = path.join(EPISODES_DIR, slug);
   const isResume = CLI_ARGS.includes("--resume");
