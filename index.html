@@ -215,6 +215,30 @@
         .buffer-ch-toggle::after { content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left 0.2s; }
         .buffer-ch-toggle.on::after { left:16px; }
 
+        /* ── Storage Management ────────────────────────────────────────────────── */
+        .storage-ep-card { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+        .storage-ep-card:hover { border-color: #444; }
+        .storage-ep-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .storage-ep-title { font-size: 0.82rem; font-weight: 600; }
+        .storage-ep-size { font-size: 0.75rem; color: var(--accent); font-weight: 600; }
+        .storage-breakdown { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+        .storage-breakdown-chip { font-size: 0.55rem; padding: 2px 6px; border-radius: 3px; background: #1a1a1a; color: #888; }
+        .storage-breakdown-chip.raw { background: #1e1b4b; color: #818cf8; }
+        .storage-breakdown-chip.reels { background: #0f2d0f; color: #4ade80; }
+        .storage-breakdown-chip.subtitled { background: #2d1b0f; color: #fb923c; }
+        .storage-breakdown-chip.final { background: #1b2d1b; color: #86efac; }
+        .storage-file-list { display: none; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+        .storage-ep-card.expanded .storage-file-list { display: block; }
+        .storage-file-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.7rem; }
+        .storage-file-row:hover { background: #1a1a1a; border-radius: 4px; }
+        .storage-file-name { flex: 1; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .storage-file-size { color: #666; min-width: 60px; text-align: right; }
+        .storage-file-del { color: var(--error); cursor: pointer; font-size: 0.6rem; padding: 2px 6px; border-radius: 3px; opacity: 0.6; border: none; background: none; }
+        .storage-file-del:hover { opacity: 1; background: rgba(239,68,68,0.15); }
+        .storage-bar-warning .progress-fill, .progress-fill.storage-bar-warning { background: var(--warning) !important; }
+        .storage-bar-danger .progress-fill, .progress-fill.storage-bar-danger { background: var(--error) !important; }
+        #section-storage.open .sidebar-section-body { max-height: 250px; }
+
         /* ── Mobile Responsive Styles ──────────────────────────────────────────── */
         @media (max-width: 768px) {
             body { flex-direction: column; height: auto; overflow: auto; }
@@ -394,6 +418,40 @@
                     <button onclick="saveLLMConfig()" style="font-size:0.6rem; padding:4px 8px; white-space:nowrap; flex:1;">Save All</button>
                 </div>
                 <div id="gen-key-status" style="font-size:0.6rem; margin-top:4px; color:#666;">Checking...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsible: Storage -->
+    <div class="sidebar-section" id="section-storage">
+        <div class="sidebar-section-header" onclick="toggleSection('storage')">
+            <span>Storage</span>
+            <span style="display:flex; align-items:center; gap:6px;">
+                <span id="storage-status-dot" style="width:6px; height:6px; border-radius:50%; background:#333;"></span>
+                <span class="chevron">&#9656;</span>
+            </span>
+        </div>
+        <div class="sidebar-section-body">
+            <div style="padding:8px;">
+                <div style="margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#666; margin-bottom:4px;">
+                        <span id="storage-used-label">-- GB</span>
+                        <span id="storage-quota-label">/ -- GB</span>
+                    </div>
+                    <div class="progress-bar" style="height:8px;">
+                        <div class="progress-fill" id="storage-bar-fill" style="width:0%; transition:width 0.5s, background 0.3s;"></div>
+                    </div>
+                    <div id="storage-percent-label" style="font-size:0.55rem; color:#555; text-align:center; margin-top:3px;">0%</div>
+                </div>
+                <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
+                    <label style="font-size:0.6rem; color:#666; white-space:nowrap;">Quota:</label>
+                    <input type="number" id="storage-quota-input" min="1" max="10000" step="10"
+                        style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.65rem; width:60px; text-align:right;"
+                    />
+                    <span style="font-size:0.6rem; color:#666;">GB</span>
+                    <button onclick="saveStorageQuota()" style="font-size:0.6rem; padding:3px 8px; margin-left:auto;">Set</button>
+                </div>
+                <button onclick="openStorageBrowser()" style="font-size:0.65rem; padding:5px 8px; width:100%;">Browse Projects</button>
             </div>
         </div>
     </div>
@@ -762,6 +820,25 @@
     </div>
 </div>
 
+<!-- Storage Browser Modal -->
+<div class="modal" id="storage-modal">
+    <div class="modal-box" style="width:780px; max-height:90vh; display:flex; flex-direction:column;">
+        <h3 style="margin-bottom:8px;">Storage Browser</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div id="storage-modal-summary" style="font-size:0.75rem; color:#888;"></div>
+            <div style="display:flex; gap:4px;">
+                <button onclick="sortStorageBy('size')" id="sort-size-btn" class="primary" style="font-size:0.6rem; padding:3px 8px;">Size</button>
+                <button onclick="sortStorageBy('date')" id="sort-date-btn" style="font-size:0.6rem; padding:3px 8px;">Date</button>
+                <button onclick="sortStorageBy('name')" id="sort-name-btn" style="font-size:0.6rem; padding:3px 8px;">Name</button>
+            </div>
+        </div>
+        <div id="storage-browser-list" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; max-height:60vh;"></div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button onclick="closeStorageBrowser()">Close</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const socket = io();
 let episodes = [];
@@ -780,6 +857,8 @@ let pendingGuestFile = null;
 let pendingSrtFile = null;
 let selectedReelId = null;
 let reelLogs = {};
+let storageData = null;
+let storageSortBy = 'size';
 
 // Initialize
 async function init() {
@@ -805,6 +884,7 @@ async function init() {
     }
 
     setInterval(refresh, 5000);
+    loadStorageInfo();
 }
 
 // Transcription Config
@@ -960,6 +1040,174 @@ async function saveLLMConfig() {
     }
 }
 
+// ── Storage Management ──────────────────────────────────────────────────────
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+async function loadStorageInfo() {
+    try {
+        const res = await fetch('/api/storage');
+        storageData = await res.json();
+        updateStorageSidebar();
+    } catch (e) {
+        console.error('Storage load error:', e);
+    }
+}
+
+function updateStorageSidebar() {
+    if (!storageData) return;
+    var d = storageData;
+    document.getElementById('storage-used-label').textContent = d.usedGB + ' GB used';
+    document.getElementById('storage-quota-label').textContent = '/ ' + d.quotaGB + ' GB';
+    document.getElementById('storage-percent-label').textContent = d.percentUsed + '%';
+    document.getElementById('storage-quota-input').value = d.quotaGB;
+
+    var fill = document.getElementById('storage-bar-fill');
+    fill.style.width = Math.min(d.percentUsed, 100) + '%';
+
+    // Color thresholds
+    fill.classList.remove('storage-bar-warning', 'storage-bar-danger');
+    var dot = document.getElementById('storage-status-dot');
+    if (d.percentUsed >= 90) {
+        fill.classList.add('storage-bar-danger');
+        dot.style.background = 'var(--error)';
+    } else if (d.percentUsed >= 75) {
+        fill.classList.add('storage-bar-warning');
+        dot.style.background = 'var(--warning)';
+    } else {
+        fill.style.background = '';
+        dot.style.background = 'var(--success)';
+    }
+}
+
+async function saveStorageQuota() {
+    var input = document.getElementById('storage-quota-input');
+    var quotaGB = parseInt(input.value);
+    if (!quotaGB || quotaGB < 1) { showToast('Invalid quota', 'error'); return; }
+    try {
+        var res = await fetch('/api/storage-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quotaGB: quotaGB })
+        });
+        if (res.ok) await loadStorageInfo();
+    } catch (e) {
+        showToast('Failed to save quota', 'error');
+    }
+}
+
+async function openStorageBrowser() {
+    await loadStorageInfo();
+    renderStorageBrowser();
+    document.getElementById('storage-modal').classList.add('open');
+}
+
+function closeStorageBrowser() {
+    document.getElementById('storage-modal').classList.remove('open');
+}
+
+function sortStorageBy(key) {
+    storageSortBy = key;
+    ['size','date','name'].forEach(function(k) {
+        var btn = document.getElementById('sort-' + k + '-btn');
+        if (btn) btn.className = k === key ? 'primary' : '';
+    });
+    renderStorageBrowser();
+}
+
+function renderStorageBrowser() {
+    if (!storageData) return;
+    var d = storageData;
+
+    document.getElementById('storage-modal-summary').textContent =
+        d.usedGB + ' GB used of ' + d.quotaGB + ' GB (' + d.percentUsed + '%) — ' +
+        d.episodes.length + ' project' + (d.episodes.length !== 1 ? 's' : '');
+
+    var eps = d.episodes.slice();
+    if (storageSortBy === 'size') eps.sort(function(a, b) { return b.totalBytes - a.totalBytes; });
+    else if (storageSortBy === 'date') eps.sort(function(a, b) { return (b.createdAt || '').localeCompare(a.createdAt || ''); });
+    else eps.sort(function(a, b) { return a.slug.localeCompare(b.slug); });
+
+    var list = document.getElementById('storage-browser-list');
+    list.innerHTML = eps.map(function(ep) {
+        var chips = Object.entries(ep.breakdown)
+            .filter(function(e) { return e[1] > 0; })
+            .map(function(e) { return '<span class="storage-breakdown-chip ' + e[0] + '">' + e[0] + ': ' + formatBytes(e[1]) + '</span>'; })
+            .join('');
+
+        var files = ep.files.slice().sort(function(a, b) { return b.size - a.size; });
+        var fileRows = files.map(function(f) {
+            return '<div class="storage-file-row">' +
+                '<span class="storage-file-name" title="' + f.path + '">' + f.path + '</span>' +
+                '<span class="storage-file-size">' + formatBytes(f.size) + '</span>' +
+                '<button class="storage-file-del" onclick="deleteStorageFile(\'' + ep.slug + '\',\'' + f.path.replace(/'/g, "\\'") + '\',' + f.size + ')">del</button>' +
+            '</div>';
+        }).join('');
+
+        return '<div class="storage-ep-card" id="storage-card-' + ep.slug + '">' +
+            '<div class="storage-ep-header" onclick="toggleStorageCard(\'' + ep.slug + '\')">' +
+                '<div style="min-width:0; flex:1;">' +
+                    '<div class="storage-ep-title">' + ep.slug + (ep.guest ? ' &middot; ' + ep.guest : '') + '</div>' +
+                    '<div class="storage-breakdown">' + chips + '</div>' +
+                '</div>' +
+                '<div style="text-align:right; flex-shrink:0; margin-left:12px;">' +
+                    '<div class="storage-ep-size">' + formatBytes(ep.totalBytes) + '</div>' +
+                    '<button class="danger" style="font-size:0.55rem; padding:2px 6px; margin-top:4px;" onclick="event.stopPropagation(); deleteStorageEpisode(\'' + ep.slug + '\')">Delete All</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="storage-file-list">' + fileRows + '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function toggleStorageCard(slug) {
+    var card = document.getElementById('storage-card-' + slug);
+    if (card) card.classList.toggle('expanded');
+}
+
+async function deleteStorageFile(slug, filePath, size) {
+    if (!confirm('Delete ' + filePath + ' from ' + slug + '? (' + formatBytes(size) + ')')) return;
+    try {
+        var res = await fetch('/api/delete-files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: slug, files: [filePath] })
+        });
+        var result = await res.json();
+        if (result.success) {
+            await loadStorageInfo();
+            renderStorageBrowser();
+        } else {
+            showToast(result.error || 'Delete failed', 'error');
+        }
+    } catch (e) {
+        showToast('Delete failed', 'error');
+    }
+}
+
+async function deleteStorageEpisode(slug) {
+    if (!confirm('Delete entire project "' + slug + '" and all its files?')) return;
+    try {
+        var res = await fetch('/api/episodes?slug=' + encodeURIComponent(slug), { method: 'DELETE' });
+        var result = await res.json();
+        if (result.success) {
+            await loadStorageInfo();
+            renderStorageBrowser();
+            await refresh();
+        } else {
+            showToast(result.error || 'Delete failed', 'error');
+        }
+    } catch (e) {
+        showToast('Delete failed', 'error');
+    }
+}
+
 init();
 
 socket.on('connect', () => console.log('Socket connected'));
@@ -979,7 +1227,11 @@ socket.on('restore-state', ({activeSteps: steps, logs: serverLogs}) => {
     if (currentSlug) updateLogs();
     refresh();
 });
-socket.on('status-update', refresh);
+socket.on('status-update', function() {
+    refresh();
+    clearTimeout(window._storageReloadTimer);
+    window._storageReloadTimer = setTimeout(loadStorageInfo, 2000);
+});
 socket.on('log', function(data) {
     if (!logs[data.slug]) logs[data.slug] = '';
     logs[data.slug] += data.text;
@@ -1129,7 +1381,7 @@ function toggleSection(name) {
     localStorage.setItem('tajarib-section-' + name, el.classList.contains('open'));
 }
 // Restore collapsed state
-['publishing','transcription'].forEach(function(name) {
+['publishing','transcription','storage'].forEach(function(name) {
     const saved = localStorage.getItem('tajarib-section-' + name);
     if (saved === 'true') {
         const el = document.getElementById('section-' + name);

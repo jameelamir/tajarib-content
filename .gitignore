@@ -19,6 +19,7 @@ bot-config.json
 auth.json
 buffer-config.json
 transcription-config.json
+storage-config.json
 .uploads-state.json
 
 # Backups (keep only latest)
