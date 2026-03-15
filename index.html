@@ -1005,16 +1005,19 @@ socket.on('process-end', function(data) {
         setTimeout(function() { selectedReelId = null; renderMain(currentSlug); }, 500);
     }
     // Auto-refresh video preview when a reel processing step completes
-    if (data.code === 0 && currentSlug === data.slug && data.reelId && selectedReelId === data.reelId) {
-        setTimeout(function() {
-            var previewEl = document.getElementById('reel-preview');
-            if (previewEl) {
-                // Force video reload by clearing cached reel ID
-                previewEl.dataset.reelId = '';
-                var ep = episodes.find(function(e) { return e.slug === currentSlug; });
-                if (ep) renderReelDetail(ep, selectedReelId);
-            }
-        }, 600);
+    if (data.code === 0 && currentSlug === data.slug && selectedReelId) {
+        // Refresh if this specific reel was processed, OR if a bulk step (no reelId) completed
+        if (data.reelId === selectedReelId || (!data.reelId && ['subtitle', 'crop', 'overlay'].includes(data.step))) {
+            setTimeout(function() {
+                var previewEl = document.getElementById('reel-preview');
+                if (previewEl) {
+                    // Force video reload by clearing cached reel ID
+                    previewEl.dataset.reelId = '';
+                    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+                    if (ep) renderReelDetail(ep, selectedReelId);
+                }
+            }, 600);
+        }
     }
     // Auto-switch to caption tab when generate completes for reel_full
     if (data.step === 'generate' && data.code === 0 && currentSlug === data.slug) {
