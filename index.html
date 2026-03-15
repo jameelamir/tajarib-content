@@ -1918,8 +1918,8 @@ function renderMain(slug) {
     // Episode pipeline bar
     renderEpisodePipelineBar(ep);
 
-    // Mode switch
-    const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
+    // Mode switch — show reel list if any reels exist (from files or analysis)
+    const isCut = ep.reelStatuses && ep.reelStatuses.length > 0;
 
     if (isCut) {
         document.getElementById('pre-cut-view').style.display = 'none';
@@ -2049,7 +2049,7 @@ function renderReelDetail(ep, reelId) {
     }
     if (!r.cut) {
         warningEl.style.display = '';
-        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Re-cut below to regenerate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
+        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Cut below to generate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
     } else {
         warningEl.style.display = 'none';
     }
@@ -2281,10 +2281,10 @@ function buildReelActions(ep, reel) {
     var reelId = reel.id;
     var html = '';
 
-    // Re-cut (only shown when cut is missing, not for pre-cut reels)
-    if (!reel.cut && ep.mediaType === 'episode') {
-        html += '<button class="primary" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
-            '▶ Re-cut</button>';
+    // Re-cut (available for all episode reels, primary style when cut is missing)
+    if (ep.mediaType === 'episode') {
+        html += '<button class="' + (reel.cut ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
+            (reel.cut ? '↻ Re-cut' : '▶ Cut') + '</button>';
     }
 
     // Crop group
