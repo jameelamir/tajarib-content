@@ -1513,7 +1513,7 @@ async function handler(req, res) {
       const defaults = {
         sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
         logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
-        lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+        lowerThird: { enabled: false, startTime: 2, endTime: 8 },
         cta: { enabled: false, mode: "text", text: "www.tajarib.show", fontSize: 28, fontColor: "#ffffff", imagePath: "", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
       };
       const saved = loadJSON(configPath);
@@ -2659,11 +2659,12 @@ async function handler(req, res) {
 
     // Known valid aliases (same as frontend)
     const knownAliases = {
-      'auto': 'Auto (HAI Maker picks best)',
+      'auto': 'Claude Sonnet 4.5 (default)',
       'claude': 'Claude (Anthropic)',
-      'claude-sonnet': 'Claude 3.5 Sonnet',
-      'claude-opus': 'Claude 3 Opus',
-      'claude-haiku': 'Claude 3 Haiku',
+      'claude-sonnet-4-5-20241022': 'Claude Sonnet 4.5',
+      'claude-sonnet': 'Claude Sonnet',
+      'claude-opus': 'Claude Opus',
+      'claude-haiku': 'Claude Haiku',
       'openai': 'OpenAI',
       'gpt-4o': 'GPT-4o',
       'gpt-4o-mini': 'GPT-4o Mini',
@@ -2828,7 +2829,7 @@ async function handler(req, res) {
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, step, force, model, ratio, faceTrack, reelId, preferSide } = JSON.parse(body);
+        const { slug, step, force, model, ratio, faceTrack, reelId, preferSide, burnOnly } = JSON.parse(body);
         if (!slug || !step) throw new Error("slug + step required");
 
         const meta = loadMeta(slug);
@@ -2853,7 +2854,7 @@ async function handler(req, res) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
 
-        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide });
+        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly });
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -3010,7 +3011,7 @@ async function handler(req, res) {
 
 // ─── Run Pipeline Step ───────────────────────────────────────────────────────
 
-function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound }) {
+function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly }) {
   if (activeProcesses[slug]) {
     io.emit("toast", { type: "error", message: `${slug} is already running` });
     return;
@@ -3080,6 +3081,7 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
       args = ["subtitle.js", "--slug", slug];
       if (reelId) args.push("--reel-id", reelId);
       if (force) args.push("--force");
+      if (burnOnly) args.push("--burn-only");
       break;
     case "overlay": {
       cmd = NODE_BIN;
