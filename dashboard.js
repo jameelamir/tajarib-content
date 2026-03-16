@@ -2512,6 +2512,10 @@ async function handler(req, res) {
             cmd = NODE_BIN;
             args = ["analyze.js", "--slug", slug, "--resume", "--force"];
             break;
+          case "analyze-clips":
+            cmd = NODE_BIN;
+            args = ["analyze-clips.js", "--slug", slug, "--resume", "--force"];
+            break;
           case "generate":
           case "reel-01":
           case "reel-1":
