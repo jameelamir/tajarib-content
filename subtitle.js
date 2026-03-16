@@ -165,7 +165,7 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   return entries.join("\n");
 }
 
-async function subtitle(slug, force = false, titleCard = false, reelId = null) {
+async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false) {
   console.log(`\n🎬 Subtitle Generator — ${slug}\n`);
   
   const dir = path.join(EPISODES_DIR, slug);
@@ -338,22 +338,32 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null) {
     const startSec = toSeconds(reel.start);
     const endSec = toSeconds(reel.end);
 
-    // Get reel title from analysis (fallback to generic title)
-    const reelTitle = reel.title || reel.hook || `Reel ${reel.id}`;
+    // Burn-only mode: skip ASS generation, use existing file for re-burning
+    if (burnOnly) {
+      if (!fs.existsSync(subtitlePath)) {
+        console.log(`   ❌ No existing subtitle file to burn: ${subtitlePath}`);
+        continue;
+      }
+      const blockCount = fs.readFileSync(subtitlePath, "utf8").split("\n").filter(l => l.includes("Dialogue")).length;
+      console.log(`   📝 Using existing ASS file: ${blockCount} subtitle blocks (burn-only mode)`);
+    } else {
+      // Get reel title from analysis (fallback to generic title)
+      const reelTitle = reel.title || reel.hook || `Reel ${reel.id}`;
 
-    // Get words in this reel's time range
-    const reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+      // Get words in this reel's time range
+      const reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
 
-    // Detect actual video dimensions so ASS PlayRes matches
-    const videoDims = getVideoDimensions(videoPath);
-    console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
+      // Detect actual video dimensions so ASS PlayRes matches
+      const videoDims = getVideoDimensions(videoPath);
+      console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
 
-    // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
-    const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims);
+      // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
+      const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims);
 
-    fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
-    const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
-    console.log(`   📝 ASS generated: ${blockCount} subtitle blocks${titleCard ? ' (with 5s title card)' : ''}`);
+      fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
+      const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
+      console.log(`   📝 ASS generated: ${blockCount} subtitle blocks${titleCard ? ' (with 5s title card)' : ''}`);
+    }
 
     // Burn subtitles into video with FFmpeg
     console.log(`   🔥 Burning subtitles with ffmpeg...`);
@@ -401,10 +411,11 @@ const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i +
 const slug = get("--slug");
 const force = args.includes("--force");
 const titleCard = args.includes("--title-card");
+const burnOnly = args.includes("--burn-only");
 const reelId = get("--reel-id");
 
 if (!slug) {
-  console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card]");
+  console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only]");
   process.exit(1);
 }
-subtitle(slug, force, titleCard, reelId).catch(err => { console.error("❌", err.message); process.exit(1); });
+subtitle(slug, force, titleCard, reelId, burnOnly).catch(err => { console.error("❌", err.message); process.exit(1); });
