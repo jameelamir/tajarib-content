@@ -6,7 +6,7 @@
  * Writes: episodes/{slug}/analysis.json
  *
  * Usage:
- *   node analyze.js --slug my-episode [--force]
+ *   node analyze.js --slug my-episode [--force] [--more]
  */
 
 const fs = require("fs");
@@ -259,12 +259,127 @@ async function analyze(slug, force = false) {
   return outputPath;
 }
 
+/**
+ * "Get More Reels" mode: keep existing analysis, ask LLM for additional reels
+ * that don't overlap with what's already been identified.
+ */
+async function analyzeMore(slug) {
+  const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
+  if (!fs.existsSync(outputPath)) {
+    console.error("❌ No existing analysis.json — run analyze first.");
+    process.exit(1);
+  }
+
+  const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  const existingReels = existing.reels || [];
+  if (existingReels.length === 0) {
+    console.error("❌ No existing reels to build on — run analyze first.");
+    process.exit(1);
+  }
+
+  console.log(`🔍 Getting more reels for: ${slug} (${existingReels.length} existing)`);
+  const transcript = loadTranscript(slug);
+  const formattedTranscript = formatTranscriptForPrompt(transcript);
+
+  // Build summary of existing reels for the prompt
+  const existingReelsSummary = existingReels.map(r =>
+    `- ريل ${r.id}: [${r.start} → ${r.end}] ${r.hook || ""}\n  "${(r.transcript_excerpt || "").slice(0, 100)}"`
+  ).join("\n");
+
+  const userMessage = prompts.load("analyze-more-user", {
+    durationMinutes: Math.round(transcript.duration_seconds / 60),
+    existingReels: existingReelsSummary,
+    formattedTranscript,
+  });
+
+  const epDir = path.join(EPISODES_DIR, slug);
+  let rawContent;
+  let elapsed = "0";
+  let tokenInfo = { input: 0, output: 0, total: 0 };
+  let modelName = "manual";
+
+  if (!llm.hasKey()) {
+    console.log("📋 No API key found — entering manual LLM mode");
+    const promptData = {
+      step: "analyze-more",
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      expectedFormat: "json"
+    };
+    fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+    console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+    process.exit(42);
+  }
+
+  const config = llm.getConfig();
+  console.log(`🤖 Sending to ${config.model || 'default model'} for more reels...`);
+  const startTime = Date.now();
+
+  const response = await llm.chat({
+    system: SYSTEM_PROMPT,
+    user: userMessage,
+    maxTokens: 4096,
+  });
+
+  elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  rawContent = response.text;
+  modelName = response.model;
+  tokenInfo = response.usage;
+
+  // Parse JSON response
+  let result;
+  try {
+    const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    console.error("❌ Failed to parse LLM response as JSON:");
+    console.error(rawContent.slice(0, 500));
+    process.exit(1);
+  }
+
+  const newReels = result.reels || [];
+  if (newReels.length === 0) {
+    console.log("⚠️  LLM returned no new reels.");
+    return outputPath;
+  }
+
+  // Resolve timestamps on new reels
+  const hasTextRefs = newReels.some(r => r.text_start);
+  if (hasTextRefs) {
+    console.log("🔗 Resolving text references to precise timestamps...");
+    resolveTimestamps({ reels: newReels }, transcript.segments);
+  }
+  const resolved = newReels.filter(r => r.start && r.end);
+
+  // Assign new IDs starting after the max existing ID
+  const maxId = existingReels.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
+  for (let i = 0; i < resolved.length; i++) {
+    resolved[i].id = maxId + 1 + i;
+  }
+
+  // Merge into existing analysis
+  existing.reels = [...existingReels, ...resolved];
+  existing.analyzed_at = new Date().toISOString();
+  existing.more_model = modelName;
+  existing.more_tokens = tokenInfo;
+
+  fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+
+  console.log(`✅ Got ${resolved.length} more reels in ${elapsed}s`);
+  console.log(`   Total reels: ${existing.reels.length}`);
+  console.log(`   Tokens used: ${tokenInfo.total.toLocaleString()}`);
+  console.log(`📄 Saved: ${outputPath}`);
+  return outputPath;
+}
+
 // CLI
 const slugIdx = CLI_ARGS.indexOf("--slug");
 const force = CLI_ARGS.includes("--force");
+const more = CLI_ARGS.includes("--more");
 if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
-  console.error("Usage: node analyze.js --slug <episode-slug> [--force]");
+  console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more]");
   process.exit(1);
 }
 const slug = CLI_ARGS[slugIdx + 1];
-analyze(slug, force).catch(err => { console.error("❌", err.message); process.exit(1); });
+const run = more ? analyzeMore(slug) : analyze(slug, force);
+run.catch(err => { console.error("❌", err.message); process.exit(1); });
