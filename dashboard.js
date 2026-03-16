@@ -4,9 +4,14 @@
  * Features: Guest history, Zapier webhook integration, YouTube title = opener
  */
 
-const http = require("http");
 const fs = require("fs");
 const path = require("path");
+if (!fs.existsSync(path.join(__dirname, "node_modules"))) {
+  console.log("Installing dependencies...");
+  require("child_process").execSync("npm install", { cwd: __dirname, stdio: "inherit" });
+}
+
+const http = require("http");
 const { spawn } = require("child_process");
 const socketIo = require("socket.io");
 const { formidable } = require("formidable");
