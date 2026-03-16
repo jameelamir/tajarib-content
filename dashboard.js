@@ -2838,7 +2838,7 @@ async function handler(req, res) {
     req.on("data", chunk => body += chunk);
     req.on("end", () => {
       try {
-        const { slug, step, force, model, ratio, faceTrack, reelId, preferSide, burnOnly } = JSON.parse(body);
+        const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly } = JSON.parse(body);
         if (!slug || !step) throw new Error("slug + step required");
 
         const meta = loadMeta(slug);
@@ -2863,7 +2863,7 @@ async function handler(req, res) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
 
-        runStep({ slug, step, force, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly });
+        runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly });
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: err.message }));
@@ -3020,7 +3020,7 @@ async function handler(req, res) {
 
 // ─── Run Pipeline Step ───────────────────────────────────────────────────────
 
-function runStep({ slug, step, force, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly }) {
+function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly }) {
   if (activeProcesses[slug]) {
     io.emit("toast", { type: "error", message: `${slug} is already running` });
     return;
@@ -3049,7 +3049,8 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
     case "analyze":
       cmd = NODE_BIN;
       args = ["analyze.js", "--slug", slug];
-      if (force) args.push("--force");
+      if (more) args.push("--more");
+      else if (force) args.push("--force");
       if (resume) args.push("--resume");
       break;
     case "analyze-clips":
