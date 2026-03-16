@@ -301,8 +301,10 @@ async function overlay(slug, options) {
     // Shadow gradient PNG — injected as extra input, composited before everything else
     const shadowFile = path.join(ASSETS_DIR, "shadow-reels-light.png");
     let shadowInput = null;
+    let shadowIsStatic = false;
     if (fs.existsSync(shadowFile)) {
       shadowInput = shadowFile;
+      shadowIsStatic = /\.(png|jpg|jpeg)$/i.test(shadowFile);
     }
 
     // Lower-third: auto-generated drawtext (custom file handled below after movInputs init)
@@ -414,12 +416,12 @@ async function overlay(slug, options) {
       const ffArgs = [
         "-y",
         "-i", video.input,
-        ...shadowInputs.flatMap(f => ["-i", f]),
-        ...movInputs.flatMap(f => ["-i", f]),
+        ...shadowInputs.flatMap(f => inputArgs(f)),
+        ...movInputs.flatMap(f => inputArgs(f)),
         "-filter_complex", fullChain,
         "-map", finalLabel, "-map", "0:a",
         "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-        "-c:a", "copy",
+        "-c:a", "copy", "-shortest",
         video.output
       ];
 
@@ -444,12 +446,12 @@ async function overlay(slug, options) {
       const ffArgs = [
         "-y",
         "-i", video.input,
-        ...shadowInputs.flatMap(f => ["-i", f]),
-        ...movInputs.flatMap(f => ["-i", f]),
+        ...shadowInputs.flatMap(f => inputArgs(f)),
+        ...movInputs.flatMap(f => inputArgs(f)),
         "-filter_complex", fullChain,
         "-map", finalLabel, "-map", "0:a",
         "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-        "-c:a", "copy",
+        "-c:a", "copy", "-shortest",
         video.output
       ];
 
@@ -463,11 +465,11 @@ async function overlay(slug, options) {
         const ffArgs = [
           "-y",
           "-i", video.input,
-          ...shadowInputs.flatMap(f => ["-i", f]),
+          ...shadowInputs.flatMap(f => inputArgs(f)),
           "-filter_complex", fullChain,
           "-map", "[final]", "-map", "0:a",
           "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-          "-c:a", "copy",
+          "-c:a", "copy", "-shortest",
           video.output
         ];
         runFFmpeg(ffArgs, video);
@@ -477,7 +479,7 @@ async function overlay(slug, options) {
           "-i", video.input,
           "-vf", vfFilters.join(","),
           "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-          "-c:a", "copy",
+          "-c:a", "copy", "-shortest",
           video.output
         ];
         runFFmpeg(ffArgs, video);
@@ -489,6 +491,16 @@ async function overlay(slug, options) {
   }
 
   console.log(`\n✅ Overlay complete for ${slug}`);
+}
+
+/**
+ * Expand an input file to FFmpeg args, adding -loop 1 for static images.
+ */
+function inputArgs(filePath) {
+  if (/\.(png|jpg|jpeg)$/i.test(filePath)) {
+    return ["-loop", "1", "-i", filePath];
+  }
+  return ["-i", filePath];
 }
 
 function runFFmpeg(ffArgs, video) {

@@ -117,8 +117,21 @@
         .reel-detail-modular.portrait .reel-preview video { max-width: 100%; max-height: none; width: 100%; }
         .reel-detail-content { display: flex; flex-direction: column; gap: 12px; }
         .reel-detail-modular.portrait .reel-detail-content { flex: 1; min-width: 0; overflow-y: auto; }
-        .reel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+        .reel-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
         .reel-actions-group { display: flex; gap: 4px; align-items: center; }
+        .reel-pipeline { display: flex; gap: 2px; align-items: center; background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 4px; flex-wrap: wrap; }
+        .reel-pipeline .pipe-step { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 6px; font-size: 0.7rem; cursor: pointer; border: none; background: transparent; color: #888; transition: background 0.15s; }
+        .reel-pipeline .pipe-step:hover { background: #1a1a1a; }
+        .reel-pipeline .pipe-step.done { color: #4ade80; }
+        .reel-pipeline .pipe-step.next { color: #ddd; background: var(--accent); }
+        .reel-pipeline .pipe-step .pipe-icon { font-size: 0.6rem; opacity: 0.7; }
+        .reel-pipeline .pipe-sep { color: #333; font-size: 0.6rem; padding: 0 2px; }
+        .reel-pipeline .pipe-step select { background: transparent; border: none; color: inherit; font-size: 0.65rem; padding: 0; cursor: pointer; }
+        .reel-pipeline .pipe-step select option { background: #111; }
+        .reel-pipeline .pipe-step label { font-size: 0.6rem; cursor: pointer; display: flex; align-items: center; gap: 2px; }
+        .reel-pipeline .pipe-meta { margin-left: auto; display: flex; gap: 2px; }
+        .reel-pipeline .pipe-meta button { background: transparent; border: none; color: #555; font-size: 0.65rem; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+        .reel-pipeline .pipe-meta button:hover { background: #1a1a1a; color: #aaa; }
         .reel-trim-editor { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
         .reel-trim-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .reel-trim-field { display: flex; flex-direction: column; gap: 3px; }
@@ -427,7 +440,12 @@
         </div>
 
         <!-- SHARED: Episode-level pipeline chips -->
-        <div class="episode-pipeline-bar" id="episode-pipeline-bar"></div>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <div class="episode-pipeline-bar" id="episode-pipeline-bar" style="flex:1;"></div>
+            <input type="file" id="replace-srt-input" accept=".srt,.vtt" style="display:none;" onchange="handleReplaceSrt(this)">
+            <button id="replace-srt-btn" style="display:none; font-size:0.65rem; padding:3px 8px; background:#222; border:1px solid #444; color:#aaa; border-radius:4px; white-space:nowrap; cursor:pointer;" onclick="document.getElementById('replace-srt-input').click()">Replace SRT</button>
+            <button id="analyze-clips-btn" style="display:none; font-size:0.65rem; padding:3px 8px; background:#222; border:1px solid #7c3aed; color:#a855f7; border-radius:4px; white-space:nowrap; cursor:pointer;" onclick="runClipsAnalysis()">Clips</button>
+        </div>
 
         <!-- MODE A: Pre-Cut (episode-level) -->
         <div id="pre-cut-view" style="display:none; flex:1; display:flex; flex-direction:column; gap:12px; overflow:hidden;">
@@ -507,6 +525,12 @@
                             <input type="text" id="clip-topic-input" placeholder="e.g., investment advice..." style="background:#111; border:1px solid #333; color:#ddd; padding:5px 8px; border-radius:4px; font-size:0.7rem; flex:1; min-width:0;">
                             <button style="background:#f59e0b; color:#000; border-color:#f59e0b; padding:4px 10px; font-size:0.7rem;" onclick="generateTopicClip()">Go</button>
                         </div>
+                    </div>
+                    <div id="clips-section" style="display:none; padding:10px 14px; border-top:1px solid var(--border);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-size:0.7rem; color:#a855f7; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">YouTube Clips</span>
+                        </div>
+                        <div id="clips-list"></div>
                     </div>
                 </div>
 
@@ -1404,7 +1428,107 @@ socket.on('process-end', function(data) {
             setTimeout(function() { switchReelFullTab('caption'); }, 700);
         }
     }
+    // Advance step queue if this step succeeded
+    if (data.code === 0) {
+        // Check per-reel queue, then bulk queue
+        var qKeys = [
+            data.slug + (data.reelId ? ':' + data.reelId : ''),
+            data.slug + ':__bulk__'
+        ];
+        for (var qi = 0; qi < qKeys.length; qi++) {
+            var qKey = qKeys[qi];
+            if (stepQueue[qKey] && stepQueue[qKey].length > 0 && stepQueue[qKey][0].step === data.step) {
+                stepQueue[qKey].shift();
+                if (stepQueue[qKey].length > 0) {
+                    var nextItem = stepQueue[qKey][0];
+                    setTimeout(function() { runReelStep(nextItem.reelId, nextItem.step); }, 500);
+                } else {
+                    delete stepQueue[qKey];
+                    showToast('Finalize complete', 'success');
+                }
+                break;
+            }
+        }
+    } else {
+        // Step failed — clear any matching queue
+        var qKeysFail = [
+            data.slug + (data.reelId ? ':' + data.reelId : ''),
+            data.slug + ':__bulk__'
+        ];
+        for (var qf = 0; qf < qKeysFail.length; qf++) {
+            if (stepQueue[qKeysFail[qf]]) {
+                var remaining = stepQueue[qKeysFail[qf]].length;
+                delete stepQueue[qKeysFail[qf]];
+                showToast('Pipeline stopped — ' + data.step + ' failed (' + remaining + ' steps skipped)', 'error');
+                break;
+            }
+        }
+    }
 });
+// ── Step queue: chain steps sequentially per slug ──────────────────────
+var stepQueue = {};  // { slug: [{ reelId, step, opts }] }
+
+function queueSteps(slug, reelId, steps, opts) {
+    var key = slug + (reelId ? ':' + reelId : '');
+    stepQueue[key] = steps.map(function(s) { return { reelId: reelId, step: s, opts: opts || {} }; });
+    runNextQueued(key, slug);
+}
+
+function runNextQueued(key, slug) {
+    if (!stepQueue[key] || stepQueue[key].length === 0) {
+        delete stepQueue[key];
+        return;
+    }
+    var next = stepQueue[key][0];
+    if (next.reelId) {
+        runReelStep(next.reelId, next.step);
+    } else {
+        runStep(next.step);
+    }
+}
+
+function finalizeReel(reelId) {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep) return;
+    var r = ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    if (!r) return;
+    // Build list of remaining steps: crop → subtitle → overlay
+    var remaining = [];
+    if (!r.cropped) remaining.push('crop');
+    if (!r.subtitled) remaining.push('subtitle');
+    if (!r.final) remaining.push('overlay');
+    if (remaining.length === 0) {
+        showToast('Reel ' + reelId + ' is already finalized', 'success');
+        return;
+    }
+    showToast('Finalizing Reel ' + reelId + ': ' + remaining.join(' → '), 'success');
+    queueSteps(currentSlug, reelId, remaining);
+}
+
+async function finalizeAll() {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep || !ep.reelStatuses) return;
+    var reels = ep.reelStatuses.filter(function(r) { return !r.hidden && r.cut; });
+    if (reels.length === 0) { showToast('No cut reels to finalize', 'error'); return; }
+    // Build a flat sequence: reel1 crop, reel1 sub, reel1 overlay, reel2 crop, ...
+    // But since only one process can run per slug, we chain all reels sequentially
+    var allSteps = [];
+    reels.forEach(function(r) {
+        if (!r.cropped) allSteps.push({ reelId: r.id, step: 'crop' });
+        if (!r.subtitled) allSteps.push({ reelId: r.id, step: 'subtitle' });
+        if (!r.final) allSteps.push({ reelId: r.id, step: 'overlay' });
+    });
+    if (allSteps.length === 0) { showToast('All reels already finalized', 'success'); return; }
+    showToast('Finalizing ' + reels.length + ' reels (' + allSteps.length + ' steps)', 'success');
+    // Use slug-level queue (no reelId in key) so steps chain across reels
+    var key = currentSlug + ':__bulk__';
+    stepQueue[key] = allSteps;
+    var first = allSteps[0];
+    runReelStep(first.reelId, first.step);
+}
+
 socket.on('toast', ({type, message}) => showToast(message, type));
 
 // Download progress (from URL downloads)
@@ -2159,6 +2283,45 @@ function clearLogs() {
     }
 }
 
+async function runClipsAnalysis() {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var force = ep && ep.steps.clipsAnalyzed;
+    try {
+        var res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'analyze-clips', force: force })
+        });
+        var data = await res.json();
+        if (!data.success) showToast(data.error, 'error');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function handleReplaceSrt(input) {
+    var file = input.files[0];
+    if (!file || !currentSlug) return;
+    if (!confirm('Replace transcript for "' + currentSlug + '" with this SRT?\n\nYou can re-analyze and re-cut afterwards.')) {
+        input.value = '';
+        return;
+    }
+    var formData = new FormData();
+    formData.append('slug', currentSlug);
+    formData.append('srt', file);
+    try {
+        var res = await fetch('/api/replace-srt', { method: 'POST', body: formData });
+        var data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Replace failed');
+        await refresh();
+        if (currentSlug) renderMain(currentSlug);
+    } catch (err) {
+        alert('Failed to replace SRT: ' + err.message);
+    }
+    input.value = '';
+}
+
 async function deleteEpisode(slug) {
     if (!confirm('Delete episode "' + slug + '"?\n\nThis will permanently remove all files (video, transcript, reels, etc). This cannot be undone.')) return;
     try {
@@ -2197,6 +2360,18 @@ function renderMain(slug) {
     // Episode pipeline bar
     renderEpisodePipelineBar(ep);
 
+    // Show Replace SRT button if episode is transcribed
+    var replaceSrtBtn = document.getElementById('replace-srt-btn');
+    if (replaceSrtBtn) replaceSrtBtn.style.display = ep.steps.transcribed ? '' : 'none';
+
+    // Show Clips button if analyzed (only for episodes)
+    var clipsBtn = document.getElementById('analyze-clips-btn');
+    if (clipsBtn) {
+        clipsBtn.style.display = (ep.mediaType === 'episode' && ep.steps.analyzed) ? '' : 'none';
+        clipsBtn.textContent = ep.steps.clipsAnalyzed ? 'Clips ✓' : 'Clips';
+        clipsBtn.style.background = ep.steps.clipsAnalyzed ? '#1a0f2e' : '#222';
+    }
+
     // Mode switch — show reel list if any reels exist (from files or analysis)
     const isCut = ep.reelStatuses && ep.reelStatuses.length > 0;
 
@@ -2213,6 +2388,16 @@ function renderMain(slug) {
         // Topic clip
         var tcSection = document.getElementById('topic-clip-section');
         if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';
+        // YouTube clips
+        var clipsSection = document.getElementById('clips-section');
+        if (clipsSection) {
+            if (ep.clipsAnalysis && ep.clipsAnalysis.clips && ep.clipsAnalysis.clips.length > 0) {
+                clipsSection.style.display = '';
+                renderClipsList(ep);
+            } else {
+                clipsSection.style.display = 'none';
+            }
+        }
     } else {
         document.getElementById('pre-cut-view').style.display = 'flex';
         document.getElementById('post-cut-view').style.display = 'none';
@@ -2270,6 +2455,25 @@ function renderEpisodePipelineBar(ep) {
 
 var showHiddenReels = false;
 
+function renderClipsList(ep) {
+    var listEl = document.getElementById('clips-list');
+    if (!listEl || !ep.clipsAnalysis || !ep.clipsAnalysis.clips) return;
+    listEl.innerHTML = ep.clipsAnalysis.clips.map(function(clip) {
+        var padded = String(clip.id).padStart(2, '0');
+        var duration = clip.duration_minutes ? clip.duration_minutes + ' min' : '';
+        var time = (clip.start || '') + (clip.end ? ' → ' + clip.end : '');
+        return '<div style="padding:6px 0; border-bottom:1px solid #222; font-size:0.72rem;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                '<strong style="color:#ddd;">Clip ' + padded + '</strong>' +
+                '<span style="color:#666; font-size:0.6rem;">' + duration + '</span>' +
+            '</div>' +
+            '<div style="color:#aaa; margin-top:2px; direction:rtl;">' + escHtml(clip.title || '') + '</div>' +
+            '<div style="color:#666; font-size:0.6rem; margin-top:2px;">' + time + '</div>' +
+            (clip.thumbnail_text ? '<div style="color:#a855f7; font-size:0.6rem; margin-top:2px;">Thumb: ' + escHtml(clip.thumbnail_text) + '</div>' : '') +
+        '</div>';
+    }).join('');
+}
+
 function renderReelList(ep) {
     var listEl = document.getElementById('reel-list');
     var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
@@ -2282,6 +2486,7 @@ function renderReelList(ep) {
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
         '<button onclick="runStep(\'overlay\')">Overlay All</button>' +
+        '<button onclick="finalizeAll()" style="color:#f59e0b; font-weight:600;">Finalize All</button>' +
         (hiddenCount > 0 ? '<button onclick="showHiddenReels=!showHiddenReels; var ep=episodes.find(function(e){return e.slug===currentSlug;}); if(ep) renderReelList(ep);" style="font-size:0.65rem; opacity:0.6;">' + (showHiddenReels ? 'Hide Hidden' : 'Show Hidden') + '</button>' : '');
 
     listEl.innerHTML = visibleReels.map(function(r) {
@@ -2579,45 +2784,60 @@ async function saveReelFullTranscript() {
 
 function buildReelActions(ep, reel) {
     var reelId = reel.id;
-    var html = '';
+    var steps = [];
 
-    // Re-cut (available for all episode reels, primary style when cut is missing)
+    // Build ordered pipeline steps
     if (ep.mediaType === 'episode') {
-        html += '<button class="' + (reel.cut ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'cut\')">' +
-            (reel.cut ? '↻ Re-cut' : '▶ Cut') + '</button>';
+        steps.push({ id: 'cut', label: 'Cut', done: reel.cut });
+    }
+    steps.push({ id: 'crop', label: 'Crop', done: reel.cropped, extra:
+        '<select id="reel-crop-ratio" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
+            '<option value="9:16" style="background:#111;">9:16</option><option value="1:1" style="background:#111;">1:1</option><option value="4:5" style="background:#111;">4:5</option>' +
+        '</select>' +
+        '<label style="font-size:0.58rem; cursor:pointer; display:flex; align-items:center; gap:2px;">' +
+            '<input type="checkbox" id="reel-face-track" style="accent-color:var(--accent); width:12px; height:12px;" checked>Face' +
+        '</label>'
+    });
+    steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled });
+    steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
+        '<button onclick="event.stopPropagation(); toggleOverlayConfig()" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer; opacity:0.6;" title="Configure overlays">&#9881;</button>'
+    });
+
+    // Find next undone step
+    var nextIdx = steps.findIndex(function(s) { return !s.done; });
+
+    var html = '<div class="reel-pipeline">';
+    steps.forEach(function(s, i) {
+        var cls = 'pipe-step';
+        if (s.done) cls += ' done';
+        else if (i === nextIdx) cls += ' next';
+        var icon = s.done ? '&#10003;' : (i === nextIdx ? '&#9654;' : '&#9675;');
+        if (i > 0) html += '<span class="pipe-sep">&#8250;</span>';
+        html += '<button class="' + cls + '" onclick="runReelStep(\'' + reelId + '\', \'' + s.id + '\')">' +
+            '<span class="pipe-icon">' + icon + '</span>' + s.label +
+        '</button>';
+        if (s.extra) html += s.extra;
+    });
+
+    // Finalize button — runs remaining steps in sequence
+    var remainingSteps = [];
+    if (!reel.cropped) remainingSteps.push('Crop');
+    if (!reel.subtitled) remainingSteps.push('Sub');
+    if (!reel.final) remainingSteps.push('Overlay');
+    if (remainingSteps.length > 0) {
+        html += '<span class="pipe-sep">&#8250;</span>' +
+            '<button class="pipe-step" style="color:#f59e0b; font-weight:600;" onclick="event.stopPropagation(); finalizeReel(\'' + reelId + '\')" title="Run: ' + remainingSteps.join(' → ') + '">' +
+            '&#9889; Finalize</button>';
     }
 
-    // Crop group
-    html += '<div class="reel-actions-group">' +
-        '<button class="' + (reel.cropped ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'crop\')">' +
-        (reel.cropped ? '↻ Crop' : '▶ Crop') + '</button>' +
-        '<select id="reel-crop-ratio" style="background:#111; border:1px solid #333; color:#ddd; padding:4px 6px; border-radius:4px; font-size:0.7rem;">' +
-            '<option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:5">4:5</option>' +
-        '</select>' +
-        '<label style="font-size:0.68rem; color:#888; display:flex; align-items:center; gap:3px; cursor:pointer;">' +
-            '<input type="checkbox" id="reel-face-track" style="accent-color:var(--accent);" checked>' +
-            'Face' +
-        '</label>' +
+    // Meta actions (hide/delete) pushed to the right
+    html += '<div class="pipe-meta">' +
+        '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
+        (reel.hidden ? 'Show' : 'Hide') + '</button>' +
+        '<button onclick="deleteReel(\'' + reelId + '\')" style="color:#f87171;" title="Delete reel files">&#128465;</button>' +
     '</div>';
 
-    // Subtitle
-    html += '<button class="' + (reel.subtitled ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'subtitle\')">' +
-        (reel.subtitled ? '↻ Subtitle' : '▶ Subtitle') + '</button>';
-
-    // Overlay
-    html += '<div class="reel-actions-group">' +
-        '<button class="' + (reel.final ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'overlay\')">' +
-        (reel.final ? '↻ Overlay' : '▶ Overlay') + '</button>' +
-        '<button onclick="toggleOverlayConfig()" style="font-size:0.7rem; padding:6px 8px;" title="Configure overlays">⚙</button>' +
-    '</div>';
-
-    // Hide / Delete
-    html += '<div class="reel-actions-group" style="margin-left:auto; gap:4px;">' +
-        '<button onclick="toggleHideReel(\'' + reelId + '\')" style="font-size:0.65rem; padding:4px 8px; opacity:0.6;" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
-        (reel.hidden ? '👁 Show' : '👁‍🗨 Hide') + '</button>' +
-        '<button onclick="deleteReel(\'' + reelId + '\')" style="font-size:0.65rem; padding:4px 8px; opacity:0.6; color:#f87171;" title="Delete reel files">🗑</button>' +
-    '</div>';
-
+    html += '</div>';
     return html;
 }
 
@@ -2661,21 +2881,22 @@ function renderTrimEditor(ep, reel) {
     }
 
     trimEl.innerHTML =
-        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
+        '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">' +
             '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Trim</div>' +
-            '<button onclick="seekToTrimStart()" style="font-size:0.6rem; padding:2px 6px; color:#888;">Jump to start</button>' +
+            '<div style="flex:1;"></div>' +
+            '<button onclick="seekToTrimStart()" style="font-size:0.6rem; padding:2px 6px; color:#666; background:transparent; border:1px solid #333; border-radius:4px;">Jump to start</button>' +
         '</div>' +
         '<div class="reel-trim-row">' +
             '<div class="reel-trim-field">' +
-                '<label>Start</label>' +
+                '<label>In</label>' +
                 '<input type="text" id="reel-trim-start" value="' + escHtml(reel.start) + '" placeholder="0:00">' +
             '</div>' +
             '<div class="reel-trim-field">' +
-                '<label>End</label>' +
+                '<label>Out</label>' +
                 '<input type="text" id="reel-trim-end" value="' + escHtml(reel.end) + '" placeholder="1:30">' +
             '</div>' +
             '<div class="reel-trim-field">' +
-                '<label>Playhead</label>' +
+                '<label>Set from playhead</label>' +
                 '<div style="display:flex; gap:4px;">' +
                     '<button onclick="setTrimFromPlayhead(\'start\')" style="font-size:0.6rem; padding:3px 6px;" title="Set start to current video time">In</button>' +
                     '<button onclick="setTrimFromPlayhead(\'end\')" style="font-size:0.6rem; padding:3px 6px;" title="Set end to current video time">Out</button>' +
