@@ -3095,7 +3095,7 @@ async function saveReelSubtitles(reelId) {
     var content = textEl.value;
     try {
         // Save the subtitle file
-        var res = await fetch('/api/file?slug=' + currentSlug + '&file=reels/reel-' + padded + '.ass', {
+        var res = await fetch('/api/file', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({slug: currentSlug, file: 'reels/reel-' + padded + '.ass', content: content})
@@ -3103,8 +3103,18 @@ async function saveReelSubtitles(reelId) {
         var data = await res.json();
         if (data.success) {
             showToast('Subtitles saved. Re-burning...', 'success');
-            // Re-run subtitle burn for this reel
-            await runReelStep(reelId, 'subtitle');
+            // Re-burn using existing ASS (burn-only mode preserves edits)
+            var burnRes = await fetch('/api/run-step', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    slug: currentSlug,
+                    step: 'subtitle',
+                    reelId: reelId,
+                    force: true,
+                    burnOnly: true
+                })
+            });
         } else {
             showToast(data.error || 'Save failed', 'error');
         }
@@ -3207,7 +3217,7 @@ async function toggleOverlayConfig() {
         overlayConfig = {
             sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
             logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
-            lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+            lowerThird: { enabled: false, startTime: 2, endTime: 8 },
             cta: { enabled: false, mode: 'text', text: 'www.tajarib.show', fontSize: 28, fontColor: '#ffffff', imagePath: '', x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
         };
     }
@@ -4113,14 +4123,15 @@ async function showReels() {
 // Known model aliases for validation
 const KNOWN_MODEL_ALIASES = {
     // Auto
-    'auto': 'Auto (HAI Maker picks best)',
-    '': 'Auto (HAI Maker picks best)',
+    'auto': 'Claude Sonnet 4.5 (default)',
+    '': 'Claude Sonnet 4.5 (default)',
     // Claude models
     'claude': 'Claude (Latest)',
-    'claude-sonnet': 'Claude 3.5 Sonnet',
-    'claude-opus': 'Claude 3 Opus',
-    'claude-haiku': 'Claude 3 Haiku',
-    'anthropic/claude-sonnet-4-20250514': 'Claude 3.5 Sonnet (2025-05)',
+    'claude-sonnet-4-5-20241022': 'Claude Sonnet 4.5',
+    'claude-sonnet': 'Claude Sonnet',
+    'claude-opus': 'Claude Opus',
+    'claude-haiku': 'Claude Haiku',
+    'anthropic/claude-sonnet-4-20250514': 'Claude Sonnet 4 (2025-05)',
     // OpenAI models
     'openai': 'OpenAI (Latest)',
     'gpt-4': 'GPT-4',
@@ -4151,7 +4162,7 @@ function debouncedValidateSidebarModel(input) {
     if (modelValidationTimer) clearTimeout(modelValidationTimer);
 
     if (!value) {
-        validationDiv.textContent = 'Auto (HAI Maker picks best)';
+        validationDiv.textContent = 'Claude Sonnet 4.5 (default)';
         validationDiv.style.color = '#666';
         return;
     }

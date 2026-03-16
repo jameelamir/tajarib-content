@@ -2021,14 +2021,15 @@ let modelListLoaded = false;
 // Known model aliases for validation
 const KNOWN_MODEL_ALIASES = {
     // Auto
-    'auto': 'Auto (HAI Maker picks best)',
-    '': 'Auto (HAI Maker picks best)',
+    'auto': 'Claude Sonnet 4.5 (default)',
+    '': 'Claude Sonnet 4.5 (default)',
     // Claude models
     'claude': 'Claude (Latest)',
-    'claude-sonnet': 'Claude 3.5 Sonnet',
-    'claude-opus': 'Claude 3 Opus',
-    'claude-haiku': 'Claude 3 Haiku',
-    'anthropic/claude-sonnet-4-20250514': 'Claude 3.5 Sonnet (2025-05)',
+    'claude-sonnet-4-5-20241022': 'Claude Sonnet 4.5',
+    'claude-sonnet': 'Claude Sonnet',
+    'claude-opus': 'Claude Opus',
+    'claude-haiku': 'Claude Haiku',
+    'anthropic/claude-sonnet-4-20250514': 'Claude Sonnet 4 (2025-05)',
     // OpenAI models
     'openai': 'OpenAI (Latest)',
     'gpt-4': 'GPT-4',
@@ -2057,11 +2058,11 @@ async function loadModelList() {
     if (!datalist) return;
     
     // Build options from known aliases
-    let options = '<option value="auto">🤖 Auto (default - HAI Maker picks best)</option>';
+    let options = '<option value="">Claude Sonnet 4.5 (default)</option>';
     
     // Add categorized options
     const categories = {
-        'Claude': ['claude', 'claude-sonnet', 'claude-opus', 'claude-haiku'],
+        'Claude': ['claude-sonnet-4-5-20241022', 'claude', 'claude-sonnet', 'claude-opus', 'claude-haiku'],
         'OpenAI': ['openai', 'gpt-4o', 'gpt-4o-mini', 'gpt-4', 'gpt-4-turbo'],
         'Gemini': ['gemini', 'gemini-1.5-pro', 'gemini-1.5-flash'],
         'HAI Maker': ['haimaker/auto', 'haimaker/claude-sonnet', 'haimaker/gpt-4o'],
@@ -2091,7 +2092,7 @@ function validateModel(input) {
     if (!validationDiv) return;
     
     if (!value || value === 'auto') {
-        validationDiv.textContent = '✓ Auto (HAI Maker will pick the best model)';
+        validationDiv.textContent = '✓ Claude Sonnet 4.5 (default)';
         validationDiv.style.color = '#4ade80';
         return;
     }
