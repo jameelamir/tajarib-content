@@ -2483,6 +2483,7 @@ function renderReelList(ep) {
     // Bulk actions
     var bulkEl = document.getElementById('reel-list-bulk');
     bulkEl.innerHTML =
+        '<button onclick="getMoreReels()" style="color:#a855f7; font-weight:600;">+ More Reels</button>' +
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
         '<button onclick="runStep(\'overlay\')">Overlay All</button>' +
@@ -3814,6 +3815,7 @@ function openLlmModal(data) {
         feedback: 'Revision',
         'generate-title': 'Title Generation',
         'topic-clip': 'Topic Clip',
+        'analyze-more': 'More Reels',
         'analyze-clips': 'Reel Suggestions',
         dashboard: 'AI Request',
     };
@@ -3881,6 +3883,25 @@ async function submitLlmResponse() {
         }
     } catch (e) {
         showToast('Failed: ' + e.message, 'error');
+    }
+}
+
+// ── Get More Reels ──────────────────────────────────────────────────────
+
+async function getMoreReels() {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'analyze', more: true })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
     }
 }
 
