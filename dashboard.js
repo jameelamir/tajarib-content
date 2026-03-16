@@ -306,6 +306,8 @@ function getEpisodes() {
         });
       }
 
+      const clipsAnalysis = loadJSON(path.join(dir, "clips-analysis.json"));
+
       return {
         slug,
         mediaType,
@@ -324,9 +326,11 @@ function getEpisodes() {
           overlaid: hasOverlay,
           composed: hasComposed,
           cropped: hasCropped,
+          clipsAnalyzed: !!clipsAnalysis,
           published: meta.published || false
         },
         reelStatuses,
+        clipsAnalysis,
         content,
         counts: { reels: reelCount, final: finalCount },
         cropRatio: meta.cropRatio || null
@@ -2341,6 +2345,46 @@ async function handler(req, res) {
     return;
   }
 
+  // ── Replace SRT API ─────────────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/replace-srt") {
+    const form = formidable({ uploadDir: UPLOADS_DIR, keepExtensions: true, maxFileSize: 50 * 1024 * 1024 });
+    form.parse(req, (err, fields, files) => {
+      if (err) { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); return; }
+      const slug = Array.isArray(fields.slug) ? fields.slug[0] : fields.slug;
+      const srtFile = files.srt?.[0] || files.srt;
+      if (!slug || !srtFile) { res.writeHead(400); res.end(JSON.stringify({ error: "Missing slug or srt file" })); return; }
+      const epDir = path.join(EPISODES_DIR, slug);
+      if (!fs.existsSync(epDir)) { res.writeHead(404); res.end(JSON.stringify({ error: "Episode not found" })); return; }
+      try {
+        const srtContent = fs.readFileSync(srtFile.filepath, "utf-8");
+        const transcriptData = parseSrt(srtContent);
+        transcriptData.slug = slug;
+        const existing = path.join(epDir, "transcript.json");
+        if (fs.existsSync(existing)) {
+          const old = JSON.parse(fs.readFileSync(existing, "utf8"));
+          transcriptData.source_file = old.source_file || "";
+        }
+        saveJSON(existing, transcriptData);
+        const srtExt = path.extname(srtFile.originalFilename || ".srt").toLowerCase();
+        fs.copyFileSync(srtFile.filepath, path.join(epDir, `uploaded${srtExt}`));
+        fs.unlinkSync(srtFile.filepath);
+        // Remove old analysis since it was based on the previous transcript
+        const analysisPath = path.join(epDir, "analysis.json");
+        if (fs.existsSync(analysisPath)) fs.unlinkSync(analysisPath);
+        const clipsPath = path.join(epDir, "clips-analysis.json");
+        if (fs.existsSync(clipsPath)) fs.unlinkSync(clipsPath);
+        io.emit("log", { slug, text: `📄 SRT replaced — ${transcriptData.segment_count} segments loaded. Re-analyze to update reels.\n` });
+        io.emit("status-update", {});
+        io.emit("toast", { type: "success", message: "Transcript replaced — run Analyze next" });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, segments: transcriptData.segment_count }));
+      } catch (e) {
+        res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // ── Save content API ──────────────────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/save-content") {
     let body = "";
@@ -2995,6 +3039,12 @@ function runStep({ slug, step, force, mediaType, guest, role, model, ratio, face
     case "analyze":
       cmd = NODE_BIN;
       args = ["analyze.js", "--slug", slug];
+      if (force) args.push("--force");
+      if (resume) args.push("--resume");
+      break;
+    case "analyze-clips":
+      cmd = NODE_BIN;
+      args = ["analyze-clips.js", "--slug", slug];
       if (force) args.push("--force");
       if (resume) args.push("--resume");
       break;
