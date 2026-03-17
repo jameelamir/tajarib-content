@@ -2921,6 +2921,34 @@ async function handler(req, res) {
     return;
   }
 
+  // ── Add reel API ─────────────────────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/add-reel") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const { slug, start, end, hook } = JSON.parse(body);
+        if (!slug) throw new Error("slug required");
+        if (!start || !end) throw new Error("start + end required");
+        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+        let analysis = loadJSON(analysisPath);
+        if (!analysis) analysis = { reels: [] };
+        if (!analysis.reels) analysis.reels = [];
+        const maxId = analysis.reels.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
+        const newId = maxId + 1;
+        analysis.reels.push({ id: newId, start, end, hook: hook || "" });
+        saveJSON(analysisPath, analysis);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, reelId: String(newId).padStart(2, "0") }));
+        io.emit("status-update", {});
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   // ── Hide reel API ────────────────────────────────────────────────────────
   if (req.method === "POST" && url.pathname === "/api/hide-reel") {
     let body = "";
