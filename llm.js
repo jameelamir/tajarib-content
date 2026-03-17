@@ -3,7 +3,7 @@
  * and direct Anthropic API.
  *
  * Config is read from auth.json:
- *   { "llm": { "key": "...", "baseUrl": "https://api.haimaker.ai/v1", "model": "haimaker/auto" } }
+ *   { "llm": { "key": "...", "baseUrl": "https://api.haimaker.ai/v1", "model": "claude-sonnet-4-5-20241022" } }
  *
  * If baseUrl is set → OpenAI-compatible /chat/completions
  * If baseUrl is empty → direct Anthropic SDK (key must be sk-ant-...)
@@ -16,7 +16,7 @@ const path = require("path");
 
 const AUTH_PATH = path.join(__dirname, "auth.json");
 
-const DEFAULT_MODEL = "haimaker/auto";
+const DEFAULT_MODEL = "claude-sonnet-4-5-20241022";
 
 // ─── Config ────────────────────────────────────────────────────────
 
