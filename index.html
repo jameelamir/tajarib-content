@@ -133,6 +133,40 @@
         .reel-pipeline .pipe-meta button { background: transparent; border: none; color: #555; font-size: 0.65rem; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
         .reel-pipeline .pipe-meta button:hover { background: #1a1a1a; color: #aaa; }
         .reel-trim-editor { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+        .reel-transcript-ctx { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+        .ctx-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .ctx-title { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .ctx-hint { font-size: 0.6rem; color: #555; margin-left: auto; }
+        .ctx-doc { position: relative; max-height: 300px; overflow-y: auto; border-radius: 6px; background: #0a0a0a; scroll-behavior: auto; }
+        .ctx-seg { display: flex; gap: 8px; align-items: flex-start; padding: 5px 10px; font-size: 0.78rem; line-height: 1.6; direction: rtl; transition: background 0.15s; cursor: pointer; user-select: none; }
+        .ctx-seg .ctx-ts { font-family: 'Fira Code', monospace; font-size: 0.6rem; color: #333; white-space: nowrap; min-width: 38px; text-align: left; padding-top: 3px; direction: ltr; transition: color 0.15s; }
+        .ctx-seg .ctx-text { flex: 1; color: #3a3a3a; transition: color 0.15s; }
+        .ctx-seg.ctx-selected { background: rgba(168, 85, 247, 0.08); }
+        .ctx-seg.ctx-selected .ctx-text { color: #ccc; }
+        .ctx-seg.ctx-selected .ctx-ts { color: #666; }
+        .ctx-seg:not(.ctx-selected):hover { background: rgba(168, 85, 247, 0.04); }
+        .ctx-seg:not(.ctx-selected):hover .ctx-text { color: #888; }
+        .ctx-seg:not(.ctx-selected):hover .ctx-ts { color: #555; }
+        .ctx-handle { position: absolute; left: 0; right: 0; height: 3px; background: var(--accent); cursor: ns-resize; z-index: 2; opacity: 0.5; transition: opacity 0.15s, box-shadow 0.15s; }
+        .ctx-handle:hover, .ctx-handle.dragging { opacity: 1; box-shadow: 0 0 8px rgba(168, 85, 247, 0.4); }
+        .ctx-handle::before { content: ''; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+        .ctx-player { margin-bottom: 8px; border-radius: 6px; overflow: hidden; background: #000; }
+        .ctx-player video { width: 100%; display: block; max-height: 120px; object-fit: contain; }
+        .ctx-seg.ctx-playing { background: rgba(168, 85, 247, 0.15) !important; }
+        .ctx-seg.ctx-playing .ctx-ts { color: var(--accent) !important; }
+        .ctx-doc.ctx-dragging { cursor: ns-resize; }
+        .ctx-doc.ctx-dragging .ctx-seg { pointer-events: none; cursor: ns-resize; }
+        .ctx-seg .ctx-text mark { background: rgba(250, 204, 21, 0.25); color: inherit; border-radius: 2px; padding: 0 1px; }
+        .ctx-seg.ctx-match { border-left: 2px solid #facc15; }
+        .find-reel-panel { display: flex; flex-direction: column; gap: 10px; flex: 1; overflow: hidden; }
+        .find-reel-search { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+        .find-reel-search input { flex: 1; background: #0a0a0a; border: 1px solid #333; color: #ddd; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; direction: rtl; }
+        .find-reel-search input:focus { border-color: var(--accent); outline: none; }
+        .find-reel-search .match-nav { display: flex; gap: 2px; align-items: center; font-size: 0.65rem; color: #666; }
+        .find-reel-search .match-nav button { font-size: 0.7rem; padding: 3px 6px; line-height: 1; }
+        .find-reel-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+        .find-reel-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        .find-reel-actions input { flex: 1; background: #0a0a0a; border: 1px solid #333; color: #ddd; padding: 5px 8px; border-radius: 4px; font-size: 0.75rem; direction: rtl; }
         .reel-trim-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .reel-trim-field { display: flex; flex-direction: column; gap: 3px; }
         .reel-trim-field label { font-size: 0.65rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
@@ -546,6 +580,7 @@
                                 <div class="reel-preview" id="reel-preview"></div>
                                 <div class="reel-detail-content">
                                     <div class="reel-trim-editor" id="reel-trim-editor" style="display:none;"></div>
+                                    <div class="reel-transcript-ctx" id="reel-transcript-ctx" style="display:none;"></div>
                                     <div class="reel-actions" id="reel-actions"></div>
                                     <div id="reel-caption-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
                                     <div id="reel-subtitle-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
@@ -563,6 +598,8 @@
                                 <pre class="logs" id="logs-output-reel"></pre>
                             </div>
                         </div>
+                    </div>
+                    <div id="find-reel-panel" class="find-reel-panel" style="display:none;">
                     </div>
                 </div>
             </div>
@@ -2483,6 +2520,7 @@ function renderReelList(ep) {
     // Bulk actions
     var bulkEl = document.getElementById('reel-list-bulk');
     bulkEl.innerHTML =
+        '<button onclick="openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find & Create</button>' +
         '<button onclick="getMoreReels()" style="color:#a855f7; font-weight:600;">+ More Reels</button>' +
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
@@ -2526,6 +2564,7 @@ function selectReel(reelId) {
 function renderReelDetail(ep, reelId) {
     document.getElementById('reel-detail-empty').style.display = 'none';
     document.getElementById('reel-detail').style.display = 'flex';
+    document.getElementById('find-reel-panel').style.display = 'none';
 
     var r = ep.reelStatuses.find(function(x) { return x.id === reelId; });
     if (!r) return;
@@ -2562,6 +2601,9 @@ function renderReelDetail(ep, reelId) {
 
     // Trim editor
     renderTrimEditor(ep, r);
+
+    // Transcript context for extending reel boundaries
+    renderTranscriptContext(ep, r);
 
     // Per-reel action buttons
     var actionsEl = document.getElementById('reel-actions');
@@ -2910,6 +2952,724 @@ function renderTrimEditor(ep, reel) {
             '<div style="flex:1;"></div>' +
             '<button class="primary" onclick="saveReelTrim(\'' + reel.id + '\')" style="font-size:0.7rem;">Save & Re-cut</button>' +
         '</div>';
+}
+
+// ─── Transcript Context — document-style selection for extending reel bounds ──
+
+var transcriptCache = {};
+var ctxState = {
+    segments: [],
+    startIdx: 0,
+    endIdx: 0,
+    dragging: null,
+    reelId: null,
+    slug: null
+};
+var ctxListeners = { move: null, up: null };
+
+async function loadTranscriptForSlug(slug) {
+    if (transcriptCache[slug]) return transcriptCache[slug];
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(slug) + '&file=transcript.json');
+        if (!res.ok) return null;
+        var data = JSON.parse(await res.text());
+        transcriptCache[slug] = data;
+        return data;
+    } catch (e) {
+        return null;
+    }
+}
+
+var CONTEXT_SECONDS = 60;
+
+async function renderTranscriptContext(ep, reel) {
+    var ctxEl = document.getElementById('reel-transcript-ctx');
+    if (!ctxEl) return;
+
+    if (ep.mediaType !== 'episode' || !reel.start || !reel.end) {
+        ctxEl.style.display = 'none';
+        return;
+    }
+
+    // Don't rebuild if same reel already shown (preserves user's drag state)
+    var key = ep.slug + ':' + reel.id;
+    if (ctxState.slug === ep.slug && ctxState.reelId === reel.id && ctxEl.querySelector('.ctx-doc')) {
+        return;
+    }
+
+    ctxEl.style.display = '';
+    ctxEl.innerHTML = '<div class="ctx-header"><span class="ctx-title">Transcript</span><span class="ctx-hint">loading...</span></div>';
+
+    var transcript = await loadTranscriptForSlug(ep.slug);
+    if (!transcript || !transcript.segments || !transcript.segments.length) {
+        ctxEl.innerHTML = '<div class="ctx-header"><span class="ctx-title">Transcript</span></div>' +
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:12px;">No transcript available.</div>';
+        return;
+    }
+
+    var reelStartSec = parseTrimTime(reel.start);
+    var reelEndSec = parseTrimTime(reel.end);
+    var windowStart = Math.max(0, reelStartSec - CONTEXT_SECONDS);
+    var windowEnd = reelEndSec + CONTEXT_SECONDS;
+
+    var segs = transcript.segments;
+    ctxState.segments = [];
+    var selStart = -1, selEnd = -1;
+
+    for (var i = 0; i < segs.length; i++) {
+        var s = segs[i];
+        if (s.end < windowStart) continue;
+        if (s.start > windowEnd) break;
+        var idx = ctxState.segments.length;
+        ctxState.segments.push({ start: s.start, end: s.end, text: s.text });
+        if (s.start >= reelStartSec - 0.5 && s.end <= reelEndSec + 0.5) {
+            if (selStart === -1) selStart = idx;
+            selEnd = idx;
+        }
+    }
+
+    if (!ctxState.segments.length) {
+        ctxEl.innerHTML = '<div class="ctx-header"><span class="ctx-title">Transcript</span></div>' +
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:12px;">No segments in range.</div>';
+        return;
+    }
+
+    // Fallback: pick closest segment if none matched exactly
+    if (selStart === -1) {
+        var bestD = Infinity;
+        for (var j = 0; j < ctxState.segments.length; j++) {
+            var d = Math.abs(ctxState.segments[j].start - reelStartSec);
+            if (d < bestD) { bestD = d; selStart = j; }
+        }
+        selEnd = selStart;
+    }
+
+    ctxState.startIdx = selStart;
+    ctxState.endIdx = selEnd;
+    ctxState.reelId = reel.id;
+    ctxState.slug = ep.slug;
+
+    // Build DOM
+    var segHtml = ctxState.segments.map(function(seg, i) {
+        var m = Math.floor(seg.start / 60);
+        var sc = Math.floor(seg.start % 60);
+        var ts = String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0');
+        var cls = 'ctx-seg' + (i >= selStart && i <= selEnd ? ' ctx-selected' : '');
+        return '<div class="' + cls + '" data-idx="' + i + '">' +
+            '<span class="ctx-ts">' + ts + '</span>' +
+            '<span class="ctx-text">' + escHtml(seg.text) + '</span>' +
+        '</div>';
+    }).join('');
+
+    var videoSrc = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw';
+
+    ctxEl.innerHTML =
+        '<div class="ctx-header">' +
+            '<span class="ctx-title">Transcript</span>' +
+            '<span class="ctx-hint">drag edges or click to preview</span>' +
+        '</div>' +
+        '<div class="ctx-player"><video id="ctx-video" controls preload="metadata" src="' + videoSrc + '"></video></div>' +
+        '<div class="ctx-doc" id="ctx-doc">' +
+            segHtml +
+            '<div class="ctx-handle" id="ctx-handle-start"></div>' +
+            '<div class="ctx-handle" id="ctx-handle-end"></div>' +
+        '</div>';
+
+    // Set up video tracking
+    var ctxVid = document.getElementById('ctx-video');
+    if (ctxVid) {
+        ctxVid.currentTime = reelStartSec;
+        ctxVid.addEventListener('timeupdate', ctxTrackPlayback);
+        ctxVid.addEventListener('pause', ctxClearPlaying);
+    }
+
+    ctxPositionHandles();
+    ctxInitEvents();
+    ctxScrollToSelection();
+}
+
+function ctxPositionHandles() {
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    var hStart = document.getElementById('ctx-handle-start');
+    var hEnd = document.getElementById('ctx-handle-end');
+    var startEl = segEls[ctxState.startIdx];
+    var endEl = segEls[ctxState.endIdx];
+    if (startEl && hStart) hStart.style.top = startEl.offsetTop + 'px';
+    if (endEl && hEnd) hEnd.style.top = (endEl.offsetTop + endEl.offsetHeight) + 'px';
+}
+
+function ctxUpdateSelection() {
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        segEls[i].classList.toggle('ctx-selected', i >= ctxState.startIdx && i <= ctxState.endIdx);
+    }
+    ctxPositionHandles();
+}
+
+function ctxCommitBounds() {
+    var startSeg = ctxState.segments[ctxState.startIdx];
+    var endSeg = ctxState.segments[ctxState.endIdx];
+    if (!startSeg || !endSeg) return;
+    var si = document.getElementById('reel-trim-start');
+    var ei = document.getElementById('reel-trim-end');
+    if (si) { si.value = formatTrimTime(startSeg.start); ctxFlash(si); }
+    if (ei) { ei.value = formatTrimTime(endSeg.end); ctxFlash(ei); }
+}
+
+function ctxFlash(el) {
+    el.style.borderColor = 'var(--accent)';
+    el.style.background = '#1a0a2a';
+    setTimeout(function() { el.style.borderColor = ''; el.style.background = ''; }, 600);
+}
+
+function ctxPlaySegment(idx) {
+    var seg = ctxState.segments[idx];
+    if (!seg) return;
+    var video = document.getElementById('ctx-video');
+    if (!video) return;
+    video.currentTime = seg.start;
+    video.play().catch(function() {});
+}
+
+function ctxTrackPlayback() {
+    var video = document.getElementById('ctx-video');
+    if (!video || video.paused) return;
+    var t = video.currentTime;
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        var seg = ctxState.segments[i];
+        var playing = seg && t >= seg.start - 0.1 && t < seg.end + 0.1;
+        segEls[i].classList.toggle('ctx-playing', playing);
+        if (playing && !ctxState.dragging) {
+            var elRect = segEls[i].getBoundingClientRect();
+            var docRect = doc.getBoundingClientRect();
+            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
+                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+    }
+}
+
+function ctxClearPlaying() {
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return;
+    var playing = doc.querySelectorAll('.ctx-seg.ctx-playing');
+    for (var i = 0; i < playing.length; i++) playing[i].classList.remove('ctx-playing');
+}
+
+function ctxFindSegAtY(clientY) {
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return -1;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    var best = -1, bestDist = Infinity;
+    for (var i = 0; i < segEls.length; i++) {
+        var rect = segEls[i].getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        var dist = Math.abs(clientY - mid);
+        if (dist < bestDist) { bestDist = dist; best = i; }
+    }
+    return best;
+}
+
+function ctxInitEvents() {
+    var doc = document.getElementById('ctx-doc');
+    if (!doc) return;
+    var hStart = document.getElementById('ctx-handle-start');
+    var hEnd = document.getElementById('ctx-handle-end');
+
+    // Clean up previous global listeners
+    if (ctxListeners.move) document.removeEventListener('pointermove', ctxListeners.move);
+    if (ctxListeners.up) document.removeEventListener('pointerup', ctxListeners.up);
+
+    function onHandleDown(which, e) {
+        e.preventDefault();
+        ctxState.dragging = which;
+        doc.classList.add('ctx-dragging');
+        (which === 'start' ? hStart : hEnd).classList.add('dragging');
+    }
+
+    hStart.addEventListener('pointerdown', function(e) { onHandleDown('start', e); });
+    hEnd.addEventListener('pointerdown', function(e) { onHandleDown('end', e); });
+
+    function onMove(e) {
+        if (!ctxState.dragging) return;
+        var idx = ctxFindSegAtY(e.clientY);
+        if (idx < 0) return;
+        if (ctxState.dragging === 'start' && idx <= ctxState.endIdx) {
+            ctxState.startIdx = idx;
+        } else if (ctxState.dragging === 'end' && idx >= ctxState.startIdx) {
+            ctxState.endIdx = idx;
+        }
+        ctxUpdateSelection();
+        // Auto-scroll near edges
+        var docRect = doc.getBoundingClientRect();
+        if (e.clientY < docRect.top + 30) doc.scrollTop -= 10;
+        else if (e.clientY > docRect.bottom - 30) doc.scrollTop += 10;
+    }
+
+    function onUp() {
+        if (!ctxState.dragging) return;
+        var playIdx = ctxState.dragging === 'start' ? ctxState.startIdx : ctxState.endIdx;
+        doc.classList.remove('ctx-dragging');
+        hStart.classList.remove('dragging');
+        hEnd.classList.remove('dragging');
+        ctxState.dragging = null;
+        ctxCommitBounds();
+        ctxPlaySegment(playIdx);
+    }
+
+    ctxListeners.move = onMove;
+    ctxListeners.up = onUp;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+
+    // Click on any segment to preview; click outside selection to extend it
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        (function(idx) {
+            segEls[idx].addEventListener('click', function() {
+                if (ctxState.dragging) return;
+                ctxPlaySegment(idx);
+                var changed = false;
+                if (idx < ctxState.startIdx) {
+                    ctxState.startIdx = idx;
+                    changed = true;
+                } else if (idx > ctxState.endIdx) {
+                    ctxState.endIdx = idx;
+                    changed = true;
+                }
+                if (changed) {
+                    ctxUpdateSelection();
+                    ctxCommitBounds();
+                }
+            });
+        })(i);
+    }
+}
+
+function ctxScrollToSelection() {
+    setTimeout(function() {
+        var doc = document.getElementById('ctx-doc');
+        if (!doc) return;
+        var segEls = doc.querySelectorAll('.ctx-seg');
+        var el = segEls[ctxState.startIdx];
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }, 50);
+}
+
+// Force re-render transcript context (e.g. after manual trim input change)
+function ctxRefresh() {
+    ctxState.reelId = null;
+    ctxState.slug = null;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
+    if (ep && r) {
+        var tempReel = Object.assign({}, r);
+        var si = document.getElementById('reel-trim-start');
+        var ei = document.getElementById('reel-trim-end');
+        if (si) tempReel.start = si.value;
+        if (ei) tempReel.end = ei.value;
+        renderTranscriptContext(ep, tempReel);
+    }
+}
+
+// ─── Find & Create Reel from transcript search ───────────────────────────────
+
+var findState = {
+    segments: [],
+    startIdx: -1,
+    endIdx: -1,
+    matches: [],
+    matchCursor: 0,
+    dragging: null,
+    query: ''
+};
+var findListeners = { move: null, up: null };
+
+function openFindReel() {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep || ep.mediaType !== 'episode') {
+        showToast('Only available for episodes with transcripts', 'error');
+        return;
+    }
+
+    // Hide reel detail, show find panel
+    selectedReelId = null;
+    document.getElementById('reel-detail-empty').style.display = 'none';
+    document.getElementById('reel-detail').style.display = 'none';
+    document.getElementById('find-reel-panel').style.display = 'flex';
+
+    // Deselect reel list items
+    document.querySelectorAll('.reel-list-item.active').forEach(function(el) { el.classList.remove('active'); });
+
+    findState = { segments: [], startIdx: -1, endIdx: -1, matches: [], matchCursor: 0, dragging: null, query: '' };
+
+    var panel = document.getElementById('find-reel-panel');
+    panel.innerHTML =
+        '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">' +
+            '<div style="font-size:0.8rem; font-weight:600; color:#ddd;">New Reel</div>' +
+            '<div style="flex:1;"></div>' +
+            '<button onclick="closeFindReel()" style="font-size:0.7rem; color:#666; background:transparent; border:1px solid #333; padding:3px 8px;">Close</button>' +
+        '</div>' +
+        '<div class="find-reel-search">' +
+            '<input type="text" id="find-reel-input" placeholder="Search transcript..." oninput="findReelSearch(this.value)">' +
+            '<div class="match-nav">' +
+                '<span id="find-match-count"></span>' +
+                '<button onclick="findReelNav(-1)" title="Previous">&uarr;</button>' +
+                '<button onclick="findReelNav(1)" title="Next">&darr;</button>' +
+            '</div>' +
+        '</div>' +
+        '<div class="find-reel-body" id="find-reel-body">' +
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:20px;">Loading transcript...</div>' +
+        '</div>' +
+        '<div class="find-reel-actions" id="find-reel-actions" style="display:none;">' +
+            '<input type="text" id="find-reel-hook" placeholder="Reel hook / description (optional)">' +
+            '<button class="primary" onclick="createReelFromFind()" style="font-size:0.75rem; white-space:nowrap;">Create Reel</button>' +
+        '</div>';
+
+    loadFindTranscript(ep);
+}
+
+function closeFindReel() {
+    document.getElementById('find-reel-panel').style.display = 'none';
+    document.getElementById('reel-detail-empty').style.display = '';
+    // Clean up global listeners
+    if (findListeners.move) document.removeEventListener('pointermove', findListeners.move);
+    if (findListeners.up) document.removeEventListener('pointerup', findListeners.up);
+    findListeners = { move: null, up: null };
+}
+
+async function loadFindTranscript(ep) {
+    var transcript = await loadTranscriptForSlug(ep.slug);
+    if (!transcript || !transcript.segments || !transcript.segments.length) {
+        document.getElementById('find-reel-body').innerHTML =
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:20px;">No transcript available.</div>';
+        return;
+    }
+
+    findState.segments = transcript.segments.map(function(s) {
+        return { start: s.start, end: s.end, text: s.text };
+    });
+
+    renderFindDoc();
+    document.getElementById('find-reel-input').focus();
+}
+
+function renderFindDoc() {
+    var body = document.getElementById('find-reel-body');
+    if (!body) return;
+
+    var videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw';
+
+    var segHtml = findState.segments.map(function(seg, i) {
+        var m = Math.floor(seg.start / 60);
+        var s = Math.floor(seg.start % 60);
+        var ts = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        var selected = findState.startIdx >= 0 && i >= findState.startIdx && i <= findState.endIdx;
+        var cls = 'ctx-seg' + (selected ? ' ctx-selected' : '');
+        var textHtml = escHtml(seg.text);
+        if (findState.query) {
+            textHtml = findHighlight(textHtml, findState.query);
+        }
+        return '<div class="' + cls + '" data-idx="' + i + '">' +
+            '<span class="ctx-ts">' + ts + '</span>' +
+            '<span class="ctx-text">' + textHtml + '</span>' +
+        '</div>';
+    }).join('');
+
+    body.innerHTML =
+        '<div class="ctx-player"><video id="find-video" controls preload="metadata" src="' + videoSrc + '"></video></div>' +
+        '<div class="ctx-doc" id="find-doc" style="flex:1; max-height:none;">' +
+            segHtml +
+            '<div class="ctx-handle" id="find-handle-start" style="display:none;"></div>' +
+            '<div class="ctx-handle" id="find-handle-end" style="display:none;"></div>' +
+        '</div>';
+
+    // Video tracking
+    var vid = document.getElementById('find-video');
+    if (vid) {
+        vid.addEventListener('timeupdate', findTrackPlayback);
+        vid.addEventListener('pause', findClearPlaying);
+    }
+
+    findInitEvents();
+    if (findState.startIdx >= 0) {
+        findPositionHandles();
+        findShowHandles(true);
+    }
+}
+
+function findHighlight(html, query) {
+    if (!query) return html;
+    // Escape regex special chars in query
+    var escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var re = new RegExp('(' + escaped + ')', 'gi');
+    return html.replace(re, '<mark>$1</mark>');
+}
+
+function findReelSearch(q) {
+    findState.query = q.trim();
+    var countEl = document.getElementById('find-match-count');
+
+    if (!findState.query) {
+        findState.matches = [];
+        findState.matchCursor = 0;
+        if (countEl) countEl.textContent = '';
+        findApplyHighlights();
+        return;
+    }
+
+    // Find matching segment indices
+    var lower = findState.query.toLowerCase();
+    findState.matches = [];
+    for (var i = 0; i < findState.segments.length; i++) {
+        if (findState.segments[i].text.toLowerCase().indexOf(lower) !== -1) {
+            findState.matches.push(i);
+        }
+    }
+    findState.matchCursor = 0;
+
+    if (countEl) {
+        countEl.textContent = findState.matches.length ? (findState.matchCursor + 1) + '/' + findState.matches.length : '0';
+    }
+
+    findApplyHighlights();
+
+    // Scroll to first match
+    if (findState.matches.length > 0) {
+        findScrollToMatch(findState.matchCursor);
+    }
+}
+
+function findReelNav(dir) {
+    if (!findState.matches.length) return;
+    findState.matchCursor = (findState.matchCursor + dir + findState.matches.length) % findState.matches.length;
+    var countEl = document.getElementById('find-match-count');
+    if (countEl) countEl.textContent = (findState.matchCursor + 1) + '/' + findState.matches.length;
+    findScrollToMatch(findState.matchCursor);
+}
+
+function findScrollToMatch(cursor) {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var idx = findState.matches[cursor];
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    if (segEls[idx]) segEls[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function findApplyHighlights() {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    var matchSet = new Set(findState.matches);
+    for (var i = 0; i < segEls.length; i++) {
+        segEls[i].classList.toggle('ctx-match', matchSet.has(i));
+        // Update text with/without highlights
+        var textEl = segEls[i].querySelector('.ctx-text');
+        if (textEl) {
+            var raw = escHtml(findState.segments[i].text);
+            textEl.innerHTML = findState.query ? findHighlight(raw, findState.query) : raw;
+        }
+    }
+}
+
+function findPlaySegment(idx) {
+    var seg = findState.segments[idx];
+    if (!seg) return;
+    var video = document.getElementById('find-video');
+    if (!video) return;
+    video.currentTime = seg.start;
+    video.play().catch(function() {});
+}
+
+function findTrackPlayback() {
+    var video = document.getElementById('find-video');
+    if (!video || video.paused) return;
+    var t = video.currentTime;
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        var seg = findState.segments[i];
+        var playing = seg && t >= seg.start - 0.1 && t < seg.end + 0.1;
+        segEls[i].classList.toggle('ctx-playing', playing);
+        if (playing && !findState.dragging) {
+            var elRect = segEls[i].getBoundingClientRect();
+            var docRect = doc.getBoundingClientRect();
+            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
+                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+    }
+}
+
+function findClearPlaying() {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var playing = doc.querySelectorAll('.ctx-seg.ctx-playing');
+    for (var i = 0; i < playing.length; i++) playing[i].classList.remove('ctx-playing');
+}
+
+function findUpdateSelection() {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        segEls[i].classList.toggle('ctx-selected', findState.startIdx >= 0 && i >= findState.startIdx && i <= findState.endIdx);
+    }
+    findPositionHandles();
+
+    // Show/hide create actions
+    var actionsEl = document.getElementById('find-reel-actions');
+    if (actionsEl) actionsEl.style.display = findState.startIdx >= 0 ? 'flex' : 'none';
+}
+
+function findPositionHandles() {
+    var doc = document.getElementById('find-doc');
+    if (!doc || findState.startIdx < 0) return;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    var hStart = document.getElementById('find-handle-start');
+    var hEnd = document.getElementById('find-handle-end');
+    var startEl = segEls[findState.startIdx];
+    var endEl = segEls[findState.endIdx];
+    if (startEl && hStart) hStart.style.top = startEl.offsetTop + 'px';
+    if (endEl && hEnd) hEnd.style.top = (endEl.offsetTop + endEl.offsetHeight) + 'px';
+}
+
+function findShowHandles(show) {
+    var hStart = document.getElementById('find-handle-start');
+    var hEnd = document.getElementById('find-handle-end');
+    if (hStart) hStart.style.display = show ? '' : 'none';
+    if (hEnd) hEnd.style.display = show ? '' : 'none';
+}
+
+function findFindSegAtY(clientY) {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return -1;
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    var best = -1, bestDist = Infinity;
+    for (var i = 0; i < segEls.length; i++) {
+        var rect = segEls[i].getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        var dist = Math.abs(clientY - mid);
+        if (dist < bestDist) { bestDist = dist; best = i; }
+    }
+    return best;
+}
+
+function findInitEvents() {
+    var doc = document.getElementById('find-doc');
+    if (!doc) return;
+    var hStart = document.getElementById('find-handle-start');
+    var hEnd = document.getElementById('find-handle-end');
+
+    if (findListeners.move) document.removeEventListener('pointermove', findListeners.move);
+    if (findListeners.up) document.removeEventListener('pointerup', findListeners.up);
+
+    function onHandleDown(which, e) {
+        e.preventDefault();
+        findState.dragging = which;
+        doc.classList.add('ctx-dragging');
+        (which === 'start' ? hStart : hEnd).classList.add('dragging');
+    }
+
+    hStart.addEventListener('pointerdown', function(e) { onHandleDown('start', e); });
+    hEnd.addEventListener('pointerdown', function(e) { onHandleDown('end', e); });
+
+    function onMove(e) {
+        if (!findState.dragging) return;
+        var idx = findFindSegAtY(e.clientY);
+        if (idx < 0) return;
+        if (findState.dragging === 'start' && idx <= findState.endIdx) {
+            findState.startIdx = idx;
+        } else if (findState.dragging === 'end' && idx >= findState.startIdx) {
+            findState.endIdx = idx;
+        }
+        findUpdateSelection();
+        var docRect = doc.getBoundingClientRect();
+        if (e.clientY < docRect.top + 30) doc.scrollTop -= 10;
+        else if (e.clientY > docRect.bottom - 30) doc.scrollTop += 10;
+    }
+
+    function onUp() {
+        if (!findState.dragging) return;
+        var playIdx = findState.dragging === 'start' ? findState.startIdx : findState.endIdx;
+        doc.classList.remove('ctx-dragging');
+        hStart.classList.remove('dragging');
+        hEnd.classList.remove('dragging');
+        findState.dragging = null;
+        findPlaySegment(playIdx);
+    }
+
+    findListeners.move = onMove;
+    findListeners.up = onUp;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+
+    // Click segments: first click sets selection, subsequent clicks extend it
+    var segEls = doc.querySelectorAll('.ctx-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        (function(idx) {
+            segEls[idx].addEventListener('click', function() {
+                if (findState.dragging) return;
+                findPlaySegment(idx);
+                if (findState.startIdx < 0) {
+                    // First click: start selection at this segment
+                    findState.startIdx = idx;
+                    findState.endIdx = idx;
+                    findShowHandles(true);
+                } else if (idx < findState.startIdx) {
+                    findState.startIdx = idx;
+                } else if (idx > findState.endIdx) {
+                    findState.endIdx = idx;
+                }
+                findUpdateSelection();
+            });
+        })(i);
+    }
+}
+
+async function createReelFromFind() {
+    if (!currentSlug || findState.startIdx < 0) return;
+    var startSeg = findState.segments[findState.startIdx];
+    var endSeg = findState.segments[findState.endIdx];
+    if (!startSeg || !endSeg) return;
+
+    var start = formatTrimTime(startSeg.start);
+    var end = formatTrimTime(endSeg.end);
+    var hookEl = document.getElementById('find-reel-hook');
+    var hook = hookEl ? hookEl.value.trim() : '';
+
+    try {
+        var res = await fetch('/api/add-reel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: currentSlug, start: start, end: end, hook: hook })
+        });
+        var data = await res.json();
+        if (!data.success) { showToast(data.error || 'Failed to create reel', 'error'); return; }
+
+        showToast('Reel created! Cutting...', 'success');
+        closeFindReel();
+        await refresh();
+
+        // Select the new reel and trigger cut
+        selectReel(data.reelId);
+        await fetch('/api/run-step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: currentSlug, step: 'cut', reelId: data.reelId, force: true })
+        });
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
 }
 
 function addCut(reelId) {
