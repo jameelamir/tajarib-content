@@ -111,9 +111,9 @@ const SYSTEM_REELS = prompts.load("generate-reels-system");
 const SYSTEM_YT = prompts.load("generate-youtube-system");
 
 // ─── Generate functions ───────────────────────────────────────────
-async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec, slug) {
+async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec, slug, episodeContext = "") {
   const user = prompts.load("generate-reels-user", {
-    formatSpec, guest, role, reelText, hook: reel.hook,
+    formatSpec, guest, role, reelText, hook: reel.hook, episodeContext,
   });
 
   // Note: reasoning models (e.g. DeepSeek R1 via haimaker/auto) need extra token
@@ -257,7 +257,8 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
   for (const reel of reelsToProcess) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
     log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
-    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat, slug);
+    const episodeContext = analysis.general_notes || "";
+    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat, slug, episodeContext);
     reelCaptions.push({
       id: reel.id, start: reel.start, end: reel.end,
       hook: reel.hook, reel_text: reelText, caption: result.text,
