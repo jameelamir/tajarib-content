@@ -322,7 +322,7 @@ if (modelArg) {
 }
 
 if (!slug || !guest || !role) {
-  process.stderr.write("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model claude-sonnet-4-20250514] [--force] [--reel-only]\n");
+  process.stderr.write("Usage: node generate.js --slug <slug> --guest <name> --role <role> [--model claude-sonnet-4-5-20241022] [--force] [--reel-only]\n");
   process.exit(1);
 }
 

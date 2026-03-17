@@ -211,7 +211,7 @@ async function overlay(slug, options) {
       config = {
         sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
         logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
-        lowerThird: { enabled: true, startTime: 2, endTime: 8 },
+        lowerThird: { enabled: false, startTime: 2, endTime: 8 },
         cta: { enabled: false, mode: "text", text: "", fontSize: 28, fontColor: "#ffffff", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
       };
     }
