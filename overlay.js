@@ -218,7 +218,7 @@ async function overlay(slug, options) {
     console.log("📋 Using overlay config:");
     if (config.sponsor?.enabled) console.log(`   Sponsor: ${config.sponsor.scale}px at (${config.sponsor.x.toFixed(1)}%, ${config.sponsor.y.toFixed(1)}%)`);
     if (config.logo?.enabled) console.log(`   Logo: ${config.logo.scale}px at (${config.logo.x.toFixed(1)}%, ${config.logo.y.toFixed(1)}%)`);
-    if (config.lowerThird?.enabled) console.log(`   Lower-third: ${config.lowerThird.startTime}s-${config.lowerThird.endTime}s`);
+    if (config.lowerThird?.enabled) console.log(`   Lower-third: mode=${config.lowerThird.mode || "auto"}, file=${config.lowerThird.customFile || "none"}, ${config.lowerThird.startTime}s-${config.lowerThird.endTime}s`);
     if (config.cta?.enabled) console.log(`   CTA (${config.cta.mode}): ${config.cta.startTime}s-${config.cta.endTime}s`);
   }
 
@@ -309,9 +309,25 @@ async function overlay(slug, options) {
 
     // Lower-third: auto-generated drawtext (custom file handled below after movInputs init)
     let customLTFile = null;
-    if (doLowerThird && config && config.lowerThird.mode === "custom" && config.lowerThird.customFile) {
-      customLTFile = path.join(ASSETS_DIR, config.lowerThird.customFile);
-      if (!fs.existsSync(customLTFile)) customLTFile = null;
+    if (doLowerThird && config) {
+      // Try explicit customFile from config first
+      if (config.lowerThird.customFile) {
+        const candidate = path.join(ASSETS_DIR, config.lowerThird.customFile);
+        if (fs.existsSync(candidate)) customLTFile = candidate;
+      }
+      // Auto-detect lower-third.* in assets if mode is "custom" or a file exists
+      if (!customLTFile && config.lowerThird.mode === "custom") {
+        const detected = [".mov", ".mp4", ".png", ".gif"].map(ext => path.join(ASSETS_DIR, "lower-third" + ext)).find(f => fs.existsSync(f));
+        if (detected) customLTFile = detected;
+      }
+      // If mode isn't explicitly set but a lower-third file exists in assets, use it
+      if (!customLTFile && !config.lowerThird.mode) {
+        const detected = [".mov", ".mp4"].map(ext => path.join(ASSETS_DIR, "lower-third" + ext)).find(f => fs.existsSync(f));
+        if (detected) {
+          customLTFile = detected;
+          console.log(`   ℹ️  Auto-detected custom lower-third: ${path.basename(detected)}`);
+        }
+      }
     }
     if (doLowerThird && !customLTFile) {
       const ltStart = config ? config.lowerThird.startTime : 2;
@@ -361,14 +377,14 @@ async function overlay(slug, options) {
       const ltX = Math.round((config.lowerThird.x || 5) / 100 * dims.width);
       const ltY = Math.round((config.lowerThird.y || 80) / 100 * dims.height);
       const isStatic = /\.(png|jpg|jpeg)$/i.test(customLTFile);
-      const fadeOut = 0.5;
       movInputs.push(customLTFile);
       const idx = movInputs.length; // input index (1-based, since 0 is main video)
       if (movChain) movChain += ";";
       if (isStatic) {
         movChain += `[${idx}:v]scale=${ltScale}:-1[lt];{LAST}[lt]overlay=${ltX}:${ltY}:enable='between(t,${ltStart},${ltEnd})'[after_lt]`;
       } else {
-        movChain += `[${idx}:v]scale=${ltScale}:-1,format=rgba,fade=t=out:st=${ltEnd - fadeOut}:d=${fadeOut}:alpha=1[lt];{LAST}[lt]overlay=${ltX}:${ltY}:eof_action=pass:enable='between(t,${ltStart},${ltEnd})'[after_lt]`;
+        // Shift MOV timeline so its first frame aligns with ltStart (preserves reveal animations)
+        movChain += `[${idx}:v]setpts=PTS-STARTPTS+${ltStart}/TB,scale=${ltScale}:-1,format=rgba[lt];{LAST}[lt]overlay=${ltX}:${ltY}:eof_action=pass:enable='between(t,${ltStart},${ltEnd})'[after_lt]`;
       }
       movLastLabel = "[after_lt]";
       console.log(`   📝 Lower-third: custom file "${config.lowerThird.customFile}" (${ltStart}s-${ltEnd}s)`);
@@ -393,6 +409,7 @@ async function overlay(slug, options) {
     const baseLabel = shadowInput ? "[shadowed]" : "[0:v]";
 
     // Attach overlay input paths so runFFmpeg can copy them to temp
+    // (must be after custom LT file is pushed to movInputs and shadowInputs is declared)
     video._overlayInputs = [...shadowInputs, ...movInputs];
 
     if (hasMovOverlays && hasDrawtext) {
@@ -405,7 +422,8 @@ async function overlay(slug, options) {
       while (resolvedMov.includes("{LAST}")) {
         const pos = resolvedMov.indexOf("{LAST}");
         resolvedMov = resolvedMov.replace("{LAST}", currentLabel);
-        const afterPos = resolvedMov.substring(pos);
+        // Skip past the replacement text to find the OUTPUT label of this step
+        const afterPos = resolvedMov.substring(pos + currentLabel.length);
         const nextLabel = afterPos.match(/\[after_\w+\]/);
         if (nextLabel) currentLabel = nextLabel[0];
       }
@@ -434,8 +452,8 @@ async function overlay(slug, options) {
       while (resolved.includes("{LAST}")) {
         const pos = resolved.indexOf("{LAST}");
         resolved = resolved.replace("{LAST}", currentLabel);
-        // Find the next [after_*] label after this replacement point
-        const afterPos = resolved.substring(pos);
+        // Skip past the replacement text to find the OUTPUT label of this step
+        const afterPos = resolved.substring(pos + currentLabel.length);
         const nextLabel = afterPos.match(/\[after_\w+\]/);
         if (nextLabel) currentLabel = nextLabel[0];
       }
