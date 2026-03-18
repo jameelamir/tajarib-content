@@ -270,6 +270,11 @@
         .seg-row { display: flex; gap: 8px; align-items: flex-start; }
         .seg-ts { font-size: 0.7rem; color: #555; font-family: monospace; padding-top: 8px; min-width: 48px; flex-shrink: 0; }
         .seg-input { flex: 1; background: #111; border: 1px solid #2a2a2a; color: #ddd; padding: 7px 10px; border-radius: 4px; font-size: 0.85rem; resize: vertical; outline: none; line-height: 1.5; direction: rtl; min-height: 36px; overflow: hidden; }
+        .seg-words { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; direction: rtl; padding: 2px 0; align-items: flex-start; }
+        .seg-word { background: #1a1a1a; border: 1px solid #2a2a2a; color: #ddd; padding: 3px 8px; border-radius: 4px; font-size: 0.82rem; cursor: text; direction: rtl; line-height: 1.4; transition: border-color 0.15s, background 0.15s; outline: none; white-space: pre-wrap; min-width: 12px; }
+        .seg-word:hover { border-color: #444; background: #222; }
+        .seg-word:focus { border-color: var(--accent); background: #1a1020; color: #fff; }
+        .seg-word.edited { border-color: var(--accent); color: #fff; }
 
         /* Transcript modal segments */
         .tm-seg { display: flex; gap: 10px; align-items: flex-start; padding: 4px 10px; cursor: pointer; transition: background 0.15s; }
@@ -278,7 +283,10 @@
         .tm-seg.in-range:hover { background: rgba(168,85,247,0.15); }
         .tm-seg.playing { background: rgba(168,85,247,0.18) !important; }
         .tm-seg .tm-text { flex: 1; font-size: 0.82rem; color: #666; direction: rtl; text-align: right; line-height: 1.6; }
-        .tm-seg.in-range .tm-text { color: #ddd; }
+        .tm-seg.in-range .tm-text { color: #ddd; cursor: text; }
+        .tm-seg.in-range .tm-text[contenteditable]:focus { outline: none; background: rgba(168,85,247,0.06); border-radius: 3px; }
+        .tm-seg.in-range .tm-text.edited { color: #fff; }
+        .tm-seg.in-range .tm-text.edited::after { content: ''; display: inline-block; width: 4px; height: 4px; background: var(--accent); border-radius: 50%; margin-right: 6px; vertical-align: middle; }
         .tm-seg .tm-ts { font-size: 0.7rem; color: #444; font-family: monospace; padding-top: 2px; min-width: 40px; flex-shrink: 0; text-align: right; }
         .tm-seg.in-range .tm-ts { color: var(--accent); }
         .tm-divider { height: 2px; background: var(--accent); margin: 2px 10px; border-radius: 1px; cursor: ns-resize; transition: height 0.1s, background 0.1s; position: relative; }
@@ -850,6 +858,7 @@
         </div>
         <!-- Footer -->
         <div style="display:flex; justify-content:flex-end; gap:8px; padding:8px 16px; border-top:1px solid var(--border); flex-shrink:0;">
+            <button id="tm-save-transcript-btn" onclick="saveTranscriptWords()" style="font-size:0.75rem; padding:5px 14px;">Save Words</button>
             <button onclick="closeTranscriptModal()" style="font-size:0.75rem; padding:5px 14px;">Close</button>
             <button class="primary" onclick="saveTranscriptModal()" style="font-size:0.75rem; padding:5px 14px;">Save & Re-cut</button>
         </div>
@@ -2922,12 +2931,22 @@ function tmRenderSegments() {
             html.push('<div class="tm-divider" data-edge="start" onmousedown="tmStartDrag(event, \'start\')"></div>');
         }
 
-        html.push(
-            '<div class="tm-seg' + (inRange ? ' in-range' : '') + '" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
-                '<span class="tm-text">' + escHtml(seg.text) + '</span>' +
-                '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
-            '</div>'
-        );
+        // In-range segments: editable text block (CapCut style)
+        if (inRange) {
+            html.push(
+                '<div class="tm-seg in-range" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
+                    '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(seg.text) + '" spellcheck="false">' + escHtml(seg.text) + '</span>' +
+                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+                '</div>'
+            );
+        } else {
+            html.push(
+                '<div class="tm-seg" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
+                    '<span class="tm-text">' + escHtml(seg.text) + '</span>' +
+                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+                '</div>'
+            );
+        }
 
         // Insert purple divider at end of range
         if (inRange && !nextInRange) {
@@ -2937,9 +2956,130 @@ function tmRenderSegments() {
 
     segList.innerHTML = html.join('');
 
+    // Wire up inline text editing for in-range segments
+    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+        el.addEventListener('click', function(e) { e.stopPropagation(); });
+        el.addEventListener('focus', function(e) { e.stopPropagation(); });
+        el.addEventListener('input', function() {
+            this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
+        });
+        el.addEventListener('keydown', function(e) {
+            var segIdx = parseInt(this.dataset.seg);
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                tmSplitSegment(segIdx, this);
+            } else if (e.key === 'Backspace') {
+                var sel = window.getSelection();
+                if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
+                    var offset = sel.getRangeAt(0).startOffset;
+                    if (offset === 0) {
+                        e.preventDefault();
+                        tmMergeWithPrev(segIdx);
+                    }
+                }
+            }
+        });
+    });
+
     // Scroll to first in-range segment
     var first = segList.querySelector('.tm-seg.in-range');
     if (first) setTimeout(function() { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+}
+
+function tmSplitSegment(segIdx, el) {
+    var segs = reelFullTranscriptData.segments;
+    var seg = segs[segIdx];
+    if (!seg) return;
+
+    // Get cursor position in text
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    var offset = range.startOffset;
+    var fullText = el.textContent;
+
+    // Don't split at start or end
+    if (offset === 0 || offset >= fullText.length) return;
+
+    var textBefore = fullText.substring(0, offset).trim();
+    var textAfter = fullText.substring(offset).trim();
+    if (!textBefore || !textAfter) return;
+
+    // Calculate split time proportionally
+    var segDur = (seg.end || seg.start) - seg.start;
+    var ratio = offset / fullText.length;
+    var splitTime = seg.start + segDur * ratio;
+
+    // Build two new segments
+    var seg1 = { start: seg.start, end: splitTime, text: textBefore };
+    var seg2 = { start: splitTime, end: seg.end || splitTime, text: textAfter };
+
+    // Rebuild word arrays for each
+    var wordsBefore = textBefore.split(/\s+/).filter(function(t) { return t; });
+    var wordsAfter = textAfter.split(/\s+/).filter(function(t) { return t; });
+    var dur1 = splitTime - seg.start;
+    var dur2 = (seg.end || splitTime) - splitTime;
+    seg1.words = wordsBefore.map(function(w, i) {
+        var wd = wordsBefore.length > 0 ? dur1 / wordsBefore.length : dur1;
+        return { word: w, start: seg.start + i * wd, end: seg.start + (i + 1) * wd, probability: 0.5 };
+    });
+    seg2.words = wordsAfter.map(function(w, i) {
+        var wd = wordsAfter.length > 0 ? dur2 / wordsAfter.length : dur2;
+        return { word: w, start: splitTime + i * wd, end: splitTime + (i + 1) * wd, probability: 0.5 };
+    });
+
+    // Splice into segments array
+    segs.splice(segIdx, 1, seg1, seg2);
+
+    // Re-render and focus the second segment
+    tmRenderSegments();
+    var newEl = document.querySelector('.tm-text[data-seg="' + (segIdx + 1) + '"]');
+    if (newEl) {
+        newEl.focus();
+        // Place cursor at start
+        var r = document.createRange();
+        r.setStart(newEl.firstChild || newEl, 0);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+}
+
+function tmMergeWithPrev(segIdx) {
+    var segs = reelFullTranscriptData.segments;
+    if (segIdx <= 0) return;
+    var prev = segs[segIdx - 1];
+    var curr = segs[segIdx];
+
+    // Only merge if both are in range
+    if (!(prev.start >= tmReelStart && prev.start < tmReelEnd)) return;
+
+    var mergedText = prev.text + ' ' + curr.text;
+    var prevLen = prev.text.length;
+
+    // Merge into previous segment
+    prev.text = mergedText;
+    prev.end = curr.end || curr.start;
+    prev.words = (prev.words || []).concat(curr.words || []);
+
+    // Remove current segment
+    segs.splice(segIdx, 1);
+
+    // Re-render and place cursor at the join point
+    tmRenderSegments();
+    var el = document.querySelector('.tm-text[data-seg="' + (segIdx - 1) + '"]');
+    if (el && el.firstChild) {
+        el.focus();
+        var r = document.createRange();
+        // Place cursor where the two texts joined (+1 for the space)
+        var pos = Math.min(prevLen + 1, el.firstChild.textContent.length);
+        r.setStart(el.firstChild, pos);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
 }
 
 function tmSeekTo(timeSec) {
@@ -3027,6 +3167,73 @@ async function saveTranscriptModal() {
         });
     } catch (err) {
         showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function saveTranscriptWords() {
+    if (!currentSlug || !reelFullTranscriptData) return;
+    var segList = document.getElementById('transcript-modal-seg-list');
+    var segs = reelFullTranscriptData.segments;
+    var changed = false;
+
+    // Collect edits from contenteditable text blocks
+    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+        var segIdx = parseInt(el.dataset.seg);
+        var seg = segs[segIdx];
+        if (!seg) return;
+        var newText = el.textContent.trim();
+        if (newText !== (seg.text || '').trim()) {
+            changed = true;
+            seg.text = newText;
+
+            // Rebuild word-level data from edited text, preserving timing spread
+            var tokens = newText.split(/\s+/).filter(function(t) { return t.length > 0; });
+            var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
+
+            if (seg.words && seg.words.length > 0) {
+                // Redistribute existing timing across new word count
+                var totalDur = segDur;
+                var wordDur = tokens.length > 0 ? totalDur / tokens.length : totalDur;
+                seg.words = tokens.map(function(tok, ti) {
+                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                });
+            } else {
+                // Synthesize word data
+                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+                seg.words = tokens.map(function(tok, ti) {
+                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                });
+            }
+        }
+    });
+
+    if (!changed) { showToast('No changes to save', 'success'); return; }
+
+    // Rebuild flattened words array
+    reelFullTranscriptData.words = [];
+    segs.forEach(function(seg) {
+        if (seg.words) seg.words.forEach(function(w) { reelFullTranscriptData.words.push(w); });
+    });
+    reelFullTranscriptData.full_text = segs.map(function(s) { return s.text; }).join(' ');
+
+    try {
+        await fetch('/api/file', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                slug: currentSlug,
+                file: 'transcript.json',
+                content: JSON.stringify(reelFullTranscriptData, null, 2)
+            })
+        });
+        showToast('Transcript saved!', 'success');
+        // Reset edited markers
+        segList.querySelectorAll('.tm-text.edited').forEach(function(el) {
+            el.dataset.original = el.textContent.trim();
+            el.classList.remove('edited');
+        });
+    } catch (e) {
+        showToast('Save failed: ' + e.message, 'error');
     }
 }
 
@@ -5426,7 +5633,7 @@ async function loadTextEditor() {
     if (!currentSlug) return;
     switchTab('text');
     var edFile = document.getElementById('editor-file');
-    if (edFile) edFile.textContent = 'transcript.json — Segment Editor';
+    if (edFile) edFile.textContent = 'transcript.json — Word Editor';
     var saveBtn = document.getElementById('save-text-btn');
     if (saveBtn) saveBtn.disabled = false;
 
@@ -5434,9 +5641,9 @@ async function loadTextEditor() {
         const res = await fetch('/api/file?slug=' + currentSlug + '&file=transcript.json');
         if (!res.ok) throw new Error('Failed to load');
         textEditorData = JSON.parse(await res.text());
-    } catch(e) { 
-        showToast('Failed to load transcript', 'error'); 
-        return; 
+    } catch(e) {
+        showToast('Failed to load transcript', 'error');
+        return;
     }
 
     const list = document.getElementById('seg-list');
@@ -5444,26 +5651,88 @@ async function loadTextEditor() {
     list.innerHTML = textEditorData.segments.map((seg, i) => {
         const mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
         const secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
+
+        // Synthesize word-level data from segment text if missing
+        if ((!seg.words || seg.words.length === 0) && seg.text && seg.text.trim()) {
+            var tokens = seg.text.trim().split(/\s+/);
+            var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
+            var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+            seg.words = tokens.map(function(tok, ti) {
+                return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+            });
+        }
+
+        // Word-level editing
+        if (seg.words && seg.words.length > 0) {
+            const wordSpans = seg.words.map((w, wi) => {
+                const txt = (w.word || '').trim();
+                return '<span class="seg-word" contenteditable="true" data-seg="' + i + '" data-word="' + wi + '" ' +
+                    'data-original="' + escHtml(txt) + '" spellcheck="false">' + escHtml(txt) + '</span>';
+            }).join('');
+            return '<div class="seg-row">' +
+                '<span class="seg-ts">' + mins + ':' + secs + '</span>' +
+                '<div class="seg-words" data-seg="' + i + '">' + wordSpans + '</div>' +
+            '</div>';
+        }
+
+        // Fallback: empty segment
         return '<div class="seg-row">' +
             '<span class="seg-ts">' + mins + ':' + secs + '</span>' +
-            '<textarea class="seg-input" rows="2" data-idx="' + i + '" oninput="autoResize(this)">' + escHtml(seg.text) + '</textarea>' +
+            '<div class="seg-words" data-seg="' + i + '"></div>' +
         '</div>';
     }).join('');
+
+    // Word editing: mark edited, Enter to confirm
+    list.querySelectorAll('.seg-word').forEach(function(el) {
+        el.addEventListener('input', function() {
+            this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
+        });
+        el.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+        });
+    });
 
     list.querySelectorAll('.seg-input').forEach(autoResize);
 }
 
 async function saveTextEditor() {
     if (!currentSlug || !textEditorData) return;
-    
+
     const segListEl = document.getElementById('seg-list');
     if (!segListEl) return;
-    const inputs = segListEl.querySelectorAll('.seg-input');
-    inputs.forEach(input => {
+
+    // Collect word-level edits from contenteditable spans
+    segListEl.querySelectorAll('.seg-words').forEach(function(container) {
+        const segIdx = parseInt(container.dataset.seg);
+        const seg = textEditorData.segments[segIdx];
+        if (!seg || !seg.words) return;
+        container.querySelectorAll('.seg-word').forEach(function(el) {
+            const wordIdx = parseInt(el.dataset.word);
+            const newText = el.textContent.trim();
+            if (seg.words[wordIdx]) {
+                seg.words[wordIdx].word = newText;
+            }
+        });
+        // Remove empty words and rebuild segment text
+        seg.words = seg.words.filter(function(w) { return w.word.trim().length > 0; });
+        seg.text = seg.words.map(function(w) { return w.word; }).join(' ');
+    });
+
+    // Collect textarea edits (fallback segments without word data)
+    segListEl.querySelectorAll('.seg-input').forEach(function(input) {
         const i = parseInt(input.dataset.idx);
         textEditorData.segments[i].text = input.value.trim();
     });
-    textEditorData.full_text = textEditorData.segments.map(s => s.text).join(' ');
+
+    // Rebuild flattened words array from all segments
+    textEditorData.words = [];
+    textEditorData.segments.forEach(function(seg) {
+        if (seg.words) {
+            seg.words.forEach(function(w) { textEditorData.words.push(w); });
+        }
+    });
+
+    textEditorData.full_text = textEditorData.segments.map(function(s) { return s.text; }).join(' ');
 
     try {
         await fetch('/api/file', {
@@ -5476,6 +5745,11 @@ async function saveTextEditor() {
             })
         });
         showToast('Transcript saved!', 'success');
+        // Reset edited markers
+        segListEl.querySelectorAll('.seg-word.edited').forEach(function(el) {
+            el.dataset.original = el.textContent.trim();
+            el.classList.remove('edited');
+        });
     } catch(e) {
         showToast('Save failed', 'error');
     }
