@@ -81,6 +81,20 @@ function getVideoDimensions(videoPath) {
   return { width: 1080, height: 1920 };
 }
 
+// Close small gaps between consecutive subtitle chunks so there is no visual
+// emptiness.  If the gap between two chunks is <= MAX_GAP_FILL seconds, extend
+// the earlier chunk's end time to meet the next chunk's start time.
+const MAX_GAP_FILL = 3; // seconds
+
+function closeSubtitleGaps(chunks) {
+  for (let i = 0; i < chunks.length - 1; i++) {
+    const gap = chunks[i + 1].start - chunks[i].end;
+    if (gap > 0 && gap <= MAX_GAP_FILL) {
+      chunks[i].end = chunks[i + 1].start;
+    }
+  }
+}
+
 // Generate ASS format subtitles
 // style: "animated" — highlight sweeps right-to-left beneath text (two layers)
 //        "static"   — plain purple box behind text (single layer)
@@ -107,6 +121,8 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
   if (current.words.length > 0) {
     chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
   }
+
+  closeSubtitleGaps(chunks);
 
   // Scale font sizes and margins relative to actual video dimensions
   const vd = videoDimensions || { width: 1080, height: 1920 };
@@ -232,6 +248,8 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   if (current.words.length > 0) {
     chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
   }
+
+  closeSubtitleGaps(chunks);
 
   // Build SRT entries
   const entries = [];
