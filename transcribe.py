@@ -228,27 +228,32 @@ def transcribe_local(video_path, model_name="large-v3"):
     
     return output
 
-def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_api=False):
+def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_api=False, output_file=None):
     video_path = Path(video_path).resolve()
     if not video_path.exists():
         print(f"❌ File not found: {video_path}", file=sys.stderr)
         sys.exit(1)
-    
+
     slug = slug or slugify(video_path.name)
-    episode_dir = Path(__file__).parent / "episodes" / slug
-    episode_dir.mkdir(parents=True, exist_ok=True)
-    output_path = episode_dir / "transcript.json"
-    
+
+    if output_file:
+        output_path = Path(output_file).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        episode_dir = Path(__file__).parent / "episodes" / slug
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        output_path = episode_dir / "transcript.json"
+
     if output_path.exists() and not force:
         print(f"⏭️  Transcript already exists: {output_path}")
         print("   Use --force to re-transcribe.")
         return str(output_path)
-    
+
     print(f"🎙️  Episode: {slug}")
     print(f"📁  File:    {video_path}")
     print(f"📝  Output:  {output_path}")
     print()
-    
+
     # Transcribe
     if use_api:
         api_key = load_api_key()
@@ -256,7 +261,7 @@ def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_ap
             print("❌ No API key found! Set HAIMAKER_API_KEY environment variable or configure via dashboard.", file=sys.stderr)
             print("   You can get an API key from: https://haimaker.ai", file=sys.stderr)
             sys.exit(1)
-        
+
         try:
             result = transcribe_with_api(video_path, api_key)
         except Exception as e:
@@ -265,17 +270,17 @@ def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_ap
             result = transcribe_local(video_path, model_name)
     else:
         result = transcribe_local(video_path, model_name)
-    
+
     result["slug"] = slug
-    
+
     # Save output
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    
+
     print(f"\n✅ Done! {result['segment_count']} segments, {result['word_count']} words, {round(result['duration_seconds']/60, 1)} min")
     print(f"📄 Saved: {output_path}")
     print(f"🔌 Provider: {result.get('api_provider', 'local')}")
-    
+
     return str(output_path)
 
 if __name__ == "__main__":
@@ -285,6 +290,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="large-v3", help="Whisper model size (default: large-v3)")
     parser.add_argument("--force", action="store_true", help="Re-transcribe even if output exists")
     parser.add_argument("--api", action="store_true", help="Use Haimaker API instead of local model")
+    parser.add_argument("--output", help="Custom output path (default: episodes/{slug}/transcript.json)")
     args = parser.parse_args()
-    
-    transcribe(args.video, slug=args.slug, model_name=args.model, force=args.force, use_api=args.api)
+
+    transcribe(args.video, slug=args.slug, model_name=args.model, force=args.force, use_api=args.api, output_file=args.output)
