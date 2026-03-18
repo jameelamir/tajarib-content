@@ -283,11 +283,10 @@
         .tm-seg.in-range:hover { background: rgba(168,85,247,0.15); }
         .tm-seg.playing { background: rgba(168,85,247,0.18) !important; }
         .tm-seg .tm-text { flex: 1; font-size: 0.82rem; color: #666; direction: rtl; text-align: right; line-height: 1.6; }
-        .tm-seg.in-range .tm-text { color: #ddd; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
-        .tm-seg.in-range .tm-word { background: #1a1a1a; border: 1px solid #2a2a2a; color: #ddd; padding: 2px 6px; border-radius: 3px; font-size: 0.82rem; cursor: text; outline: none; line-height: 1.4; transition: border-color 0.15s, background 0.15s; white-space: pre-wrap; min-width: 10px; }
-        .tm-seg.in-range .tm-word:hover { border-color: #444; background: #222; }
-        .tm-seg.in-range .tm-word:focus { border-color: var(--accent); background: #1a1020; color: #fff; }
-        .tm-seg.in-range .tm-word.edited { border-color: var(--accent); color: #fff; }
+        .tm-seg.in-range .tm-text { color: #ddd; cursor: text; }
+        .tm-seg.in-range .tm-text[contenteditable]:focus { outline: none; background: rgba(168,85,247,0.06); border-radius: 3px; }
+        .tm-seg.in-range .tm-text.edited { color: #fff; }
+        .tm-seg.in-range .tm-text.edited::after { content: ''; display: inline-block; width: 4px; height: 4px; background: var(--accent); border-radius: 50%; margin-right: 6px; vertical-align: middle; }
         .tm-seg .tm-ts { font-size: 0.7rem; color: #444; font-family: monospace; padding-top: 2px; min-width: 40px; flex-shrink: 0; text-align: right; }
         .tm-seg.in-range .tm-ts { color: var(--accent); }
         .tm-divider { height: 2px; background: var(--accent); margin: 2px 10px; border-radius: 1px; cursor: ns-resize; transition: height 0.1s, background 0.1s; position: relative; }
@@ -2932,37 +2931,22 @@ function tmRenderSegments() {
             html.push('<div class="tm-divider" data-edge="start" onmousedown="tmStartDrag(event, \'start\')"></div>');
         }
 
-        // For in-range segments: render words as editable spans
-        var textContent;
+        // In-range segments: editable text block (CapCut style)
         if (inRange) {
-            // Synthesize word data if missing
-            if ((!seg.words || seg.words.length === 0) && seg.text && seg.text.trim()) {
-                var tokens = seg.text.trim().split(/\s+/);
-                var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
-                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
-                seg.words = tokens.map(function(tok, ti) {
-                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
-                });
-            }
-            if (seg.words && seg.words.length > 0) {
-                textContent = seg.words.map(function(w, wi) {
-                    var txt = (w.word || '').trim();
-                    return '<span class="tm-word" contenteditable="true" data-seg="' + i + '" data-word="' + wi + '" ' +
-                        'data-original="' + escHtml(txt) + '" spellcheck="false">' + escHtml(txt) + '</span>';
-                }).join('');
-            } else {
-                textContent = escHtml(seg.text);
-            }
+            html.push(
+                '<div class="tm-seg in-range" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
+                    '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(seg.text) + '" spellcheck="false">' + escHtml(seg.text) + '</span>' +
+                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+                '</div>'
+            );
         } else {
-            textContent = escHtml(seg.text);
+            html.push(
+                '<div class="tm-seg" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
+                    '<span class="tm-text">' + escHtml(seg.text) + '</span>' +
+                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+                '</div>'
+            );
         }
-
-        html.push(
-            '<div class="tm-seg' + (inRange ? ' in-range' : '') + '" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
-                '<span class="tm-text">' + textContent + '</span>' +
-                '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
-            '</div>'
-        );
 
         // Insert purple divider at end of range
         if (inRange && !nextInRange) {
@@ -2972,24 +2956,130 @@ function tmRenderSegments() {
 
     segList.innerHTML = html.join('');
 
-    // Wire up word editing: mark edited on input, Enter to confirm
-    segList.querySelectorAll('.tm-word').forEach(function(el) {
-        el.addEventListener('click', function(e) { e.stopPropagation(); }); // don't seek video on word click
+    // Wire up inline text editing for in-range segments
+    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+        el.addEventListener('click', function(e) { e.stopPropagation(); });
+        el.addEventListener('focus', function(e) { e.stopPropagation(); });
         el.addEventListener('input', function() {
             this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
         });
         el.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+            var segIdx = parseInt(this.dataset.seg);
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                tmSplitSegment(segIdx, this);
+            } else if (e.key === 'Backspace') {
+                var sel = window.getSelection();
+                if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
+                    var offset = sel.getRangeAt(0).startOffset;
+                    if (offset === 0) {
+                        e.preventDefault();
+                        tmMergeWithPrev(segIdx);
+                    }
+                }
+            }
         });
     });
-
-    // Show/hide save transcript button
-    var saveTransBtn = document.getElementById('tm-save-transcript-btn');
-    if (saveTransBtn) saveTransBtn.style.display = '';
 
     // Scroll to first in-range segment
     var first = segList.querySelector('.tm-seg.in-range');
     if (first) setTimeout(function() { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
+}
+
+function tmSplitSegment(segIdx, el) {
+    var segs = reelFullTranscriptData.segments;
+    var seg = segs[segIdx];
+    if (!seg) return;
+
+    // Get cursor position in text
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    var offset = range.startOffset;
+    var fullText = el.textContent;
+
+    // Don't split at start or end
+    if (offset === 0 || offset >= fullText.length) return;
+
+    var textBefore = fullText.substring(0, offset).trim();
+    var textAfter = fullText.substring(offset).trim();
+    if (!textBefore || !textAfter) return;
+
+    // Calculate split time proportionally
+    var segDur = (seg.end || seg.start) - seg.start;
+    var ratio = offset / fullText.length;
+    var splitTime = seg.start + segDur * ratio;
+
+    // Build two new segments
+    var seg1 = { start: seg.start, end: splitTime, text: textBefore };
+    var seg2 = { start: splitTime, end: seg.end || splitTime, text: textAfter };
+
+    // Rebuild word arrays for each
+    var wordsBefore = textBefore.split(/\s+/).filter(function(t) { return t; });
+    var wordsAfter = textAfter.split(/\s+/).filter(function(t) { return t; });
+    var dur1 = splitTime - seg.start;
+    var dur2 = (seg.end || splitTime) - splitTime;
+    seg1.words = wordsBefore.map(function(w, i) {
+        var wd = wordsBefore.length > 0 ? dur1 / wordsBefore.length : dur1;
+        return { word: w, start: seg.start + i * wd, end: seg.start + (i + 1) * wd, probability: 0.5 };
+    });
+    seg2.words = wordsAfter.map(function(w, i) {
+        var wd = wordsAfter.length > 0 ? dur2 / wordsAfter.length : dur2;
+        return { word: w, start: splitTime + i * wd, end: splitTime + (i + 1) * wd, probability: 0.5 };
+    });
+
+    // Splice into segments array
+    segs.splice(segIdx, 1, seg1, seg2);
+
+    // Re-render and focus the second segment
+    tmRenderSegments();
+    var newEl = document.querySelector('.tm-text[data-seg="' + (segIdx + 1) + '"]');
+    if (newEl) {
+        newEl.focus();
+        // Place cursor at start
+        var r = document.createRange();
+        r.setStart(newEl.firstChild || newEl, 0);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+}
+
+function tmMergeWithPrev(segIdx) {
+    var segs = reelFullTranscriptData.segments;
+    if (segIdx <= 0) return;
+    var prev = segs[segIdx - 1];
+    var curr = segs[segIdx];
+
+    // Only merge if both are in range
+    if (!(prev.start >= tmReelStart && prev.start < tmReelEnd)) return;
+
+    var mergedText = prev.text + ' ' + curr.text;
+    var prevLen = prev.text.length;
+
+    // Merge into previous segment
+    prev.text = mergedText;
+    prev.end = curr.end || curr.start;
+    prev.words = (prev.words || []).concat(curr.words || []);
+
+    // Remove current segment
+    segs.splice(segIdx, 1);
+
+    // Re-render and place cursor at the join point
+    tmRenderSegments();
+    var el = document.querySelector('.tm-text[data-seg="' + (segIdx - 1) + '"]');
+    if (el && el.firstChild) {
+        el.focus();
+        var r = document.createRange();
+        // Place cursor where the two texts joined (+1 for the space)
+        var pos = Math.min(prevLen + 1, el.firstChild.textContent.length);
+        r.setStart(el.firstChild, pos);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
 }
 
 function tmSeekTo(timeSec) {
@@ -3086,27 +3176,38 @@ async function saveTranscriptWords() {
     var segs = reelFullTranscriptData.segments;
     var changed = false;
 
-    // Collect edits from word spans
-    segList.querySelectorAll('.tm-word').forEach(function(el) {
+    // Collect edits from contenteditable text blocks
+    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
         var segIdx = parseInt(el.dataset.seg);
-        var wordIdx = parseInt(el.dataset.word);
         var seg = segs[segIdx];
-        if (!seg || !seg.words || !seg.words[wordIdx]) return;
+        if (!seg) return;
         var newText = el.textContent.trim();
-        if (newText !== seg.words[wordIdx].word.trim()) {
-            seg.words[wordIdx].word = newText;
+        if (newText !== (seg.text || '').trim()) {
             changed = true;
+            seg.text = newText;
+
+            // Rebuild word-level data from edited text, preserving timing spread
+            var tokens = newText.split(/\s+/).filter(function(t) { return t.length > 0; });
+            var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
+
+            if (seg.words && seg.words.length > 0) {
+                // Redistribute existing timing across new word count
+                var totalDur = segDur;
+                var wordDur = tokens.length > 0 ? totalDur / tokens.length : totalDur;
+                seg.words = tokens.map(function(tok, ti) {
+                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                });
+            } else {
+                // Synthesize word data
+                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+                seg.words = tokens.map(function(tok, ti) {
+                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                });
+            }
         }
     });
 
     if (!changed) { showToast('No changes to save', 'success'); return; }
-
-    // Remove empty words and rebuild segment text
-    segs.forEach(function(seg) {
-        if (!seg.words) return;
-        seg.words = seg.words.filter(function(w) { return w.word.trim().length > 0; });
-        seg.text = seg.words.map(function(w) { return w.word; }).join(' ');
-    });
 
     // Rebuild flattened words array
     reelFullTranscriptData.words = [];
@@ -3125,9 +3226,9 @@ async function saveTranscriptWords() {
                 content: JSON.stringify(reelFullTranscriptData, null, 2)
             })
         });
-        showToast('Transcript words saved!', 'success');
+        showToast('Transcript saved!', 'success');
         // Reset edited markers
-        segList.querySelectorAll('.tm-word.edited').forEach(function(el) {
+        segList.querySelectorAll('.tm-text.edited').forEach(function(el) {
             el.dataset.original = el.textContent.trim();
             el.classList.remove('edited');
         });
