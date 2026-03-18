@@ -83,7 +83,8 @@ function smoothstep(t) {
  * has genuinely moved within a shot. At scene cuts, snaps instantly to the
  * new face position — no animation across cuts.
  */
-function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH, cuts) {
+function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, targetH, cuts, fps) {
+  fps = fps || 30;
   // Calculate crop dimensions (same logic as center crop)
   let cropW, cropH;
   if (videoWidth / videoHeight > targetW / targetH) {
@@ -168,11 +169,10 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
       const prev = holds[i - 1];
 
       if (hold.cutT !== null) {
-        // Scene cut — end previous hold at precise cut time, then snap instantly
-        const snapT = hold.cutT; // precise per-frame cut timestamp
-        const epsilon = 0.001;
-        output.push({ t: Math.round((snapT - epsilon) * 1000) / 1000, offset: prev.offset });
-        // New position starts at exactly the cut timestamp
+        // Scene cut — end previous hold at frame before cut, snap at cut frame
+        const cutFrame = Math.round(hold.cutT * fps);
+        const preCutT = Math.round(((cutFrame - 1) / fps) * 1000) / 1000;
+        output.push({ t: preCutT, offset: prev.offset });
       } else {
         // Same shot — smooth pan
         const dist = Math.abs(hold.offset - prev.offset);
@@ -193,8 +193,8 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     }
 
     // Hold start and end (flat line)
-    // For cuts, start at the precise cut time, not the keyframe sample time
-    const holdStart = (hold.cutT !== null) ? hold.cutT : hold.startT;
+    // For cuts, start at frame-accurate cut time, not the rounded cut time
+    const holdStart = (hold.cutT !== null) ? Math.round(hold.cutT * fps) / fps : hold.startT;
     output.push({ t: holdStart, offset: hold.offset });
     if (hold.endT > hold.startT) {
       output.push({ t: hold.endT, offset: hold.offset });
@@ -300,7 +300,7 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
       const trackData = runFaceTracking(inputFile, reelsDir, id);
       if (trackData && trackData.keyframes && trackData.keyframes.length > 0) {
         const { width, height } = probeVideo(inputFile);
-        cropFilter = buildFaceTrackCropFilter(trackData.keyframes, width, height, w, h, trackData.cuts);
+        cropFilter = buildFaceTrackCropFilter(trackData.keyframes, width, height, w, h, trackData.cuts, trackData.fps);
         console.log(`   📐 reel-${id}: face-tracking crop to ${ratio}...`);
       } else {
         // Fallback to center crop

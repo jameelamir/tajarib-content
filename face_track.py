@@ -135,15 +135,17 @@ def detect_faces(video_path):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
         hist = cv2.normalize(hist, hist).flatten()
+        is_cut = False
         if prev_hist is not None and (frame_idx - last_cut_frame) > MIN_CUT_GAP:
             corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
             if corr < SCENE_CUT_THRESHOLD:
                 cuts.append(round(t, 3))
                 last_cut_frame = frame_idx
+                is_cut = True
         prev_hist = hist
 
-        # Face detection only at sample intervals (expensive)
-        if frame_idx % frame_interval == 0:
+        # Face detection at sample intervals AND at scene cuts (immediate response)
+        if frame_idx % frame_interval == 0 or is_cut:
             frame_h, frame_w = frame.shape[:2]
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -325,6 +327,24 @@ def smooth(keyframes, cuts):
     return result
 
 
+def _detect_implicit_cuts(keyframes, existing_cuts, jump_threshold=0.2, min_gap=0.6):
+    """Detect camera changes missed by histogram-based cut detection.
+
+    When the histogram doesn't change enough (e.g. similar lighting between shots),
+    a large face position jump between consecutive samples indicates a camera switch.
+    """
+    implicit = []
+    for i in range(1, len(keyframes)):
+        if keyframes[i]["x"] is None or keyframes[i - 1]["x"] is None:
+            continue
+        jump = abs(keyframes[i]["x"] - keyframes[i - 1]["x"])
+        if jump >= jump_threshold:
+            t = keyframes[i]["t"]
+            if not any(abs(t - c) < min_gap for c in existing_cuts):
+                implicit.append(t)
+    return implicit
+
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: python3 face_track.py <input_video> <output_json>", file=sys.stderr)
@@ -342,9 +362,16 @@ def main():
     print(f"Sampled {len(keyframes)} frames, {sum(1 for kf in keyframes if kf['x'] is not None)} with faces")
 
     keyframes = fill_gaps(keyframes, cuts)
+
+    # Detect camera changes missed by histogram-based cut detection
+    implicit = _detect_implicit_cuts(keyframes, cuts)
+    if implicit:
+        print(f"Detected {len(implicit)} implicit cuts from face position jumps: {implicit}")
+        cuts = sorted(cuts + implicit)
+
     keyframes = smooth(keyframes, cuts)
 
-    result = {"keyframes": keyframes, "cuts": cuts}
+    result = {"keyframes": keyframes, "cuts": cuts, "fps": round(fps, 3)}
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w") as f:
