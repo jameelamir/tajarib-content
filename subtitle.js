@@ -55,8 +55,10 @@ function getVideoDimensions(videoPath) {
   return { width: 1080, height: 1920 };
 }
 
-// Generate ASS format with support for title card styling
-function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null) {
+// Generate ASS format subtitles
+// style: "animated" — highlight sweeps right-to-left beneath text (two layers)
+//        "static"   — plain purple box behind text (single layer)
+function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null, style = "animated") {
   const chunks = [];
   let current = { words: [], start: null, end: null };
 
@@ -80,18 +82,6 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
   }
 
-  const dialogueLines = [];
-
-  // Add title card dialogue (uses Title style with larger font)
-  if (titleCard) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${titleCard}`);
-  }
-
-  // Add regular subtitle chunks (uses Default style)
-  for (const chunk of chunks) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${chunk.text}`);
-  }
-
   // Scale font sizes and margins relative to actual video dimensions
   const vd = videoDimensions || { width: 1080, height: 1920 };
   const scale = vd.height / 1920;
@@ -100,7 +90,78 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
   const marginLR = Math.round(60 * scale);
   const titleMarginV = Math.round(550 * scale);
   const defaultMarginV = Math.round(500 * scale);
+  const highlightPad = Math.max(5, Math.round(12 * scale));
   const outline = Math.max(3, Math.round(5 * scale));
+
+  const dialogueLines = [];
+
+  if (style === "animated") {
+    // Three layers per subtitle:
+    //   Layer 0 — HighlightGlow: blurred dark box (same shape as highlight), soft shadow from the highlight
+    //   Layer 1 — Highlight: purple box clipped to bottom half of text, animated RTL
+    //   Layer 2 — Text: clean white text on top
+    const W = vd.width;
+    const H = vd.height;
+    const glowBlur = Math.max(10, Math.round(25 * scale));
+    const glowPad = Math.max(10, Math.round(25 * scale));
+
+    // Clip Y range: only show the bottom ~50% of the text area (highlighter effect)
+    // With Alignment=2 (bottom-center), text bottom ≈ H - marginV
+    const defBottom = H - defaultMarginV;
+    const defClipTop = defBottom - Math.round(defaultSize * 0.55);
+    const defClipBot = defBottom + Math.round(defaultSize * 0.15);
+
+    const titleBottom = H - titleMarginV;
+    const titleClipTop = titleBottom - Math.round(titleSize * 0.55);
+    const titleClipBot = titleBottom + Math.round(titleSize * 0.15);
+
+    if (titleCard) {
+      const animMs = Math.round(Math.min(5, TITLE_DURATION) * 1000);
+      dialogueLines.push(
+        `Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlightGlow,,0,0,0,,{\\blur${glowBlur}}${titleCard}`,
+        `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${titleCard}`,
+        `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${titleCard}`
+      );
+    }
+
+    for (const chunk of chunks) {
+      const chunkDur = chunk.end - chunk.start;
+      const animMs = Math.round(Math.min(5, chunkDur) * 1000);
+      dialogueLines.push(
+        `Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},HighlightGlow,,0,0,0,,{\\blur${glowBlur}}${chunk.text}`,
+        `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${chunk.text}`,
+        `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${chunk.text}`
+      );
+    }
+
+    return `[Script Info]
+Title: Reel Subtitles
+ScriptType: v4.00+
+PlayResX: ${vd.width}
+PlayResY: ${vd.height}
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: TitleHighlightGlow,SomarSans-Bold,${titleSize},&HFF000000,&H000000FF,&H80000000,&H80000000,1,0,0,0,100,100,0,0,3,${glowPad},0,2,${marginLR},${marginLR},${titleMarginV},1
+Style: TitleText,SomarSans-Bold,${titleSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,2,${marginLR},${marginLR},${titleMarginV},1
+Style: TitleHighlight,SomarSans-Bold,${titleSize},&HFF000000,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,3,${highlightPad},0,2,${marginLR},${marginLR},${titleMarginV},1
+Style: HighlightGlow,SomarSans-Bold,${defaultSize},&HFF000000,&H000000FF,&H80000000,&H80000000,1,0,0,0,100,100,0,0,3,${glowPad},0,2,${marginLR},${marginLR},${defaultMarginV},1
+Style: Text,SomarSans-Bold,${defaultSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,2,${marginLR},${marginLR},${defaultMarginV},1
+Style: Highlight,SomarSans-Bold,${defaultSize},&HFF000000,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,3,${highlightPad},0,2,${marginLR},${marginLR},${defaultMarginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${dialogueLines.join("\n")}`;
+  }
+
+  // Static style — single layer, purple outline around text
+  if (titleCard) {
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${titleCard}`);
+  }
+
+  for (const chunk of chunks) {
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${chunk.text}`);
+  }
 
   return `[Script Info]
 Title: Reel Subtitles
@@ -165,8 +226,8 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   return entries.join("\n");
 }
 
-async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false) {
-  console.log(`\n🎬 Subtitle Generator — ${slug}\n`);
+async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false, subtitleStyle = "animated") {
+  console.log(`\n🎬 Subtitle Generator — ${slug} (style: ${subtitleStyle})\n`);
   
   const dir = path.join(EPISODES_DIR, slug);
   const transcriptPath = path.join(dir, "transcript.json");
@@ -284,7 +345,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     const ffmpegArgs = [
       "-y",
       "-i", sourceVideo,
-      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00BE2F7B,BorderStyle=4,Outline=4,Bold=1,Alignment=2,MarginV=100'`,
+      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00BE2F7B,BackColour=&H00BE2F7B,BorderStyle=3,Outline=12,Shadow=0,Bold=1,Alignment=2,MarginV=100'`,
       "-c:a", "copy",
       tmpFullOut
     ];
@@ -358,7 +419,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
 
       // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
-      const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims);
+      const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims, subtitleStyle);
 
       fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
       const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
@@ -413,9 +474,14 @@ const force = args.includes("--force");
 const titleCard = args.includes("--title-card");
 const burnOnly = args.includes("--burn-only");
 const reelId = get("--reel-id");
+const subtitleStyle = get("--subtitle-style") || "animated"; // "animated" or "static"
 
 if (!slug) {
-  console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only]");
+  console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only] [--subtitle-style animated|static]");
   process.exit(1);
 }
-subtitle(slug, force, titleCard, reelId, burnOnly).catch(err => { console.error("❌", err.message); process.exit(1); });
+if (!["animated", "static"].includes(subtitleStyle)) {
+  console.error(`❌ Invalid --subtitle-style "${subtitleStyle}". Use "animated" or "static".`);
+  process.exit(1);
+}
+subtitle(slug, force, titleCard, reelId, burnOnly, subtitleStyle).catch(err => { console.error("❌", err.message); process.exit(1); });
