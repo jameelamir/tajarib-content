@@ -11,12 +11,38 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execSync, execFileSync } = require("child_process");
+const { execSync, execFileSync, spawnSync } = require("child_process");
 
 const EPISODES_DIR = path.join(__dirname, "episodes");
+const PYTHON_BIN = fs.existsSync(path.join(__dirname, ".venv", "bin", "python3"))
+  ? path.join(__dirname, ".venv", "bin", "python3")
+  : "python3";
 
 // Title card duration in seconds
 const TITLE_DURATION = 5;
+
+// Transcribe a video clip with local Whisper and return word-level timestamps.
+// Returns the words array (0-indexed relative to clip start), or null on failure.
+function whisperTranscribeClip(clipPath, outputPath) {
+  console.log(`   🎙️  Transcribing clip with local Whisper: ${path.basename(clipPath)}`);
+  const result = spawnSync(PYTHON_BIN, [
+    "-u", "transcribe.py", clipPath, "--slug", "temp", "--force", "--output", outputPath
+  ], { cwd: __dirname, stdio: "inherit", timeout: 10 * 60 * 1000 });
+
+  if (result.status !== 0) {
+    console.error(`   ⚠️  Whisper transcription failed (exit ${result.status})`);
+    return null;
+  }
+
+  try {
+    const t = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+    console.log(`   ✅ Whisper: ${t.words?.length || 0} words with word-level timestamps`);
+    return t.words || [];
+  } catch (e) {
+    console.error(`   ⚠️  Failed to parse Whisper output: ${e.message}`);
+    return null;
+  }
+}
 
 function toSeconds(ts) {
   const parts = ts.split(":").map(Number);
@@ -245,7 +271,12 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   }
   console.log(`   ✅ Transcript exists (${(fs.statSync(transcriptPath).size / 1024).toFixed(1)} KB)`);
 
-  const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
+  let transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
+  const isYouTubeTranscript = transcript.api_provider === "youtube" || transcript.model === "youtube-transcript";
+
+  if (isYouTubeTranscript) {
+    console.log(`   ⚠️  Transcript is from YouTube — will retranscribe each reel clip with local Whisper for accurate word-level timestamps`);
+  }
 
   // Ensure word-level timestamps exist.
   // If transcript was imported from SRT (no words array), synthesize from segments.
@@ -306,7 +337,16 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
 
   if (reels.length === 0) {
     console.log("\n⚠️  No reels found in analysis. Will generate full-video subtitles.\n");
-    
+
+    // Retranscribe full video with Whisper if transcript is from YouTube
+    if (isYouTubeTranscript && fs.existsSync(sourceVideo)) {
+      const fullTranscriptPath = path.join(dir, "whisper-transcript.json");
+      const whisperWords = whisperTranscribeClip(sourceVideo, fullTranscriptPath);
+      if (whisperWords && whisperWords.length > 0) {
+        transcript.words = whisperWords;
+      }
+    }
+
     // Generate SRT for the entire video
     console.log(`📝 Generating SRT from ${transcript.words?.length || 0} words...`);
     const srtContent = generateSRT(transcript.words, 0);
@@ -411,15 +451,31 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       // Get reel title from analysis (fallback to generic title)
       const reelTitle = reel.title || reel.hook || `Reel ${reel.id}`;
 
-      // Get words in this reel's time range
-      const reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+      // Get words for this reel — if YouTube transcript, retranscribe the clip
+      // with local Whisper for accurate word-level timestamps
+      let reelWords;
+      let wordStartOffset = startSec;
+
+      if (isYouTubeTranscript) {
+        const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
+        const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
+        if (whisperWords && whisperWords.length > 0) {
+          reelWords = whisperWords;
+          wordStartOffset = 0; // clip timestamps are already 0-indexed
+        } else {
+          console.log(`   ⚠️  Falling back to YouTube transcript words`);
+          reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+        }
+      } else {
+        reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+      }
 
       // Detect actual video dimensions so ASS PlayRes matches
       const videoDims = getVideoDimensions(videoPath);
       console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
 
       // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
-      const subtitleContent = generateASS(reelWords, startSec, titleCard ? reelTitle : null, videoDims, subtitleStyle);
+      const subtitleContent = generateASS(reelWords, wordStartOffset, titleCard ? reelTitle : null, videoDims, subtitleStyle);
 
       fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
       const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
