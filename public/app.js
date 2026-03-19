@@ -1581,16 +1581,31 @@ function renderReelDetail(ep, reelId) {
         var modularEl = document.getElementById('reel-detail-modular');
         modularEl.insertBefore(warningEl, document.getElementById('reel-preview'));
     }
-    if (!r.cut) {
+    if (!r.cut && r.cropped) {
+        // Only show warning when there's an orphaned crop from a previous run
         warningEl.style.display = '';
-        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing or empty — use Cut below to generate' + (r.cropped ? '. Preview shows an orphaned crop from a previous run.' : '') + '</div>';
+        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing — preview shows an orphaned crop from a previous run. Use Cut below to regenerate.</div>';
     } else {
         warningEl.style.display = 'none';
     }
 
     // Video preview — only recreate if reel changed to avoid interrupting playback
     var previewEl = document.getElementById('reel-preview');
-    if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
+    if (!r.cut && !r.cropped) {
+        // Uncut reel — show placeholder instead of broken video player
+        previewEl.innerHTML =
+            '<div style="background:#111; border:1px solid var(--border); border-radius:8px; padding:24px 20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:120px;">' +
+                '<div style="font-size:1.6rem; opacity:0.4;">&#9988;</div>' +
+                '<div style="font-size:0.8rem; color:#666; text-align:center;">Not cut yet</div>' +
+                (r.start && r.end ? '<div style="font-size:0.7rem; color:#555; font-family:\'Fira Code\',monospace;">' + escHtml(r.start) + ' &ndash; ' + escHtml(r.end) + '</div>' : '') +
+                '<button class="primary" onclick="runReelStep(\'' + reelId + '\', \'cut\')" style="font-size:0.75rem; margin-top:4px;">&#9654; Cut from source</button>' +
+            '</div>';
+        previewEl.dataset.reelId = reelId;
+        previewEl.dataset.slug = ep.slug;
+        // Reset portrait layout since there's no video
+        var modular = document.getElementById('reel-detail-modular');
+        if (modular) modular.classList.remove('portrait');
+    } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
         var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.reelId = reelId;
