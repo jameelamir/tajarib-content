@@ -14,18 +14,12 @@ const fs   = require("fs");
 const path = require("path");
 const llm  = require("./llm");
 const prompts = require("./prompts");
+const { toSeconds, loadJSON, EPISODES_DIR } = require("./utils");
 
-const EPISODES_DIR = path.join(__dirname, "episodes");
 const CLI_ARGS     = process.argv.slice(2);
 
 // ─── Config ─────────────────────────────────────────────────────
 let MODEL = llm.getConfig().model || llm.DEFAULT_MODEL;
-
-// ─── Helpers ─────────────────────────────────────────────────────
-function loadJSON(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
 
 // Force immediate output for dashboard logging
 function log(msg) {
@@ -33,11 +27,6 @@ function log(msg) {
 }
 
 function extractReelText(transcript, startStr, endStr) {
-  function toSeconds(ts) {
-    const parts = ts.split(":").map(Number);
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
   const start = toSeconds(startStr);
   const end   = toSeconds(endStr);
   return transcript.segments
@@ -51,8 +40,7 @@ function extractReelText(transcript, startStr, endStr) {
 // Manual LLM round counter — each LLM call in the pipeline is a "round"
 let manualRound = 0;
 
-async function chat(apiKey, systemPrompt, userMessage, maxTokens = 1024, slug = null, stepLabel = "generate") {
-  // Note: apiKey param kept for call-site compat but is ignored — llm.js handles keys
+async function chat(systemPrompt, userMessage, maxTokens = 1024, slug = null, stepLabel = "generate") {
   const isResume = CLI_ARGS.includes("--resume");
   const resumeRound = parseInt(CLI_ARGS[CLI_ARGS.indexOf("--resume-round") + 1] || "0", 10);
 
@@ -111,7 +99,7 @@ const SYSTEM_REELS = prompts.load("generate-reels-system");
 const SYSTEM_YT = prompts.load("generate-youtube-system");
 
 // ─── Generate functions ───────────────────────────────────────────
-async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSpec, slug, episodeContext = "") {
+async function generateReelCaption(reel, guest, role, reelText, formatSpec, slug, episodeContext = "") {
   const user = prompts.load("generate-reels-user", {
     formatSpec, guest, role, reelText, hook: reel.hook, episodeContext,
   });
@@ -119,10 +107,10 @@ async function generateReelCaption(apiKey, reel, guest, role, reelText, formatSp
   // Note: reasoning models (e.g. DeepSeek R1 via haimaker/auto) need extra token
   // budget because they use tokens for internal reasoning before producing output.
   // 512 was too small — the model would exhaust tokens on reasoning and return null content.
-  return chat(apiKey, SYSTEM_REELS, user, 2048, slug, `reel-${reel.id}`);
+  return chat(SYSTEM_REELS, user, 2048, slug, `reel-${reel.id}`);
 }
 
-async function generateYouTubeContent(apiKey, transcript, analysis, guest, role, formatSpec, slug) {
+async function generateYouTubeContent(transcript, analysis, guest, role, formatSpec, slug) {
   const summary = transcript.segments
     .filter((_, i) => i < 5 || i >= transcript.segments.length - 3 ||
       analysis.chapters?.some(ch => {
@@ -143,7 +131,7 @@ async function generateYouTubeContent(apiKey, transcript, analysis, guest, role,
     chaptersText, reelsText, summary,
   });
 
-  const result = await chat(apiKey, SYSTEM_YT, user, 2048, slug, "youtube");
+  const result = await chat(SYSTEM_YT, user, 2048, slug, "youtube");
   const raw = result.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
   return { content: JSON.parse(raw), tokens: result.tokens };
 }
@@ -168,7 +156,6 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
   }
 
   const reelFormat = prompts.load("reel-caption-format");
-  const apiKey     = null; // handled by llm.js
   const config     = llm.getConfig();
 
   log(`✍️  Generating content for: ${slug}`);
@@ -195,7 +182,7 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     const fakeReel = { id: "reel-01", hook: "", start: "0:00", end: "1:00" };
 
     log(`   🎬 Generating reel caption…`);
-    const result = await generateReelCaption(apiKey, fakeReel, guest, role, reelText, reelFormat, slug);
+    const result = await generateReelCaption(fakeReel, guest, role, reelText, reelFormat, slug);
     totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
 
@@ -238,8 +225,6 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
 
   const ytFormat = prompts.load("youtube-description-format");
 
-  let totalTokens2 = 0; // separate var to avoid shadowing
-
   let reelsToProcess = analysis.reels || [];
 
   // Per-reel filter
@@ -258,12 +243,12 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     const reelText = extractReelText(transcript, reel.start, reel.end);
     log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
     const episodeContext = analysis.general_notes || "";
-    const result = await generateReelCaption(apiKey, reel, guest, role, reelText, reelFormat, slug, episodeContext);
+    const result = await generateReelCaption(reel, guest, role, reelText, reelFormat, slug, episodeContext);
     reelCaptions.push({
       id: reel.id, start: reel.start, end: reel.end,
       hook: reel.hook, reel_text: reelText, caption: result.text,
     });
-    totalTokens2 += result.tokens;
+    totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
   }
 
@@ -271,8 +256,8 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
   let ytResult = { tokens: 0, content: {} };
   if (!reelId) {
     log("   📺 Generating YouTube description + titles + announcement...");
-    ytResult = await generateYouTubeContent(apiKey, transcript, analysis, guest, role, ytFormat, slug);
-    totalTokens2 += ytResult.tokens;
+    ytResult = await generateYouTubeContent(transcript, analysis, guest, role, ytFormat, slug);
+    totalTokens += ytResult.tokens;
     log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
   }
 
@@ -297,12 +282,12 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
       slug,
       generated_at: new Date().toISOString(),
       guest, role,
-      total_tokens_used: totalTokens2,
+      total_tokens_used: totalTokens,
       reels: reelCaptions,
       ...ytResult.content,
     };
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
-    log(`\n✅ Done! Total tokens: ${totalTokens2.toLocaleString()}`);
+    log(`\n✅ Done! Total tokens: ${totalTokens.toLocaleString()}`);
     log(`📄 Saved: ${outputPath}`);
   }
   return outputPath;
