@@ -299,14 +299,18 @@ async function analyzeMore(slug) {
   return outputPath;
 }
 
+module.exports = { resolveTimestamps };
+
 // CLI
-const slugIdx = CLI_ARGS.indexOf("--slug");
-const force = CLI_ARGS.includes("--force");
-const more = CLI_ARGS.includes("--more");
-if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
-  console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more]");
-  process.exit(1);
+if (require.main === module) {
+  const slugIdx = CLI_ARGS.indexOf("--slug");
+  const force = CLI_ARGS.includes("--force");
+  const more = CLI_ARGS.includes("--more");
+  if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
+    console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more]");
+    process.exit(1);
+  }
+  const slug = CLI_ARGS[slugIdx + 1];
+  const run = more ? analyzeMore(slug) : analyze(slug, force);
+  run.catch(err => { console.error("❌", err.message); process.exit(1); });
 }
-const slug = CLI_ARGS[slugIdx + 1];
-const run = more ? analyzeMore(slug) : analyze(slug, force);
-run.catch(err => { console.error("❌", err.message); process.exit(1); });
