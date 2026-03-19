@@ -66,10 +66,6 @@ function hasKey() {
   return !!config.key;
 }
 
-function isManualMode() {
-  return getConfig().manualMode;
-}
-
 // ─── Chat ──────────────────────────────────────────────────────────
 
 /**
@@ -180,4 +176,4 @@ async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
   }
 }
 
-module.exports = { getConfig, hasKey, isManualMode, chat, loadConfig, DEFAULT_MODEL };
+module.exports = { getConfig, hasKey, chat, loadConfig, DEFAULT_MODEL };
