@@ -12,8 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execSync, execFileSync, spawnSync } = require("child_process");
-
-const EPISODES_DIR = path.join(__dirname, "episodes");
+const { toSeconds, EPISODES_DIR } = require("./utils");
 const PYTHON_BIN = fs.existsSync(path.join(__dirname, ".venv", "bin", "python3"))
   ? path.join(__dirname, ".venv", "bin", "python3")
   : "python3";
@@ -42,12 +41,6 @@ function whisperTranscribeClip(clipPath, outputPath) {
     console.error(`   ⚠️  Failed to parse Whisper output: ${e.message}`);
     return null;
   }
-}
-
-function toSeconds(ts) {
-  const parts = ts.split(":").map(Number);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] * 3600 + parts[1] * 60 + parts[2];
 }
 
 function formatSRTTime(sec) {

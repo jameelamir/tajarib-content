@@ -13,16 +13,11 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync, execFileSync } = require("child_process");
+const { execFileSync } = require("child_process");
+const { loadJSON, EPISODES_DIR } = require("./utils");
 
-const EPISODES_DIR = path.join(__dirname, "episodes");
 const ASSETS_DIR = path.join(__dirname, "assets");
 const FONTS_DIR = path.join(__dirname, "fonts");
-
-function loadJSON(p) {
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch (_) { return null; }
-}
 
 /**
  * Probe video dimensions via ffprobe.
@@ -81,12 +76,6 @@ function buildCTATextFilter(ctaConfig, videoWidth, videoHeight) {
 
   return `drawtext=fontfile='${escapedFont}':text='${text}':fontsize=${fontSize}:fontcolor=${color}:x=${x}:y=${y}:enable='between(t,${start},${end})'`;
 }
-
-/**
- * Build gradient shadow vignette filters for logo contrast.
- * Creates semi-transparent black strips at top and bottom edges.
- */
-// Shadow overlay is handled via shadow-reels.png with multiply blend
 
 /**
  * Build overlay inputs and filter chain from config.
@@ -172,24 +161,6 @@ function findCTAAsset() {
     if (fs.existsSync(p)) return p;
   }
   return null;
-}
-
-/**
- * Resolve the {LAST} placeholder in chain with proper label tracking.
- */
-function resolveChain(chain, startLabel) {
-  let current = startLabel;
-  return chain.replace(/\{LAST\}/g, () => {
-    const label = current;
-    // Find the next output label after this match
-    const afterIdx = chain.indexOf("{LAST}");
-    if (afterIdx !== -1) {
-      const afterChain = chain.substring(afterIdx);
-      const match = afterChain.match(/\[after_\w+\]/);
-      if (match) current = match[0];
-    }
-    return label;
-  });
 }
 
 async function overlay(slug, options) {
