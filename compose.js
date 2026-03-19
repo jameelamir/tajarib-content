@@ -12,20 +12,10 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync, execFileSync, spawn } = require("child_process");
+const { execFileSync } = require("child_process");
 const llm = require("./llm");
 const prompts = require("./prompts");
-
-const EPISODES_DIR = path.join(__dirname, "episodes");
-
-function loadJSON(p) {
-  if (!fs.existsSync(p)) return null;
-  try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch (_) { return null; }
-}
-
-function saveJSON(p, data) {
-  fs.writeFileSync(p, JSON.stringify(data, null, 2), "utf8");
-}
+const { loadJSON, saveJSON, formatTimestamp, EPISODES_DIR } = require("./utils");
 
 // ── AI Switch Point Generation ──────────────────────────────────────────────
 
@@ -43,7 +33,7 @@ async function generateAISwitchPoints(slug) {
 
   // Build a condensed transcript for the AI
   const segmentText = transcript.segments
-    .map(s => `[${formatTime(s.start)}] ${s.text}`)
+    .map(s => `[${formatTimestamp(s.start)}] ${s.text}`)
     .join("\n");
 
   const guestName = meta.guest || "the guest";
@@ -54,7 +44,7 @@ async function generateAISwitchPoints(slug) {
   const userPrompt = prompts.load("compose-user", {
     guestName,
     segmentText: truncatedText,
-    duration: formatTime(duration),
+    duration: formatTimestamp(duration),
   });
 
   const isResume = process.argv.includes("--resume");
@@ -102,11 +92,6 @@ async function generateAISwitchPoints(slug) {
   return result.switches;
 }
 
-function formatTime(sec) {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
 
 // ── Composition Logic ───────────────────────────────────────────────────────
 
@@ -280,7 +265,7 @@ async function compose(slug, options) {
 
   // Get video duration for switch calculations
   const duration = getVideoDuration(speakerPath);
-  console.log(`⏱️  Video duration: ${formatTime(duration)} (${duration.toFixed(1)}s)`);
+  console.log(`⏱️  Video duration: ${formatTimestamp(duration)} (${duration.toFixed(1)}s)`);
 
   let ffmpegArgs;
   if (switches && switches.length > 0) {

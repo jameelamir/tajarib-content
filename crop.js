@@ -16,8 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
-
-const EPISODES_DIR = path.join(__dirname, "episodes");
+const { EPISODES_DIR } = require("./utils");
 const PYTHON = "python3";
 const FACE_TRACK_SCRIPT = path.join(__dirname, "face_track.py");
 

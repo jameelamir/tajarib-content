@@ -15,70 +15,10 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const llm = require("./llm");
 const prompts = require("./prompts");
+const { formatTimestamp, loadTranscript, formatTranscriptForPrompt, findSegmentByText, EPISODES_DIR } = require("./utils");
 
-const EPISODES_DIR = path.join(__dirname, "episodes");
 const FONTS_DIR = path.join(__dirname, "fonts");
 const CLI_ARGS = process.argv.slice(2);
-
-function loadTranscript(slug) {
-  const p = path.join(EPISODES_DIR, slug, "transcript.json");
-  if (!fs.existsSync(p)) {
-    console.error(`❌ No transcript found: ${p}`);
-    console.error("   Run transcribe.py first.");
-    process.exit(1);
-  }
-  return JSON.parse(fs.readFileSync(p, "utf8"));
-}
-
-function formatTimestamp(seconds) {
-  const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
-}
-
-function formatTranscriptForPrompt(transcript) {
-  const PARAGRAPH_INTERVAL = 30;
-  const paragraphs = [];
-  let currentTexts = [];
-  let paragraphStart = 0;
-
-  for (const seg of transcript.segments) {
-    if (currentTexts.length === 0) paragraphStart = seg.start;
-    if (seg.start - paragraphStart >= PARAGRAPH_INTERVAL && currentTexts.length > 0) {
-      paragraphs.push(`[${formatTimestamp(paragraphStart)}] ${currentTexts.join(" ")}`);
-      currentTexts = [];
-      paragraphStart = seg.start;
-    }
-    currentTexts.push(seg.text.trim());
-  }
-  if (currentTexts.length > 0) {
-    paragraphs.push(`[${formatTimestamp(paragraphStart)}] ${currentTexts.join(" ")}`);
-  }
-  return paragraphs.join("\n\n");
-}
-
-function findSegmentByText(segments, excerpt) {
-  if (!excerpt || !segments.length) return null;
-  const needle = excerpt.trim().replace(/\s+/g, " ");
-
-  for (let winSize = 1; winSize <= Math.min(4, segments.length); winSize++) {
-    for (let i = 0; i <= segments.length - winSize; i++) {
-      const combined = segments.slice(i, i + winSize).map(s => s.text.trim()).join(" ").replace(/\s+/g, " ");
-      if (combined.includes(needle)) return segments[i].start;
-      if (needle.includes(combined) && winSize > 1) return segments[i].start;
-    }
-  }
-
-  const needleWords = needle.split(" ");
-  let bestIdx = -1, bestScore = 0;
-  for (let i = 0; i < segments.length; i++) {
-    const haystackWords = segments[i].text.trim().replace(/\s+/g, " ").split(" ");
-    const overlap = needleWords.filter(w => haystackWords.includes(w)).length;
-    const score = overlap / Math.max(needleWords.length, 1);
-    if (score > bestScore) { bestScore = score; bestIdx = i; }
-  }
-  return bestIdx >= 0 && bestScore > 0.3 ? segments[bestIdx].start : null;
-}
 
 /**
  * Generate a YouTube-style thumbnail with Arabic text on purple background strip.
