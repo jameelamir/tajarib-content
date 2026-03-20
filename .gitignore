@@ -30,6 +30,11 @@ dashboard-v*.log
 index.html.v*.pre-mobile-backup
 *.v*.pre-mobile-backup.js
 
+# Large binary assets (symlinked from shared storage)
+assets/*.mov
+assets/*.mp4
+assets/.thumb-*
+
 # OS files
 .DS_Store
 Thumbs.db
