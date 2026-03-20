@@ -79,6 +79,10 @@ function getVideoDimensions(videoPath) {
 // the earlier chunk's end time to meet the next chunk's start time.
 const MAX_GAP_FILL = 3; // seconds
 
+// How many seconds the shadow (HighlightGlow) appears before the subtitle text.
+// This creates a subtle anticipation effect — the shadow fades in before the words.
+const SHADOW_LEAD = 0.3; // seconds
+
 function closeSubtitleGaps(chunks) {
   for (let i = 0; i < chunks.length - 1; i++) {
     const gap = chunks[i + 1].start - chunks[i].end;
@@ -162,8 +166,10 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     for (const chunk of chunks) {
       const chunkDur = chunk.end - chunk.start;
       const animMs = Math.round(Math.min(5, chunkDur) * 1000);
+      // Shadow starts SHADOW_LEAD seconds before the text (clamped to 0)
+      const shadowStart = Math.max(0, chunk.start - SHADOW_LEAD);
       dialogueLines.push(
-        `Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},HighlightGlow,,0,0,0,,{\\blur${glowBlur}}${chunk.text}`,
+        `Dialogue: 0,${formatASSTime(shadowStart)},${formatASSTime(chunk.end)},HighlightGlow,,0,0,0,,{\\blur${glowBlur}}${chunk.text}`,
         `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${chunk.text}`,
         `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${chunk.text}`
       );
@@ -462,19 +468,20 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       // Get reel title from analysis (fallback to generic title)
       const reelTitle = reel.title || reel.hook || `Reel ${reel.id}`;
 
-      // Get words for this reel — if YouTube transcript, retranscribe the clip
-      // with local Whisper for accurate word-level timestamps
+      // Get words for this reel — retranscribe the clip with local Whisper
+      // when force is set (re-clicking Sub) or when transcript is from YouTube
       let reelWords;
       let wordStartOffset = startSec;
 
-      if (isYouTubeTranscript) {
+      if (force || isYouTubeTranscript) {
+        console.log(`   🎙️  Re-transcribing reel clip with local Whisper (force=${force})...`);
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
         const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
         if (whisperWords && whisperWords.length > 0) {
           reelWords = whisperWords;
           wordStartOffset = 0; // clip timestamps are already 0-indexed
         } else {
-          console.log(`   ⚠️  Falling back to YouTube transcript words`);
+          console.log(`   ⚠️  Falling back to episode transcript words`);
           reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
         }
       } else {

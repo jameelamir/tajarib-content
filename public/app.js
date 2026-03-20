@@ -2228,7 +2228,7 @@ function buildReelActions(ep, reel) {
     });
     steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
-        '<button onclick="event.stopPropagation(); toggleOverlayConfig()" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer; opacity:0.6;" title="Configure overlays">&#9881;</button>'
+        '<button onclick="event.stopPropagation(); toggleOverlayConfig()" style="background:transparent; border:none; color:inherit; font-size:0.85rem; padding:0 4px; cursor:pointer; opacity:0.8;" title="Configure overlays">&#9881;</button>'
     });
 
     // Find next undone step
@@ -3355,6 +3355,7 @@ async function toggleOverlayConfig() {
         return;
     }
     section.style.display = '';
+    overlayImageCache = {}; // clear image cache so fresh previews load
     // Load config
     try {
         const res = await fetch('/api/overlay-config/' + encodeURIComponent(currentSlug));
@@ -3427,14 +3428,20 @@ function renderOverlayConfig() {
                                 '<button class="' + (c.lowerThird.mode === 'custom' ? 'active' : '') + '" onclick="overlayConfig.lowerThird.mode=\'custom\'; renderOverlayConfig();" style="font-size:0.65rem;">Custom File</button>' +
                             '</div>' +
                             (c.lowerThird.mode === 'custom' ?
-                                '<div class="overlay-row"><label>File</label><input type="file" accept=".mov,.mp4,.png,.gif" onchange="uploadLowerThirdAsset(this.files[0]);" style="font-size:0.65rem; color:#888;"></div>' +
-                                (c.lowerThird.customFile ? '<div style="font-size:0.6rem; color:var(--success); margin-bottom:4px;">✓ ' + c.lowerThird.customFile + '</div>' : '') +
+                                '<div class="overlay-row"><label>File</label>' +
+                                    '<select id="lt-asset-picker" onchange="selectLowerThirdAsset(this.value)" style="font-size:0.65rem; flex:1; background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:2px 4px;">' +
+                                        '<option value="">' + (c.lowerThird.customFile ? c.lowerThird.customFile : '-- Select file --') + '</option>' +
+                                    '</select>' +
+                                    '<button onclick="document.getElementById(\'lt-upload-input\').click()" style="font-size:0.6rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="Upload new file">+</button>' +
+                                    '<input type="file" id="lt-upload-input" accept=".mov,.mp4,.png,.gif" onchange="uploadLowerThirdAsset(this.files[0]);" style="display:none;">' +
+                                '</div>' +
+                                (c.lowerThird.customFile ? '<div style="font-size:0.6rem; color:var(--success); margin-bottom:4px;">&#10003; ' + c.lowerThird.customFile + '</div>' : '') +
                                 '<div class="overlay-row"><label>Scale</label><input type="range" min="100" max="600" value="' + (c.lowerThird.scale || 300) + '" oninput="overlayConfig.lowerThird.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + (c.lowerThird.scale || 300) + 'px</span></div>' +
                                 '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + (c.lowerThird.x || 5) + '" oninput="overlayConfig.lowerThird.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + (c.lowerThird.x || 5) + '%</span></div>' +
                                 '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + (c.lowerThird.y || 80) + '" oninput="overlayConfig.lowerThird.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + (c.lowerThird.y || 80) + '%</span></div>'
                             : '') +
-                            '<div class="overlay-row"><label>Start</label><input type="range" min="0" max="30" step="0.5" value="' + c.lowerThird.startTime + '" oninput="overlayConfig.lowerThird.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.startTime + 's</span></div>' +
-                            '<div class="overlay-row"><label>End</label><input type="range" min="1" max="30" step="0.5" value="' + c.lowerThird.endTime + '" oninput="overlayConfig.lowerThird.endTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.endTime + 's</span></div>' +
+                            '<div class="overlay-row"><label>Start</label><input type="range" min="0" max="300" step="0.5" value="' + c.lowerThird.startTime + '" oninput="overlayConfig.lowerThird.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.startTime + 's</span></div>' +
+                            '<div class="overlay-row"><label>End</label><input type="range" min="1" max="300" step="0.5" value="' + c.lowerThird.endTime + '" oninput="overlayConfig.lowerThird.endTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.lowerThird.endTime + 's</span></div>' +
                         '</div>' +
                     '</div>' +
                     // CTA
@@ -3470,6 +3477,10 @@ function renderOverlayConfig() {
         '</div>';
 
     initOverlayCanvas();
+    // Populate the asset file browser dropdown if lower-third custom mode is active
+    if (overlayConfig.lowerThird.mode === 'custom') {
+        populateLTAssetPicker();
+    }
 }
 
 function initOverlayCanvas() {
@@ -3516,52 +3527,155 @@ function initOverlayCanvas() {
     canvas.addEventListener('mouseleave', function() { overlayDragging = null; });
 }
 
+// Image cache for overlay asset previews
+var overlayImageCache = {};
+
+function loadOverlayImage(name) {
+    if (overlayImageCache[name]) return overlayImageCache[name];
+    var img = new Image();
+    img._failed = false;
+    img.onload = function() { drawOverlayCanvas(); };
+    img.onerror = function() { img._failed = true; };
+    img.src = '/api/assets/file/' + encodeURIComponent(name);
+    overlayImageCache[name] = img;
+    return img;
+}
+
+// Try loading an overlay image from multiple possible filenames
+function loadOverlayImageMulti(baseName, extensions) {
+    for (var i = 0; i < extensions.length; i++) {
+        var name = baseName + extensions[i];
+        var img = loadOverlayImage(name);
+        if (img.naturalWidth && !img._failed) return img;
+    }
+    // Return whichever hasn't failed yet (may still be loading)
+    for (var i = 0; i < extensions.length; i++) {
+        var name = baseName + extensions[i];
+        var img = overlayImageCache[name];
+        if (img && !img._failed) return img;
+    }
+    return loadOverlayImage(baseName + extensions[0]); // fallback
+}
+
+// Reference video dimensions for each aspect ratio (what FFmpeg scale values map to)
+function getRefVideoDims() {
+    if (overlayCanvasRatio === '9:16') return { w: 1080, h: 1920 };
+    if (overlayCanvasRatio === '1:1') return { w: 1080, h: 1080 };
+    return { w: 1920, h: 1080 }; // 16:9
+}
+
 function getOverlayElements() {
-    const c = overlayConfig;
-    const canvas = document.getElementById('overlay-canvas');
-    const W = canvas ? canvas.width : 640;
-    const H = canvas ? canvas.height : 360;
-    const els = [];
+    var c = overlayConfig;
+    var canvas = document.getElementById('overlay-canvas');
+    var W = canvas ? canvas.width : 640;
+    var H = canvas ? canvas.height : 360;
+    var ref = getRefVideoDims();
+    // Scale factor: canvas pixels per video pixel
+    var sx = W / ref.w;
+    var sy = H / ref.h;
+    var els = [];
+
     if (c.sponsor.enabled) {
-        const w = c.sponsor.scale * 0.4;
-        const h = w * 0.6;
-        els.push({ key: 'sponsor', label: 'Sponsor', x: c.sponsor.x / 100 * W, y: c.sponsor.y / 100 * H, w: w, h: h, color: 'rgba(59,130,246,0.6)' });
+        var scalePx = (c.sponsor.scale || 180);
+        var img = loadOverlayImage('sponsor.mov');
+        var aspect = (img.naturalWidth && img.naturalHeight) ? img.naturalHeight / img.naturalWidth : 0.6;
+        var w = scalePx * sx;
+        var h = w * aspect;
+        var x = (c.sponsor.x / 100) * W;
+        var y = (c.sponsor.y / 100) * H;
+        els.push({ key: 'sponsor', label: 'Sponsor', x: x, y: y, w: w, h: h, color: 'rgba(59,130,246,0.6)', img: img });
     }
     if (c.logo.enabled) {
-        const w = c.logo.scale * 0.35;
-        const h = w;
-        els.push({ key: 'logo', label: 'Logo', x: c.logo.x / 100 * W, y: c.logo.y / 100 * H, w: w, h: h, color: 'rgba(168,85,247,0.6)' });
+        var scalePx = (c.logo.scale || 140);
+        // Try loading actual logo file (could be .png, .jpg, .mov, .mp4)
+        var logoImg = loadOverlayImageMulti('logo', ['.png', '.jpg', '.mov', '.mp4']);
+        var aspect = (logoImg.naturalWidth && logoImg.naturalHeight) ? logoImg.naturalHeight / logoImg.naturalWidth : 1;
+        var w = scalePx * sx;
+        var h = w * aspect;
+        var x = (c.logo.x / 100) * W;
+        var y = (c.logo.y / 100) * H;
+        // Clamp like overlay.js does: x = min(x, videoWidth - scale - 10)
+        var margin = 10 * sx;
+        x = Math.min(x, W - w - margin);
+        els.push({ key: 'logo', label: 'Logo', x: x, y: y, w: w, h: h, color: 'rgba(168,85,247,0.6)', img: logoImg });
     }
     if (c.lowerThird.enabled) {
-        els.push({ key: 'lowerThird', label: 'Lower Third', x: 0, y: H - 70, w: 200, h: 50, color: 'rgba(168,85,247,0.7)', fixed: true });
+        if (c.lowerThird.mode === 'custom' && c.lowerThird.customFile) {
+            // Custom file mode: uses config x/y/scale like overlay.js
+            var ltScale = (c.lowerThird.scale || 300);
+            var ltImg = loadOverlayImage(c.lowerThird.customFile);
+            var aspect = (ltImg.naturalWidth && ltImg.naturalHeight) ? ltImg.naturalHeight / ltImg.naturalWidth : 0.35;
+            var w = ltScale * sx;
+            var h = w * aspect;
+            var x = ((c.lowerThird.x || 5) / 100) * W;
+            var y = ((c.lowerThird.y || 80) / 100) * H;
+            els.push({ key: 'lowerThird', label: 'Lower Third', x: x, y: y, w: w, h: h, color: 'rgba(168,85,247,0.7)', img: ltImg });
+        } else {
+            // Auto mode: drawbox at videoHeight-200, 520x120 (matches buildLowerThirdFilter)
+            var boxW = 520 * sx;
+            var boxH = 120 * sy;
+            var boxY = H - (200 * sy);
+            els.push({ key: 'lowerThird', label: 'Lower Third', x: 0, y: boxY, w: boxW, h: boxH, color: 'rgba(168,85,247,0.7)', fixed: true });
+        }
     }
     if (c.cta.enabled) {
-        const w = c.cta.mode === 'text' ? Math.min(200, (c.cta.text || '').length * (c.cta.fontSize * 0.4) + 20) : c.cta.scale * 0.4;
-        const h = c.cta.mode === 'text' ? c.cta.fontSize * 1.5 : w * 0.5;
-        els.push({ key: 'cta', label: 'CTA', x: c.cta.x / 100 * W, y: c.cta.y / 100 * H, w: Math.max(60, w), h: Math.max(25, h), color: 'rgba(34,197,94,0.6)' });
+        if (c.cta.mode === 'text') {
+            var fontSize = c.cta.fontSize || 28;
+            var text = c.cta.text || '';
+            var w = Math.max(60 * sx, text.length * fontSize * 0.6 * sx + 20 * sx);
+            var h = fontSize * 1.5 * sy;
+            var x = (c.cta.x / 100) * W;
+            var y = (c.cta.y / 100) * H;
+            els.push({ key: 'cta', label: 'CTA', x: x, y: y, w: w, h: Math.max(25 * sy, h), color: 'rgba(34,197,94,0.6)' });
+        } else {
+            var scalePx = (c.cta.scale || 200);
+            var ctaImg = loadOverlayImageMulti('cta', ['.png', '.mov', '.mp4', '.gif']);
+            var aspect = (ctaImg.naturalWidth && ctaImg.naturalHeight) ? ctaImg.naturalHeight / ctaImg.naturalWidth : 0.5;
+            var w = scalePx * sx;
+            var h = w * aspect;
+            var x = (c.cta.x / 100) * W;
+            var y = (c.cta.y / 100) * H;
+            els.push({ key: 'cta', label: 'CTA', x: x, y: y, w: w, h: h, color: 'rgba(34,197,94,0.6)', img: ctaImg });
+        }
     }
     return els;
 }
 
 function drawOverlayCanvas() {
-    const canvas = document.getElementById('overlay-canvas');
+    var canvas = document.getElementById('overlay-canvas');
     if (!canvas) return;
-    const ctx = overlayCanvasCtx;
-    const W = canvas.width, H = canvas.height;
+    var ctx = overlayCanvasCtx;
+    if (!ctx) return;
+    var W = canvas.width, H = canvas.height;
 
     // Dark background with grid
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#2a2a2a';
     ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    for (var x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (var y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-    // Safe area guide (15% top/bottom for 9:16 Reels/TikTok, 5% for 16:9)
+    // Shadow overlay preview (if shadow-reels-light.png exists)
+    var shadowImg = loadOverlayImage('shadow-reels-light.png');
+    if (shadowImg.naturalWidth) {
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(shadowImg, 0, 0, W, H);
+        ctx.globalAlpha = 1.0;
+    }
+
+    // Logo vignette (full-frame, drawn when logo is enabled — matches overlay.js)
+    if (overlayConfig.logo && overlayConfig.logo.enabled) {
+        var vigImg = loadOverlayImage('logo-vignette.png');
+        if (vigImg.naturalWidth) {
+            ctx.drawImage(vigImg, 0, 0, W, H);
+        }
+    }
+
+    // Safe area guide
     ctx.strokeStyle = '#444';
     ctx.setLineDash([4, 4]);
     if (overlayCanvasRatio === '9:16') {
-        // TikTok/IG Reels safe zone: ~15% top, ~25% bottom, ~5% sides
         ctx.strokeRect(W * 0.05, H * 0.15, W * 0.9, H * 0.6);
         ctx.fillStyle = '#333';
         ctx.font = '9px sans-serif';
@@ -3571,28 +3685,121 @@ function drawOverlayCanvas() {
     }
     ctx.setLineDash([]);
 
-    // Draw elements
-    const els = getOverlayElements();
+    // Draw elements — actual images where available, fallback to colored rectangles
+    var ref = getRefVideoDims();
+    var sx = W / ref.w;
+    var els = getOverlayElements();
     els.forEach(function(el) {
-        ctx.fillStyle = el.color;
-        ctx.fillRect(el.x, el.y, el.w, el.h);
-        ctx.strokeStyle = '#fff';
+        var hasImage = el.img && el.img.naturalWidth && el.img.complete;
+        if (hasImage) {
+            ctx.drawImage(el.img, el.x, el.y, el.w, el.h);
+        } else if (el.key === 'lowerThird' && el.fixed) {
+            // Auto lower-third: draw purple box with guest name/role like buildLowerThirdFilter
+            ctx.fillStyle = 'rgba(168,85,247,0.85)';
+            ctx.fillRect(el.x, el.y, el.w, el.h);
+            var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+            if (ep) {
+                ctx.fillStyle = '#fff';
+                ctx.shadowColor = 'rgba(0,0,0,0.6)';
+                ctx.shadowBlur = 2;
+                ctx.font = 'bold ' + Math.round(12 * sx * 2) + 'px sans-serif';
+                ctx.fillText(ep.guest || 'Guest Name', el.x + 6 * sx, el.y + el.h * 0.45);
+                ctx.font = Math.round(9 * sx * 2) + 'px sans-serif';
+                ctx.fillStyle = '#ccc';
+                ctx.fillText(ep.role || 'Role', el.x + 6 * sx, el.y + el.h * 0.78);
+                ctx.shadowBlur = 0;
+            }
+        } else if (el.key === 'cta' && overlayConfig.cta.mode === 'text') {
+            // CTA text mode: draw with actual text
+            ctx.fillStyle = el.color;
+            ctx.fillRect(el.x, el.y, el.w, el.h);
+            ctx.fillStyle = overlayConfig.cta.fontColor || '#ffffff';
+            ctx.font = Math.round((overlayConfig.cta.fontSize || 28) * sx) + 'px sans-serif';
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 2;
+            ctx.fillText(overlayConfig.cta.text || '', el.x + 4, el.y + el.h * 0.7);
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.fillStyle = el.color;
+            ctx.fillRect(el.x, el.y, el.w, el.h);
+        }
+        // Border (highlight when dragging)
+        ctx.strokeStyle = hasImage ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)';
         ctx.lineWidth = overlayDragging && overlayDragging.key === el.key ? 2 : 1;
         ctx.strokeRect(el.x, el.y, el.w, el.h);
-        ctx.fillStyle = '#fff';
-        ctx.font = '11px sans-serif';
-        ctx.fillText(el.label, el.x + 4, el.y + 14);
+        // Label (top-left corner, subtle)
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = '9px sans-serif';
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 3;
+        ctx.fillText(el.label, el.x + 2, el.y - 2);
+        ctx.shadowBlur = 0;
     });
+}
+
+// Populate the lower-third asset picker dropdown with files from assets/ and shared dir
+async function populateLTAssetPicker() {
+    var picker = document.getElementById('lt-asset-picker');
+    if (!picker) return;
+    try {
+        var res = await fetch('/api/assets/browse?type=video');
+        var data = await res.json();
+        // Clear existing options (keep placeholder)
+        picker.innerHTML = '<option value="">-- Select file --</option>';
+        var currentFile = overlayConfig.lowerThird.customFile || '';
+        (data.files || []).forEach(function(f) {
+            var opt = document.createElement('option');
+            opt.value = f.source === 'shared' ? ('shared:' + f.path) : f.name;
+            var label = f.name + ' (' + f.sizeMb + ' MB' + (f.source === 'shared' ? ', shared' : '') + ')';
+            opt.textContent = label;
+            if (f.name === currentFile) opt.selected = true;
+            picker.appendChild(opt);
+        });
+    } catch (e) {
+        console.warn('Failed to load assets:', e);
+    }
+}
+
+async function selectLowerThirdAsset(value) {
+    if (!value) return;
+    if (value.startsWith('shared:')) {
+        // Link shared file into local assets via symlink
+        var sourcePath = value.substring(7);
+        var fileName = sourcePath.split('/').pop();
+        // Name it as lower-third.{ext} for overlay.js to find
+        var ext = fileName.substring(fileName.lastIndexOf('.'));
+        var assetName = 'lower-third' + ext;
+        try {
+            var res = await fetch('/api/link-asset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ sourcePath: sourcePath, assetName: assetName })
+            });
+            var data = await res.json();
+            if (data.success) {
+                overlayConfig.lowerThird.customFile = data.file;
+                renderOverlayConfig();
+            } else {
+                showToast(data.error || 'Link failed', 'error');
+            }
+        } catch (e) {
+            showToast('Link failed: ' + e.message, 'error');
+        }
+    } else {
+        // Local file — just set the filename
+        overlayConfig.lowerThird.customFile = value;
+        renderOverlayConfig();
+    }
 }
 
 async function uploadLowerThirdAsset(file) {
     if (!file) return;
-    const fd = new FormData();
+    var fd = new FormData();
     fd.append('type', 'lower-third');
     fd.append('file', file);
     try {
-        const res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
-        const data = await res.json();
+        var res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
+        var data = await res.json();
         if (data.success) {
             overlayConfig.lowerThird.customFile = data.file;
             renderOverlayConfig();
