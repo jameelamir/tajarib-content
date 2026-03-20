@@ -1,0 +1,108 @@
+/**
+ * Settings routes — guests, transcription config, LLM config.
+ */
+const fs = require("fs");
+const path = require("path");
+
+module.exports = async function settingsRoutes(req, res, url, ctx) {
+  const { io, WORKSPACE_DIR, loadJSON, saveJSON, getGuestHistory, getTranscriptionConfig, saveTranscriptionConfig, llm, readBody } = ctx;
+
+  if (req.method === "GET" && url.pathname === "/api/guests") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getGuestHistory()));
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/transcription-config") {
+    const config = getTranscriptionConfig();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, defaultMethod: config.defaultMethod || "local" }));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/transcription-config") {
+    const body = await readBody(req);
+    try {
+      const { apiKey, defaultMethod } = JSON.parse(body);
+      const config = getTranscriptionConfig();
+      if (apiKey !== undefined) config.apiKey = apiKey || null;
+      if (defaultMethod) config.defaultMethod = defaultMethod;
+      saveTranscriptionConfig(config);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, hasApiKey: !!config.apiKey }));
+      io.emit("toast", { type: "success", message: "Transcription settings saved" });
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/llm-config") {
+    const config = llm.getConfig();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ hasKey: !!config.key, baseUrl: config.baseUrl || "", model: config.model || "", manualMode: config.manualMode || false }));
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/gen-key-status") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ hasKey: ctx.hasApiKey() }));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/llm-config") {
+    const body = await readBody(req);
+    try {
+      const { apiKey, baseUrl, model, manualMode } = JSON.parse(body);
+      if (apiKey !== undefined && apiKey && apiKey.length < 10) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
+        return true;
+      }
+      const authPath = path.join(WORKSPACE_DIR, "auth.json");
+      const existing = loadJSON(authPath) || {};
+      existing.llm = existing.llm || {};
+      if (apiKey !== undefined) existing.llm.key = apiKey || "";
+      if (baseUrl !== undefined) existing.llm.baseUrl = baseUrl || "";
+      if (model !== undefined) existing.llm.model = model || "";
+      if (manualMode !== undefined) existing.llm.manualMode = !!manualMode;
+      if (existing.anthropic) delete existing.anthropic;
+      saveJSON(authPath, existing);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+      io.emit("toast", { type: "success", message: "LLM settings saved" });
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/gen-key") {
+    const body = await readBody(req);
+    try {
+      const { apiKey } = JSON.parse(body);
+      if (!apiKey || apiKey.length < 10) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
+        return true;
+      }
+      const authPath = path.join(WORKSPACE_DIR, "auth.json");
+      const existing = loadJSON(authPath) || {};
+      existing.llm = existing.llm || {};
+      existing.llm.key = apiKey;
+      if (existing.anthropic) delete existing.anthropic;
+      saveJSON(authPath, existing);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+      io.emit("toast", { type: "success", message: "API key saved" });
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  return false;
+};
