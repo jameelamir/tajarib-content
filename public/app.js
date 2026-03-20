@@ -2446,31 +2446,25 @@ async function renderTranscriptContext(ep, reel) {
         '</div>';
     }).join('');
 
-    var videoSrc = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw';
-
     ctxEl.innerHTML =
-        '<div class="ctx-header">' +
-            '<span class="ctx-title">Transcript</span>' +
-            '<span class="ctx-hint">drag edges or click to preview</span>' +
-        '</div>' +
-        '<div class="ctx-player"><video id="ctx-video" controls preload="metadata" src="' + videoSrc + '"></video></div>' +
-        '<div class="ctx-doc" id="ctx-doc">' +
-            segHtml +
-            '<div class="ctx-handle" id="ctx-handle-start"></div>' +
-            '<div class="ctx-handle" id="ctx-handle-end"></div>' +
+        '<button class="ctx-toggle-btn" onclick="toggleCtxPanel()">✂ Adjust Reel Boundaries</button>' +
+        '<div class="ctx-panel" id="ctx-panel" style="display:none;">' +
+            '<div class="ctx-header">' +
+                '<span class="ctx-title">Transcript</span>' +
+                '<button class="ctx-preview-btn" onclick="openCtxVideoPopup()">▶ Preview</button>' +
+                '<span class="ctx-hint">drag edges to adjust</span>' +
+            '</div>' +
+            '<div class="ctx-doc" id="ctx-doc">' +
+                segHtml +
+                '<div class="ctx-handle" id="ctx-handle-start"></div>' +
+                '<div class="ctx-handle" id="ctx-handle-end"></div>' +
+            '</div>' +
         '</div>';
 
-    // Set up video tracking
-    var ctxVid = document.getElementById('ctx-video');
-    if (ctxVid) {
-        ctxVid.currentTime = reelStartSec;
-        ctxVid.addEventListener('timeupdate', ctxTrackPlayback);
-        ctxVid.addEventListener('pause', ctxClearPlaying);
-    }
-
-    ctxPositionHandles();
-    ctxInitEvents();
-    ctxScrollToSelection();
+    // Store video src for the popup
+    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw';
+    ctxState.reelStartSec = reelStartSec;
+    ctxState.needsInit = true;
 }
 
 function ctxPositionHandles() {
@@ -2511,34 +2505,92 @@ function ctxFlash(el) {
     setTimeout(function() { el.style.borderColor = ''; el.style.background = ''; }, 600);
 }
 
-function ctxPlaySegment(idx) {
-    var seg = ctxState.segments[idx];
-    if (!seg) return;
-    var video = document.getElementById('ctx-video');
-    if (!video) return;
-    video.currentTime = seg.start;
-    video.play().catch(function() {});
+function toggleCtxPanel() {
+    var panel = document.getElementById('ctx-panel');
+    if (!panel) return;
+    var visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : '';
+    if (!visible && ctxState.needsInit) {
+        ctxState.needsInit = false;
+        ctxPositionHandles();
+        ctxInitEvents();
+        ctxScrollToSelection();
+    }
 }
 
-function ctxTrackPlayback() {
-    var video = document.getElementById('ctx-video');
-    if (!video || video.paused) return;
-    var t = video.currentTime;
-    var doc = document.getElementById('ctx-doc');
-    if (!doc) return;
-    var segEls = doc.querySelectorAll('.ctx-seg');
+function openCtxVideoPopup() {
+    if (!ctxState.videoSrc) return;
+    var overlay = document.createElement('div');
+    overlay.id = 'ctx-video-popup';
+    overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:150; display:flex; align-items:center; justify-content:center;';
+    overlay.innerHTML =
+        '<div style="background:#141414; border:1px solid #333; border-radius:12px; padding:16px; max-width:720px; width:90%; max-height:85vh; display:flex; flex-direction:column; gap:12px;">' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                '<span style="font-size:0.85rem; font-weight:600; color:#ddd;">Episode Preview</span>' +
+                '<button onclick="closeCtxVideoPopup()" style="background:none; border:none; color:#888; font-size:1.2rem; cursor:pointer; padding:4px 8px;">&times;</button>' +
+            '</div>' +
+            '<video id="ctx-popup-video" controls preload="metadata" src="' + ctxState.videoSrc + '" style="width:100%; max-height:60vh; border-radius:8px; background:#000;"></video>' +
+            '<div id="ctx-popup-segments" style="overflow-y:auto; max-height:200px; border-radius:6px; background:#0a0a0a; border:1px solid #222;"></div>' +
+        '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCtxVideoPopup(); });
+
+    // Populate segments from ctxState
+    var segsEl = document.getElementById('ctx-popup-segments');
+    if (segsEl && ctxState.segments) {
+        segsEl.innerHTML = ctxState.segments.map(function(seg, i) {
+            var m = Math.floor(seg.start / 60);
+            var sc = Math.floor(seg.start % 60);
+            var ts = String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0');
+            var inRange = i >= ctxState.startIdx && i <= ctxState.endIdx;
+            return '<div class="ctx-popup-seg" data-idx="' + i + '" onclick="ctxPopupSeek(' + seg.start + ')" style="padding:6px 10px; cursor:pointer; font-size:0.75rem; display:flex; gap:8px; border-bottom:1px solid #1a1a1a;' +
+                (inRange ? ' background:#1a0a2e; color:#c084fc;' : ' color:#888;') + '">' +
+                '<span style="color:#555; font-family:monospace; flex-shrink:0;">' + ts + '</span>' +
+                '<span style="direction:rtl; text-align:right; flex:1;">' + escHtml(seg.text) + '</span>' +
+            '</div>';
+        }).join('');
+    }
+
+    // Seek video to reel start
+    var vid = document.getElementById('ctx-popup-video');
+    if (vid) {
+        vid.addEventListener('loadedmetadata', function() { vid.currentTime = ctxState.reelStartSec; }, { once: true });
+        vid.addEventListener('timeupdate', ctxPopupTrackPlayback);
+    }
+}
+
+function closeCtxVideoPopup() {
+    var popup = document.getElementById('ctx-video-popup');
+    if (popup) popup.remove();
+}
+
+function ctxPopupSeek(timeSec) {
+    var vid = document.getElementById('ctx-popup-video');
+    if (vid) { vid.currentTime = timeSec; vid.play().catch(function() {}); }
+}
+
+function ctxPopupTrackPlayback() {
+    var vid = document.getElementById('ctx-popup-video');
+    if (!vid || vid.paused) return;
+    var t = vid.currentTime;
+    var segsEl = document.getElementById('ctx-popup-segments');
+    if (!segsEl) return;
+    var segEls = segsEl.querySelectorAll('.ctx-popup-seg');
     for (var i = 0; i < segEls.length; i++) {
         var seg = ctxState.segments[i];
         var playing = seg && t >= seg.start - 0.1 && t < seg.end + 0.1;
-        segEls[i].classList.toggle('ctx-playing', playing);
-        if (playing && !ctxState.dragging) {
-            var elRect = segEls[i].getBoundingClientRect();
-            var docRect = doc.getBoundingClientRect();
-            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
-                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            }
-        }
+        segEls[i].style.outline = playing ? '1px solid var(--accent)' : '';
     }
+}
+
+function ctxPlaySegment(idx) {
+    // Open popup and seek to segment
+    openCtxVideoPopup();
+    setTimeout(function() { ctxPopupSeek(ctxState.segments[idx].start); }, 500);
+}
+
+function ctxTrackPlayback() {
+    // Inline video removed — tracking happens in popup via ctxPopupTrackPlayback
 }
 
 function ctxClearPlaying() {

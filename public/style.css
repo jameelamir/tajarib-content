@@ -127,6 +127,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .reel-transcript-ctx { background: #111; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
 .ctx-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ctx-title { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.ctx-toggle-btn { width: 100%; padding: 8px 12px; background: transparent; border: 1px solid #333; color: #888; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.15s; }
+.ctx-toggle-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(168,85,247,0.05); }
+.ctx-panel { margin-top: 10px; }
+.ctx-preview-btn { font-size: 0.65rem; padding: 3px 10px; background: transparent; border: 1px solid #444; color: #aaa; border-radius: 4px; cursor: pointer; transition: all 0.15s; }
+.ctx-preview-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(168,85,247,0.08); }
 .ctx-hint { font-size: 0.6rem; color: #555; margin-left: auto; }
 .ctx-doc { position: relative; max-height: 300px; overflow-y: auto; border-radius: 6px; background: #0a0a0a; scroll-behavior: auto; }
 .ctx-seg { display: flex; gap: 8px; align-items: flex-start; padding: 5px 10px; font-size: 0.78rem; line-height: 1.6; direction: rtl; transition: background 0.15s; cursor: pointer; user-select: none; }

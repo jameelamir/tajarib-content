@@ -534,21 +534,26 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   console.log(`\n✅ All done! Subtitled reels saved to: ${reelsDir}`);
 }
 
-const args = process.argv.slice(2);
-const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
-const slug = get("--slug");
-const force = args.includes("--force");
-const titleCard = args.includes("--title-card");
-const burnOnly = args.includes("--burn-only");
-const reelId = get("--reel-id");
-const subtitleStyle = get("--subtitle-style") || "animated"; // "animated" or "static"
+module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, generateSRT, generateASS, MAX_GAP_FILL, TITLE_DURATION };
 
-if (!slug) {
-  console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only] [--subtitle-style animated|static]");
-  process.exit(1);
+// CLI
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const get = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : null; };
+  const slug = get("--slug");
+  const force = args.includes("--force");
+  const titleCard = args.includes("--title-card");
+  const burnOnly = args.includes("--burn-only");
+  const reelId = get("--reel-id");
+  const subtitleStyle = get("--subtitle-style") || "animated"; // "animated" or "static"
+
+  if (!slug) {
+    console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only] [--subtitle-style animated|static]");
+    process.exit(1);
+  }
+  if (!["animated", "static"].includes(subtitleStyle)) {
+    console.error(`❌ Invalid --subtitle-style "${subtitleStyle}". Use "animated" or "static".`);
+    process.exit(1);
+  }
+  subtitle(slug, force, titleCard, reelId, burnOnly, subtitleStyle).catch(err => { console.error("❌", err.message); process.exit(1); });
 }
-if (!["animated", "static"].includes(subtitleStyle)) {
-  console.error(`❌ Invalid --subtitle-style "${subtitleStyle}". Use "animated" or "static".`);
-  process.exit(1);
-}
-subtitle(slug, force, titleCard, reelId, burnOnly, subtitleStyle).catch(err => { console.error("❌", err.message); process.exit(1); });
