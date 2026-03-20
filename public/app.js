@@ -1239,7 +1239,7 @@ function renderSidebar() {
         const guestSnippet = ep.guest ? ' &middot; ' + ep.guest : '';
         const hoverTitle = (ep.guest || '') + (ep.role ? ' (' + ep.role + ')' : '');
 
-        return '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" title="' + hoverTitle + '">' +
+        var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" title="' + hoverTitle + '">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
                 '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + ep.slug + '</span>' +
@@ -1250,6 +1250,46 @@ function renderSidebar() {
             '</div>' +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
+
+        // Embed reels under active episode
+        if (currentSlug === ep.slug && ep.reelStatuses && ep.reelStatuses.length > 0) {
+            var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
+            var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
+
+            var toolbarHtml = '<div class="ep-reels-toolbar">' +
+                '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
+                '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
+                '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
+                '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
+                '<button onclick="event.stopPropagation(); runStep(\'overlay\')">Ovr All</button>' +
+                '<button onclick="event.stopPropagation(); finalizeAll()" style="color:#f59e0b;">Finalize</button>' +
+                (hiddenCount > 0 ? '<button onclick="event.stopPropagation(); showHiddenReels=!showHiddenReels; renderSidebar();" style="opacity:0.5;">' + (showHiddenReels ? 'Hide' : 'Show ' + hiddenCount) + '</button>' : '') +
+            '</div>';
+
+            var reelsHtml = visibleReels.map(function(r) {
+                var dotDefs = [
+                    {key: 'cut', title: 'Cut'},
+                    {key: 'generated', title: 'Caption'},
+                    {key: 'cropped', title: 'Crop'},
+                    {key: 'subtitled', title: 'Subtitle'},
+                    {key: 'final', title: 'Overlay'}
+                ];
+                var dots = dotDefs.map(function(d) {
+                    var cls = r[d.key] ? 'done' : (d.key === 'cut' && !r.cut ? 'missing' : 'pending');
+                    return '<span class="dot ' + cls + '" title="' + d.title + '"></span>';
+                }).join('');
+
+                return '<div class="sidebar-reel ' + (selectedReelId === r.id ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="event.stopPropagation(); selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
+                    '<span class="sidebar-reel-title">' + r.id + '</span>' +
+                    (r.hook ? '<span class="sidebar-reel-hook">' + r.hook + '</span>' : '') +
+                    '<span class="sidebar-reel-dots">' + dots + '</span>' +
+                '</div>';
+            }).join('');
+
+            epHtml += '<div class="ep-reels-section">' + toolbarHtml + reelsHtml + '</div>';
+        }
+
+        return epHtml;
     }).join('');
 }
 
@@ -1562,6 +1602,7 @@ function selectReel(reelId) {
     if (ep) {
         renderReelList(ep);
         renderReelDetail(ep, reelId);
+        renderSidebar();
     }
 }
 
@@ -1582,9 +1623,11 @@ function renderReelDetail(ep, reelId) {
         modularEl.insertBefore(warningEl, document.getElementById('reel-preview'));
     }
     if (!r.cut && r.cropped) {
-        // Only show warning when there's an orphaned crop from a previous run
         warningEl.style.display = '';
-        warningEl.innerHTML = '<div style="background:#4a1c1c; color:#f87171; padding:8px 12px; border-radius:6px; font-size:0.75rem; margin-bottom:8px;">Source clip missing — preview shows an orphaned crop from a previous run. Use Cut below to regenerate.</div>';
+        warningEl.innerHTML = '<div style="background:linear-gradient(135deg,#2a1215,#1f1012); border:1px solid #4a1c1c; color:#fca5a5; padding:10px 14px; border-radius:8px; font-size:0.75rem; margin-bottom:8px; display:flex; align-items:center; gap:10px;">' +
+            '<span style="font-size:1rem; flex-shrink:0;">&#9888;</span>' +
+            '<span>Source clip missing &mdash; preview shows an orphaned crop from a previous run. Use <strong>Cut</strong> to regenerate.</span>' +
+        '</div>';
     } else {
         warningEl.style.display = 'none';
     }
