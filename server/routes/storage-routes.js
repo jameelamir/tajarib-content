@@ -82,12 +82,19 @@ module.exports = async function storageRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/storage-config") {
     const body = await readBody(req);
     try {
-      const { quotaGB } = JSON.parse(body);
-      if (typeof quotaGB !== "number" || quotaGB < 1) throw new Error("Invalid quota");
-      saveStorageConfig({ quotaGB });
+      const parsed = JSON.parse(body);
+      const existing = getStorageConfig();
+      if (parsed.quotaGB !== undefined) {
+        if (typeof parsed.quotaGB !== "number" || parsed.quotaGB < 1) throw new Error("Invalid quota");
+        existing.quotaGB = parsed.quotaGB;
+      }
+      if (parsed.sharedAssetsDir !== undefined) {
+        existing.sharedAssetsDir = parsed.sharedAssetsDir || undefined;
+      }
+      saveStorageConfig(existing);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, quotaGB }));
-      io.emit("toast", { type: "success", message: `Storage quota set to ${quotaGB} GB` });
+      res.end(JSON.stringify({ success: true, ...existing }));
+      io.emit("toast", { type: "success", message: `Storage config updated` });
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: err.message }));

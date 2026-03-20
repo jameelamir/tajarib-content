@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = async function mediaRoutes(req, res, url, ctx) {
-  const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, loadMeta, readBody, formidable } = ctx;
+  const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, loadMeta, readBody, formidable, getStorageConfig } = ctx;
   const ASSETS_DIR = path.join(WORKSPACE_DIR, "assets");
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
@@ -92,6 +92,96 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
       if (fs.existsSync(p)) { const stat = fs.statSync(p); assets[name.replace(".mov", "")] = { file: name, size: stat.size, sizeMb: (stat.size / 1024 / 1024).toFixed(1) }; }
     }
     res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(assets));
+    return true;
+  }
+
+  // Browse all assets (local + shared dir) with optional type filter
+  if (req.method === "GET" && url.pathname === "/api/assets/browse") {
+    const typeFilter = url.searchParams.get("type");
+    const videoExts = [".mov", ".mp4", ".avi", ".mkv"];
+    const imageExts = [".png", ".jpg", ".jpeg", ".gif"];
+    const overlayExts = [...videoExts, ...imageExts];
+    function matchesType(ext) {
+      if (!typeFilter) return overlayExts.includes(ext);
+      if (typeFilter === "video") return videoExts.includes(ext);
+      if (typeFilter === "image") return imageExts.includes(ext);
+      return overlayExts.includes(ext);
+    }
+    function scanDir(dirPath, source) {
+      const results = [];
+      if (!fs.existsSync(dirPath)) return results;
+      try {
+        for (const name of fs.readdirSync(dirPath)) {
+          if (name.startsWith(".")) continue;
+          const ext = path.extname(name).toLowerCase();
+          if (!matchesType(ext)) continue;
+          const fullPath = path.join(dirPath, name);
+          try {
+            const stat = fs.statSync(fullPath);
+            if (!stat.isFile()) continue;
+            const isSymlink = fs.lstatSync(fullPath).isSymbolicLink();
+            results.push({ name, source, path: fullPath, sizeMb: (stat.size / 1024 / 1024).toFixed(1), isSymlink, symlinkTarget: isSymlink ? fs.readlinkSync(fullPath) : null });
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return results;
+    }
+    const files = scanDir(ASSETS_DIR, "local");
+    const storageConf = getStorageConfig();
+    if (storageConf.sharedAssetsDir && fs.existsSync(storageConf.sharedAssetsDir)) {
+      const sharedFiles = scanDir(storageConf.sharedAssetsDir, "shared");
+      const localTargets = new Set(files.filter(f => f.isSymlink && f.symlinkTarget).map(f => f.symlinkTarget));
+      for (const sf of sharedFiles) { if (!localTargets.has(sf.path)) files.push(sf); }
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ files, sharedAssetsDir: storageConf.sharedAssetsDir || null }));
+    return true;
+  }
+
+  // Serve asset files for browser preview (images directly, first frame for videos)
+  const assetFileMatch = url.pathname.match(/^\/api\/assets\/file\/(.+)$/);
+  if (req.method === "GET" && assetFileMatch) {
+    const fileName = decodeURIComponent(assetFileMatch[1]);
+    if (fileName.includes("..") || fileName.includes("/")) { res.writeHead(400); res.end("Invalid filename"); return true; }
+    const filePath = path.join(ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
+    const ext = path.extname(fileName).toLowerCase();
+    if ([".mov", ".mp4", ".avi", ".mkv"].includes(ext)) {
+      const thumbPath = path.join(ASSETS_DIR, `.thumb-${fileName}.jpg`);
+      const srcStat = fs.statSync(filePath);
+      if (!fs.existsSync(thumbPath) || fs.statSync(thumbPath).mtimeMs < srcStat.mtimeMs) {
+        try {
+          const { execFileSync } = require("child_process");
+          execFileSync("ffmpeg", ["-y", "-i", filePath, "-frames:v", "1", "-q:v", "2", thumbPath], { stdio: "pipe" });
+        } catch (_) { res.writeHead(500); res.end("Thumbnail failed"); return true; }
+      }
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=60" });
+      res.end(fs.readFileSync(thumbPath));
+      return true;
+    }
+    const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif" };
+    res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream", "Cache-Control": "public, max-age=60" });
+    res.end(fs.readFileSync(filePath));
+    return true;
+  }
+
+  // Link a file from shared assets dir into local assets/ via symlink
+  if (req.method === "POST" && url.pathname === "/api/link-asset") {
+    const body = await readBody(req);
+    try {
+      const { sourcePath, assetName } = JSON.parse(body);
+      if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error("Source file not found");
+      const destName = assetName || path.basename(sourcePath);
+      const destPath = path.join(ASSETS_DIR, destName);
+      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      fs.symlinkSync(sourcePath, destPath);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, file: destName, linkedTo: sourcePath }));
+      io.emit("toast", { type: "success", message: `Linked asset: ${destName}` });
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: e.message }));
+    }
     return true;
   }
 
