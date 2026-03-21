@@ -17,8 +17,16 @@ const GLOBAL_TRANSCRIPTION_CONFIG = path.join(GLOBAL_CONFIG_DIR, "transcription-
 const GLOBAL_AUTH_PATH = path.join(GLOBAL_CONFIG_DIR, "auth.json");
 
 /**
+ * Check if a value looks like a valid API key (alphanumeric, 10+ chars).
+ * Rejects error messages or other garbage that may have been saved.
+ */
+function looksLikeApiKey(v) {
+  return typeof v === "string" && v.length >= 10 && /^[a-zA-Z0-9_\-]+$/.test(v);
+}
+
+/**
  * Migrate workspace-local config into global. If global doesn't exist, copy it.
- * If global exists, merge any non-null values from local (local wins for API keys).
+ * If global exists, merge: local wins for API keys when global has no valid key.
  */
 function migrateIfNeeded(localPath, globalPath) {
   if (!fs.existsSync(localPath)) return;
@@ -28,11 +36,18 @@ function migrateIfNeeded(localPath, globalPath) {
       fs.writeFileSync(globalPath, JSON.stringify(local, null, 2));
       return;
     }
-    // Merge: local non-null values fill in missing/null global values
     const global = JSON.parse(fs.readFileSync(globalPath, "utf8"));
     let changed = false;
+    const keyFields = new Set(["groqApiKey", "apiKey", "accessToken"]);
     for (const [k, v] of Object.entries(local)) {
-      if (v != null && (global[k] == null || global[k] === "")) {
+      if (v == null) continue;
+      if (keyFields.has(k)) {
+        // For API key fields: local wins if it's valid and global is missing/invalid
+        if (looksLikeApiKey(v) && !looksLikeApiKey(global[k])) {
+          global[k] = v;
+          changed = true;
+        }
+      } else if (global[k] == null || global[k] === "") {
         global[k] = v;
         changed = true;
       }
