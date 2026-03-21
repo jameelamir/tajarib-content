@@ -265,6 +265,9 @@ function renderMain(slug) {
             document.getElementById('reel-detail-empty').style.display = 'flex';
             document.getElementById('reel-detail').style.display = 'none';
         }
+        // Show/hide reel-level stop button
+        var stopReelBtn = document.getElementById('stop-btn-reel');
+        if (stopReelBtn) stopReelBtn.style.display = ep.isRunning ? '' : 'none';
         // Topic clip
         var tcSection = document.getElementById('topic-clip-section');
         if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';

@@ -100,6 +100,10 @@ var stopBtnRf = document.getElementById('stop-btn-rf');
 if (stopBtnRf) stopBtnRf.onclick = function() {
     if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
 };
+var stopBtnReel = document.getElementById('stop-btn-reel');
+if (stopBtnReel) stopBtnReel.onclick = function() {
+    if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
+};
 
 // Start the app
 init();
