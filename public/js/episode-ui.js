@@ -219,6 +219,7 @@ async function deleteEpisode(slug) {
 function renderMain(slug) {
     const ep = episodes.find(e => e.slug === slug);
     if (!ep) return;
+    ep.isRunning = !!runningStep[ep.slug];
 
     // Header
     document.getElementById('ep-title').textContent = slug;
