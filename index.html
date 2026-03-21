@@ -365,6 +365,19 @@
                 <option value="api">⚡ API (Fast, Paid)</option>
             </select>
         </div>
+        <div class="field" style="margin-top:12px;">
+            <label>Local Model</label>
+            <select id="transcription-local-model">
+                <option value="large-v3">large-v3 — best accuracy (~4 GB RAM)</option>
+                <option value="medium">medium — good balance (~2 GB RAM)</option>
+                <option value="small">small — lighter (~1 GB RAM)</option>
+                <option value="base">base — fast (~500 MB RAM)</option>
+                <option value="tiny">tiny — fastest (~300 MB RAM)</option>
+            </select>
+            <div style="font-size:0.65rem; color:#888; margin-top:4px;">
+                Smaller models use less RAM and run faster, but are less accurate — especially for Arabic.
+            </div>
+        </div>
         <div id="api-key-status" style="font-size:0.75rem; padding:8px; border-radius:4px; display:none;"></div>
         <div class="modal-actions">
             <button onclick="closeTranscriptionModal()">Close</button>

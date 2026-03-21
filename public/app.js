@@ -55,7 +55,7 @@ async function init() {
 }
 
 // Transcription Config
-let transcriptionConfig = { hasApiKey: false, defaultMethod: 'local' };
+let transcriptionConfig = { hasApiKey: false, defaultMethod: 'local', localModel: 'large-v3' };
 
 async function loadTranscriptionConfig() {
     try {
@@ -86,6 +86,7 @@ function openTranscriptionModal() {
     document.getElementById('transcription-modal').classList.add('open');
     document.getElementById('transcription-api-key').value = '';
     document.getElementById('transcription-default-method').value = transcriptionConfig.defaultMethod || 'local';
+    document.getElementById('transcription-local-model').value = transcriptionConfig.localModel || 'large-v3';
     document.getElementById('api-key-status').style.display = 'none';
 }
 
@@ -93,12 +94,14 @@ function closeTranscriptionModal() {
     document.getElementById('transcription-modal').classList.remove('open');
 }
 
+
 async function saveTranscriptionConfig() {
     const apiKey = document.getElementById('transcription-api-key').value.trim();
     const defaultMethod = document.getElementById('transcription-default-method').value;
     const statusDiv = document.getElementById('api-key-status');
     
-    const payload = { defaultMethod };
+    const localModel = document.getElementById('transcription-local-model').value;
+    const payload = { defaultMethod, localModel };
     if (apiKey) payload.apiKey = apiKey;
     
     try {
@@ -112,6 +115,7 @@ async function saveTranscriptionConfig() {
         if (data.success) {
             transcriptionConfig.hasApiKey = data.hasApiKey;
             transcriptionConfig.defaultMethod = defaultMethod;
+            transcriptionConfig.localModel = localModel;
             updateTranscriptionUI();
             
             // Also update the default in upload modal
