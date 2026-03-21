@@ -25,27 +25,17 @@ function renderSidebar() {
     }
 
     list.innerHTML = episodes.map(ep => {
-        const steps = stepsForType(ep.mediaType, ep);
-        const applicableSteps = steps.filter(s => s.applicable);
-        const stepKeys = applicableSteps.map(s => s.id === 'transcribe' ? 'transcribed' : s.id === 'analyze' ? 'analyzed' : s.id === 'generate' ? 'generated' : s.id === 'compose' ? 'composed' : s.id === 'overlay' ? 'overlaid' : s.id);
-        const done = stepKeys.filter(k => ep.steps[k]).length;
-        const total = applicableSteps.length;
         const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + 'MB' : '';
         const typeClass = ep.mediaType;
         const typeLabel = ep.mediaType === 'episode' ? 'EP' : ep.mediaType === 'reel_full' ? 'RF' : 'RC';
         const mtLabel = ep.multiTrack ? ' MT' : '';
-        const guestSnippet = ep.guest ? ' &middot; ' + ep.guest : '';
-        const hoverTitle = (ep.guest || '') + (ep.role ? ' (' + ep.role + ')' : '');
 
-        var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" title="' + hoverTitle + '">' +
+        var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
                 '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + ep.slug + '</span>' +
             '</div>' +
-            '<div class="ep-info">' +
-                '<span>' + done + '/' + total + guestSnippet + '</span>' +
-                (sizeMb ? '<span>' + sizeMb + '</span>' : '') +
-            '</div>' +
+            (sizeMb ? '<div class="ep-info"><span>' + sizeMb + '</span></div>' : '') +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
 
