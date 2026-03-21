@@ -13,6 +13,7 @@ const path = require("path");
 const os = require("os");
 const { execSync, execFileSync, spawnSync } = require("child_process");
 const { toSeconds, EPISODES_DIR } = require("./utils");
+const { GLOBAL_TRANSCRIPTION_CONFIG } = require("./server/global-config");
 const PYTHON_BIN = fs.existsSync(path.join(__dirname, ".venv", "bin", "python3"))
   ? path.join(__dirname, ".venv", "bin", "python3")
   : "python3";
@@ -20,13 +21,24 @@ const PYTHON_BIN = fs.existsSync(path.join(__dirname, ".venv", "bin", "python3")
 // Title card duration in seconds
 const TITLE_DURATION = 5;
 
-// Transcribe a video clip with local Whisper and return word-level timestamps.
+// Transcribe a video clip using the configured method (Groq/local/API).
 // Returns the words array (0-indexed relative to clip start), or null on failure.
 function whisperTranscribeClip(clipPath, outputPath) {
-  console.log(`   🎙️  Transcribing clip with local Whisper: ${path.basename(clipPath)}`);
-  const result = spawnSync(PYTHON_BIN, [
-    "-u", "transcribe.py", clipPath, "--slug", "temp", "--force", "--output", outputPath
-  ], { cwd: __dirname, stdio: "inherit", timeout: 10 * 60 * 1000 });
+  // Read transcription config to determine method
+  let method = "local";
+  try {
+    const cfg = JSON.parse(fs.readFileSync(GLOBAL_TRANSCRIPTION_CONFIG, "utf8"));
+    if (cfg.defaultMethod === "groq" && cfg.groqApiKey) method = "groq";
+    else if (cfg.defaultMethod === "api" && cfg.apiKey) method = "api";
+  } catch (_) {}
+
+  const args = ["-u", "transcribe.py", clipPath, "--slug", "temp", "--force", "--output", outputPath];
+  if (method === "groq") args.push("--groq");
+  else if (method === "api") args.push("--api");
+
+  const label = method === "groq" ? "Groq" : method === "api" ? "Haimaker API" : "local Whisper";
+  console.log(`   🎙️  Transcribing clip with ${label}: ${path.basename(clipPath)}`);
+  const result = spawnSync(PYTHON_BIN, args, { cwd: __dirname, stdio: "inherit", timeout: 10 * 60 * 1000 });
 
   if (result.status !== 0) {
     console.error(`   ⚠️  Whisper transcription failed (exit ${result.status})`);
@@ -468,13 +480,13 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       // Get reel title from analysis (fallback to generic title)
       const reelTitle = reel.title || reel.hook || `Reel ${reel.id}`;
 
-      // Get words for this reel — retranscribe the clip with local Whisper
+      // Get words for this reel — retranscribe the clip
       // when force is set (re-clicking Sub) or when transcript is from YouTube
       let reelWords;
       let wordStartOffset = startSec;
 
       if (force || isYouTubeTranscript) {
-        console.log(`   🎙️  Re-transcribing reel clip with local Whisper (force=${force})...`);
+        console.log(`   🎙️  Re-transcribing reel clip (force=${force})...`);
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
         const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
         if (whisperWords && whisperWords.length > 0) {
