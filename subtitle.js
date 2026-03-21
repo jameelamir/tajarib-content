@@ -542,6 +542,12 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ Done in ${duration}s (${size} MB)`);
+      // Remove stale -final.mp4 (overlay) since subtitles changed — overlay needs re-run
+      const finalPath = path.join(reelsDir, `reel-${reelId}-final.mp4`);
+      if (fs.existsSync(finalPath)) {
+        fs.unlinkSync(finalPath);
+        console.log(`   🗑️  Removed stale overlay: reel-${reelId}-final.mp4`);
+      }
     } catch (e) {
       // Clean up temp files on error
       try { fs.unlinkSync(tmpSub); } catch {}
