@@ -38,7 +38,12 @@ module.exports = function init(ctx) {
     saveMeta(newSlug, meta);
 
     if (logs[oldSlug]) { logs[newSlug] = logs[oldSlug]; delete logs[oldSlug]; }
-    if (activeProcesses[oldSlug]) { activeProcesses[newSlug] = activeProcesses[oldSlug]; delete activeProcesses[oldSlug]; }
+    for (const [key, proc] of Object.entries(activeProcesses)) {
+      if (key === oldSlug || key.startsWith(oldSlug + ':')) {
+        const newKey = key === oldSlug ? newSlug : newSlug + key.slice(oldSlug.length);
+        activeProcesses[newKey] = proc; delete activeProcesses[key];
+      }
+    }
     return newSlug;
   }
 
