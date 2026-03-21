@@ -120,7 +120,7 @@ function setupSocketHandlers() {
         // Auto-refresh video preview when a reel processing step completes
         if (data.code === 0 && currentSlug === data.slug && selectedReelId) {
             // Refresh if this specific reel was processed, OR if a bulk step (no reelId) completed
-            if (data.reelId === selectedReelId || (!data.reelId && ['subtitle', 'crop', 'overlay'].includes(data.step))) {
+            if (data.reelId === selectedReelId || (!data.reelId && ['subtitle', 'crop', 'overlay', 'process-reels'].includes(data.step))) {
                 setTimeout(function() {
                     var previewEl = document.getElementById('reel-preview');
                     if (previewEl) {
