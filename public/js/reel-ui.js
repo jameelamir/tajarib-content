@@ -1763,6 +1763,8 @@ async function saveReelTrim(reelId) {
 
 // ─── Reel Transcript Editor ──────────────────────────────────────────────────
 
+var reelTranscriptData = null;
+
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
     if (!contentEl) return;
@@ -1773,19 +1775,40 @@ async function loadReelTranscript(reelId) {
     try {
         var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
         if (!res.ok) throw new Error('No reel transcript found');
-        var data = await res.json();
-        var segments = data.segments || [];
+        reelTranscriptData = JSON.parse(await res.text());
+        var segments = reelTranscriptData.segments || [];
 
-        var html = '<div class="reel-transcript-segments" style="max-height:300px; overflow-y:auto; margin-bottom:8px;">';
+        var html = '<div class="seg-list" style="max-height:350px; overflow-y:auto; margin-bottom:8px; padding:6px;">';
         segments.forEach(function(seg, i) {
-            var time = _fmtTranscriptTime(seg.start);
-            html += '<div class="seg-row" style="display:flex; gap:6px; margin-bottom:4px; align-items:flex-start;">' +
-                '<span style="font-size:0.65rem; color:#555; font-family:monospace; min-width:48px; padding-top:6px; cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')">' + time + '</span>' +
-                '<textarea class="reel-seg-input content-textarea" data-idx="' + i + '" data-start="' + seg.start + '" data-end="' + seg.end + '" ' +
-                'rows="1" style="flex:1; font-size:0.78rem; direction:rtl; resize:vertical; padding:4px 6px; min-height:24px;"' +
-                ' oninput="this.style.height=\'auto\'; this.style.height=this.scrollHeight+\'px\'">' +
-                escHtml(seg.text) + '</textarea>' +
-            '</div>';
+            var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
+            var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
+
+            // Synthesize word-level data if missing
+            if ((!seg.words || seg.words.length === 0) && seg.text && seg.text.trim()) {
+                var tokens = seg.text.trim().split(/\s+/);
+                var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
+                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+                seg.words = tokens.map(function(tok, ti) {
+                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                });
+            }
+
+            if (seg.words && seg.words.length > 0) {
+                var wordSpans = seg.words.map(function(w, wi) {
+                    var txt = (w.word || '').trim();
+                    return '<span class="seg-word" contenteditable="true" data-seg="' + i + '" data-word="' + wi + '" ' +
+                        'data-original="' + escHtml(txt) + '" spellcheck="false">' + escHtml(txt) + '</span>';
+                }).join('');
+                html += '<div class="seg-row">' +
+                    '<span class="seg-ts" style="cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')" title="Jump to ' + mins + ':' + secs + '">' + mins + ':' + secs + '</span>' +
+                    '<div class="seg-words" data-seg="' + i + '">' + wordSpans + '</div>' +
+                '</div>';
+            } else {
+                html += '<div class="seg-row">' +
+                    '<span class="seg-ts" style="cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')">' + mins + ':' + secs + '</span>' +
+                    '<div class="seg-words" data-seg="' + i + '"></div>' +
+                '</div>';
+            }
         });
         html += '</div>';
         html += '<div style="display:flex; gap:6px;">' +
@@ -1795,10 +1818,14 @@ async function loadReelTranscript(reelId) {
 
         contentEl.innerHTML = html;
 
-        // Auto-resize textareas
-        contentEl.querySelectorAll('.reel-seg-input').forEach(function(ta) {
-            ta.style.height = 'auto';
-            ta.style.height = ta.scrollHeight + 'px';
+        // Word editing: mark edited, Enter to confirm
+        contentEl.querySelectorAll('.seg-word').forEach(function(el) {
+            el.addEventListener('input', function() {
+                this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
+            });
+            el.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+            });
         });
     } catch (err) {
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
@@ -1824,36 +1851,29 @@ async function saveReelTranscript(reelId) {
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
 
-    // Collect edited segments
-    var inputs = document.querySelectorAll('.reel-seg-input');
-    if (!inputs.length) return;
-
+    if (!reelTranscriptData) return;
     var padded = String(reelId).padStart(2, '0');
+    var transcript = reelTranscriptData;
+
     try {
-        // Load existing transcript to preserve structure
-        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
-        var transcript = await res.json();
+        // Collect word-level edits from contenteditable spans
+        var contentEl = document.getElementById('reel-transcript-content');
+        if (!contentEl) return;
 
-        // Update segment text and re-synthesize words from edited text
-        inputs.forEach(function(input) {
-            var idx = parseInt(input.dataset.idx);
-            var seg = transcript.segments[idx];
-            if (!seg) return;
-            var newText = input.value.trim();
-            if (newText === seg.text) return; // unchanged
-
-            seg.text = newText;
-            // Re-synthesize word timestamps from edited text
-            var words = newText.split(/\s+/).filter(function(w) { return w; });
-            var dur = seg.end - seg.start;
-            seg.words = words.map(function(w, i) {
-                return {
-                    word: w,
-                    start: parseFloat((seg.start + (dur * i / words.length)).toFixed(3)),
-                    end: parseFloat((seg.start + (dur * (i + 1) / words.length)).toFixed(3)),
-                    probability: 1.0
-                };
+        contentEl.querySelectorAll('.seg-words').forEach(function(container) {
+            var segIdx = parseInt(container.dataset.seg);
+            var seg = transcript.segments[segIdx];
+            if (!seg || !seg.words) return;
+            container.querySelectorAll('.seg-word').forEach(function(el) {
+                var wordIdx = parseInt(el.dataset.word);
+                var newText = el.textContent.trim();
+                if (seg.words[wordIdx]) {
+                    seg.words[wordIdx].word = newText;
+                }
             });
+            // Remove empty words and rebuild segment text
+            seg.words = seg.words.filter(function(w) { return w.word.trim().length > 0; });
+            seg.text = seg.words.map(function(w) { return w.word; }).join(' ');
         });
 
         // Rebuild top-level words and full_text
@@ -1874,6 +1894,12 @@ async function saveReelTranscript(reelId) {
                 file: 'reels/reel-' + padded + '-transcript.json',
                 content: JSON.stringify(transcript, null, 2)
             })
+        });
+
+        // Reset edited markers
+        contentEl.querySelectorAll('.seg-word.edited').forEach(function(el) {
+            el.dataset.original = el.textContent.trim();
+            el.classList.remove('edited');
         });
 
         if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
