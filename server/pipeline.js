@@ -78,7 +78,8 @@ module.exports = function init(ctx) {
   }
 
   function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle }) {
-    if (activeProcesses[slug]) { io.emit("toast", { type: "error", message: `${slug} is already running` }); return; }
+    const procKey = reelId ? `${slug}:${reelId}` : slug;
+    if (activeProcesses[procKey]) { io.emit("toast", { type: "error", message: `${slug}${reelId ? ' reel ' + reelId : ''} is already running` }); return; }
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
     let videoFile = "raw.mp4";
@@ -112,7 +113,7 @@ module.exports = function init(ctx) {
       default: io.emit("toast", { type: "error", message: `Unknown step: ${step}` }); return;
     }
 
-    activeSteps[slug] = step;
+    activeSteps[procKey] = step;
     const _rid = reelId || null;
     io.emit("log", { slug, reelId: _rid, text: `\n▶ Running: ${step}${_rid ? ' (reel ' + _rid + ')' : ''}\n` });
     io.emit("log", { slug, reelId: _rid, text: `   Command: ${cmd} ${args.join(" ")}\n` });
@@ -124,14 +125,14 @@ module.exports = function init(ctx) {
     console.log(`[DEBUG] slug=${slug}, step=${step}, io.connected sockets=${io.engine?.clientsCount || 'unknown'}`);
 
     const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-    activeProcesses[slug] = proc;
+    activeProcesses[procKey] = proc;
     let stdoutBuffer = '', stderrBuffer = '', outputSent = false;
 
     proc.on("error", (err) => {
       console.error(`[Spawn Error] ${err.message}`);
       io.emit("log", { slug, text: `\n❌ Failed to start process: ${err.message}\n` });
       io.emit("process-end", { slug, step, code: -1, reelId: _rid });
-      delete activeProcesses[slug];
+      delete activeProcesses[procKey]; delete activeSteps[procKey];
     });
 
     let heartbeatTimer = null, gotFirstOutput = false;
@@ -146,7 +147,7 @@ module.exports = function init(ctx) {
 
     proc.on("close", async (code) => {
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-      delete activeProcesses[slug]; delete activeSteps[slug];
+      delete activeProcesses[procKey]; delete activeSteps[procKey];
 
       if (code === 42) {
         const promptPath = path.join(EPISODES_DIR, slug, "llm-prompt.json");
