@@ -27,11 +27,20 @@ module.exports = function init(ctx) {
     };
   }
 
+  function isValidApiKey(key) {
+    return typeof key === "string" && key.length >= 10 && /^[a-zA-Z0-9_\-]+$/.test(key);
+  }
+
   function saveTranscriptionConfig(config) {
     const existing = loadJSON(GLOBAL_TRANSCRIPTION_CONFIG) || {};
     if (config.defaultMethod) existing.defaultMethod = config.defaultMethod;
     if (config.localModel !== undefined) existing.localModel = config.localModel;
-    if (config.groqApiKey !== undefined) existing.groqApiKey = config.groqApiKey || null;
+    if (config.groqApiKey !== undefined) {
+      existing.groqApiKey = isValidApiKey(config.groqApiKey) ? config.groqApiKey : null;
+    }
+    if (config.apiKey !== undefined) {
+      existing.apiKey = isValidApiKey(config.apiKey) ? config.apiKey : null;
+    }
     saveJSON(GLOBAL_TRANSCRIPTION_CONFIG, existing);
   }
 
