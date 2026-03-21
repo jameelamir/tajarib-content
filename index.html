@@ -349,21 +349,27 @@
             <div style="font-size:0.75rem; color:#888; margin-bottom:8px;">
                 <strong>Local (Free)</strong> — Uses your server's CPU. Good for short clips.
             </div>
-            <div style="font-size:0.75rem; color:#888;">
-                <strong>API (Paid)</strong> — Uses Haimaker's Whisper Large. Fast, handles long episodes well.
+            <div style="font-size:0.75rem; color:#888; margin-bottom:8px;">
+                <strong>Groq (Fast)</strong> — Uses Groq's Whisper Large V3. Very fast, free tier available.
             </div>
-        </div>
-        <div style="background:#0f2d0f; padding:12px; border-radius:6px; margin-bottom:16px; border:1px solid #166534;">
-            <div style="font-size:0.75rem; color:#4ade80;">
-                ✅ Using same API key as main Jassim agent (haimaker)
+            <div style="font-size:0.75rem; color:#888;">
+                <strong>Haimaker (Paid)</strong> — Uses Haimaker's Whisper Large.
             </div>
         </div>
         <div class="field">
             <label>Default Method</label>
             <select id="transcription-default-method">
                 <option value="local">🏠 Local (Free)</option>
-                <option value="api">⚡ API (Fast, Paid)</option>
+                <option value="groq">⚡ Groq (Fast)</option>
+                <option value="api">🌐 Haimaker (Paid)</option>
             </select>
+        </div>
+        <div class="field" style="margin-top:12px;">
+            <label>Groq API Key</label>
+            <input type="password" id="transcription-groq-key" placeholder="gsk_..." style="font-family:monospace; font-size:0.8rem;">
+            <div style="font-size:0.65rem; color:#888; margin-top:4px;">
+                Get a key from <a href="https://console.groq.com" target="_blank" style="color:#60a5fa;">console.groq.com</a>
+            </div>
         </div>
         <div class="field" style="margin-top:12px;">
             <label>Local Model</label>
@@ -563,7 +569,8 @@
                 <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Model</label>
                 <input type="text"
                     id="sidebar-model-select"
-                    placeholder="haimaker/auto"
+                    value="anthropic/claude-sonnet-4-5"
+                    placeholder="anthropic/claude-sonnet-4-5"
                     style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; margin-bottom:4px;"
                     oninput="debouncedValidateSidebarModel(this)"
                     autocomplete="off"

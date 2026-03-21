@@ -16,21 +16,22 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
   if (req.method === "GET" && url.pathname === "/api/transcription-config") {
     const config = getTranscriptionConfig();
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, defaultMethod: config.defaultMethod || "local", localModel: config.localModel || "large-v3" }));
+    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey, defaultMethod: config.defaultMethod || "local", localModel: config.localModel || "large-v3" }));
     return true;
   }
 
   if (req.method === "POST" && url.pathname === "/api/transcription-config") {
     const body = await readBody(req);
     try {
-      const { apiKey, defaultMethod, localModel } = JSON.parse(body);
+      const { apiKey, groqApiKey, defaultMethod, localModel } = JSON.parse(body);
       const config = getTranscriptionConfig();
       if (apiKey !== undefined) config.apiKey = apiKey || null;
+      if (groqApiKey !== undefined) config.groqApiKey = groqApiKey || null;
       if (defaultMethod) config.defaultMethod = defaultMethod;
       if (localModel !== undefined) config.localModel = localModel || "large-v3";
       saveTranscriptionConfig(config);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, hasApiKey: !!config.apiKey }));
+      res.end(JSON.stringify({ success: true, hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey }));
       io.emit("toast", { type: "success", message: "Transcription settings saved" });
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });
