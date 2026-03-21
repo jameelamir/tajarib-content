@@ -257,9 +257,20 @@ def transcribe_with_groq(video_path, api_key, language="ar"):
     segments = []
     words_all = []
 
+    # Groq may return words at top level or nested in segments
+    top_words = result.get('words', [])
+
     for seg in result.get('segments', []):
         seg_words = []
-        for w in seg.get('words', []):
+        # Try words nested in segment first
+        raw_words = seg.get('words', [])
+        if not raw_words and top_words:
+            # Fall back to top-level words that fall within this segment's time range
+            seg_start = seg.get('start', 0)
+            seg_end = seg.get('end', 0)
+            raw_words = [w for w in top_words if w.get('start', 0) >= seg_start - 0.01 and w.get('end', 0) <= seg_end + 0.01]
+
+        for w in raw_words:
             word_obj = {
                 "word": w.get('word', ''),
                 "start": round(w.get('start', 0), 3),
@@ -277,6 +288,40 @@ def transcribe_with_groq(video_path, api_key, language="ar"):
             "words": seg_words
         }
         segments.append(seg_obj)
+
+    # If still no words from segments, use top-level words directly
+    if not words_all and top_words:
+        for w in top_words:
+            words_all.append({
+                "word": w.get('word', ''),
+                "start": round(w.get('start', 0), 3),
+                "end": round(w.get('end', 0), 3),
+                "probability": round(w.get('probability', 1.0), 3)
+            })
+
+    # If Groq returned no word timestamps at all, synthesize from segment text
+    if not words_all and segments:
+        print("⚠️  No word-level timestamps from Groq, synthesizing from segments...")
+        for seg in segments:
+            seg_text = seg.get('text', '').strip()
+            if not seg_text:
+                continue
+            words = seg_text.split()
+            seg_start = seg['start']
+            seg_end = seg['end']
+            seg_dur = seg_end - seg_start
+            for i, word in enumerate(words):
+                w_start = seg_start + (seg_dur * i / len(words))
+                w_end = seg_start + (seg_dur * (i + 1) / len(words))
+                word_obj = {
+                    "word": word,
+                    "start": round(w_start, 3),
+                    "end": round(w_end, 3),
+                    "probability": 1.0
+                }
+                seg['words'] = seg.get('words', [])
+                seg['words'].append(word_obj)
+                words_all.append(word_obj)
 
     full_text = result.get('text', '').strip()
     duration = segments[-1]["end"] if segments else 0
