@@ -90,9 +90,8 @@ module.exports = function init(ctx) {
         if (!found) { io.emit("toast", { type: "error", message: `No video/audio in ${slug}/` }); return; }
         cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
         if (force) args.push("--force");
-        const epMeta = loadMeta(slug);
         const tcfg = getTranscriptionConfig();
-        const tMethod = epMeta.transcribeMethod || tcfg.defaultMethod || "local";
+        const tMethod = tcfg.defaultMethod || "local";
         if (tMethod === "groq") { args.push("--groq"); io.emit("log", { slug, text: "Using Groq API (whisper-large-v3) for transcription...\n" }); }
         else if (tMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
         else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
