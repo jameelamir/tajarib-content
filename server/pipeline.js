@@ -27,10 +27,13 @@ module.exports = function init(ctx) {
         default: resolve(-1); return;
       }
       const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      // Track with slug:reelId key so stop handler can find and kill all reel processes
+      const procKey = `${slug}:${reelId}`;
+      activeProcesses[procKey] = proc;
       proc.stdout.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
       proc.stderr.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
-      proc.on("error", (err) => { io.emit("log", { slug, reelId, text: `❌ ${step} failed to start: ${err.message}\n` }); resolve(-1); });
-      proc.on("close", (code) => resolve(code));
+      proc.on("error", (err) => { delete activeProcesses[procKey]; io.emit("log", { slug, reelId, text: `❌ ${step} failed to start: ${err.message}\n` }); resolve(-1); });
+      proc.on("close", (code) => { delete activeProcesses[procKey]; resolve(code); });
     });
   }
 

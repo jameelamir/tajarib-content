@@ -21,7 +21,7 @@ module.exports = async function episodesRoutes(req, res, url, ctx) {
     try {
       for (const [key, proc] of Object.entries(activeProcesses)) {
         if (key === slug || key.startsWith(slug + ':')) {
-          try { proc.kill("SIGTERM"); } catch (_) {}
+          try { process.kill(-proc.pid, "SIGTERM"); } catch (_) { try { proc.kill("SIGTERM"); } catch (_2) {} }
           delete activeProcesses[key];
         }
       }
