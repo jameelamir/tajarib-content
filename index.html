@@ -61,6 +61,7 @@
 </div>
 
 <div class="main" id="main-area">
+  <div class="main-content">
     <div class="empty-state" id="empty-state">
         <div class="icon">🎙️</div>
         <div class="title">Welcome to Tajarib Pipeline</div>
@@ -98,21 +99,14 @@
         <!-- SHARED: Episode-level pipeline chips -->
         <div style="display:flex; align-items:center; gap:8px;">
             <div class="episode-pipeline-bar" id="episode-pipeline-bar" style="flex:1;"></div>
+            <button id="pipeline-stop-btn" class="stop-btn" style="display:none; font-size:0.7rem; padding:4px 10px;" onclick="if(currentSlug) socket.emit('stop-step',{slug:currentSlug})">Stop</button>
+            <button class="console-toggle-btn" id="console-toggle-btn" onclick="toggleConsole()" title="Toggle Console">&#9638;</button>
         </div>
 
         <!-- MODE A: Pre-Cut (episode-level) -->
         <div id="pre-cut-view" style="display:none; flex:1; flex-direction:column; gap:12px; overflow:hidden;">
-            <!-- For episodes: just a console -->
-            <div id="precut-console-only" class="precut-console" style="display:none;">
-                <div class="panel-header">
-                    <span>Console</span>
-                    <div style="display:flex; gap:8px;">
-                        <button id="stop-btn" class="stop-btn" style="display:none">⏹ Stop</button>
-                        <button class="text-btn" onclick="clearLogs()">Clear</button>
-                    </div>
-                </div>
-                <pre class="logs" id="logs-output"></pre>
-            </div>
+            <!-- For episodes: empty area (console is in the drawer) -->
+            <div id="precut-status" style="display:none; flex:1;"></div>
 
             <!-- For reel_full: video + tabbed editor -->
             <div id="reel-full-layout" class="reel-full-layout" style="display:none;">
@@ -121,7 +115,6 @@
                 <div class="reel-full-tabs">
                     <div class="reel-full-tab active" data-tab="caption" onclick="switchReelFullTab('caption')">Caption</div>
                     <div class="reel-full-tab" data-tab="transcript" onclick="openTranscriptModal()">Transcript</div>
-                    <div class="reel-full-tab" data-tab="console" onclick="switchReelFullTab('console')">Console</div>
                 </div>
                 <!-- Caption tab -->
                 <div class="reel-full-tab-body active" id="rfTab-caption">
@@ -138,19 +131,6 @@
                 <div class="reel-full-tab-body" id="rfTab-transcript">
                     <div style="display:flex; align-items:center; justify-content:center; padding:24px;">
                         <button onclick="openTranscriptModal()" style="font-size:0.75rem; padding:8px 16px;">Open Transcript Editor</button>
-                    </div>
-                </div>
-                <!-- Console tab -->
-                <div class="reel-full-tab-body" id="rfTab-console">
-                    <div class="precut-console" style="flex:1; display:flex; flex-direction:column;">
-                        <div class="panel-header">
-                            <span>Console</span>
-                            <div style="display:flex; gap:8px;">
-                                <button id="stop-btn-rf" class="stop-btn" style="display:none">⏹ Stop</button>
-                                <button class="text-btn" onclick="clearLogs()">Clear</button>
-                            </div>
-                        </div>
-                        <pre class="logs" id="logs-output-rf"></pre>
                     </div>
                 </div>
                 </div><!-- /.reel-full-main -->
@@ -205,16 +185,6 @@
                                     <div id="overlay-config-section" style="display:none;"></div>
                                 </div>
                             </div>
-                            <div class="reel-console">
-                                <div class="panel-header">
-                                    <span id="reel-console-title">Console</span>
-                                    <div style="display:flex; gap:8px;">
-                                        <button id="stop-btn-reel" class="stop-btn" style="display:none">⏹ Stop</button>
-                                        <button class="text-btn" onclick="clearLogs()">Clear</button>
-                                    </div>
-                                </div>
-                                <pre class="logs" id="logs-output-reel"></pre>
-                            </div>
                         </div>
                     </div>
                     <div id="find-reel-panel" class="find-reel-panel" style="display:none;">
@@ -223,6 +193,19 @@
             </div>
         </div>
 
+    </div>
+  </div>
+
+    <!-- Collapsible Console Drawer -->
+    <div class="console-drawer" id="console-drawer">
+        <div class="console-drawer-header">
+            <span id="console-drawer-title">Console</span>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button class="text-btn" onclick="clearLogs()">Clear</button>
+                <button class="console-drawer-close" onclick="toggleConsole()">&times;</button>
+            </div>
+        </div>
+        <pre class="logs" id="console-drawer-logs"></pre>
     </div>
 </div>
 

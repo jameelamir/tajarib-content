@@ -92,16 +92,9 @@ setPublishMethod(publishMethod);
 setBufferMode(bufferMode);
 loadBufferConfig();
 
-// Stop buttons
-document.getElementById('stop-btn').onclick = function() {
-    if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
-};
-var stopBtnRf = document.getElementById('stop-btn-rf');
-if (stopBtnRf) stopBtnRf.onclick = function() {
-    if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
-};
-var stopBtnReel = document.getElementById('stop-btn-reel');
-if (stopBtnReel) stopBtnReel.onclick = function() {
+// Stop button (unified in pipeline bar)
+var pipelineStopBtn = document.getElementById('pipeline-stop-btn');
+if (pipelineStopBtn) pipelineStopBtn.onclick = function() {
     if (currentSlug) socket.emit('stop-step', {slug: currentSlug});
 };
 

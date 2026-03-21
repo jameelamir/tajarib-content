@@ -79,7 +79,7 @@ function setupSocketHandlers() {
         }
         // Update UI if we're viewing a running episode
         if (currentSlug && isSlugRunning(currentSlug)) {
-            var stopBtn = document.getElementById('stop-btn');
+            var stopBtn = document.getElementById('pipeline-stop-btn');
             if (stopBtn) stopBtn.style.display = '';
         }
         if (currentSlug) updateLogs();
