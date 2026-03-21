@@ -91,9 +91,11 @@ module.exports = function init(ctx) {
         cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
         if (force) args.push("--force");
         const epMeta = loadMeta(slug);
-        if (epMeta.transcribeMethod === "groq") { args.push("--groq"); io.emit("log", { slug, text: "Using Groq API (whisper-large-v3) for transcription...\n" }); }
-        else if (epMeta.transcribeMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
-        else { const tcfg = getTranscriptionConfig(); if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
+        const tcfg = getTranscriptionConfig();
+        const tMethod = epMeta.transcribeMethod || tcfg.defaultMethod || "local";
+        if (tMethod === "groq") { args.push("--groq"); io.emit("log", { slug, text: "Using Groq API (whisper-large-v3) for transcription...\n" }); }
+        else if (tMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
+        else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
         break;
       case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;
