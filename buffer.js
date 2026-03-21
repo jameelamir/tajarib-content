@@ -8,9 +8,13 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { GLOBAL_CONFIG_DIR, migrateIfNeeded } = require("./server/global-config");
 
 const BUFFER_API_URL = "https://api.buffer.com";
-const BUFFER_CONFIG_FILE = path.join(__dirname, "buffer-config.json");
+const LOCAL_BUFFER_CONFIG = path.join(__dirname, "buffer-config.json");
+const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
+
+migrateIfNeeded(LOCAL_BUFFER_CONFIG, BUFFER_CONFIG_FILE);
 
 function loadConfig() {
   try {

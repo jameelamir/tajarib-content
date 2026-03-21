@@ -3,6 +3,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { GLOBAL_AUTH_PATH } = require("../global-config");
 
 module.exports = async function settingsRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, loadJSON, saveJSON, getGuestHistory, getTranscriptionConfig, saveTranscriptionConfig, llm, readBody } = ctx;
@@ -16,7 +17,8 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
   if (req.method === "GET" && url.pathname === "/api/transcription-config") {
     const config = getTranscriptionConfig();
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey, defaultMethod: config.defaultMethod || "local", localModel: config.localModel || "large-v3" }));
+    const effectiveDefault = config.defaultMethod || (config.groqApiKey ? "groq" : "local");
+    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey, defaultMethod: effectiveDefault, localModel: config.localModel || "large-v3" }));
     return true;
   }
 
@@ -62,7 +64,7 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
         res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
         return true;
       }
-      const authPath = path.join(WORKSPACE_DIR, "auth.json");
+      const authPath = GLOBAL_AUTH_PATH;
       const existing = loadJSON(authPath) || {};
       existing.llm = existing.llm || {};
       if (apiKey !== undefined) existing.llm.key = apiKey || "";
@@ -90,7 +92,7 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
         res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
         return true;
       }
-      const authPath = path.join(WORKSPACE_DIR, "auth.json");
+      const authPath = GLOBAL_AUTH_PATH;
       const existing = loadJSON(authPath) || {};
       existing.llm = existing.llm || {};
       existing.llm.key = apiKey;
