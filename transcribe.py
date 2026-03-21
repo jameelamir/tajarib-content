@@ -125,7 +125,7 @@ def transcribe_with_api(video_path, api_key, language="ar"):
 
     try:
         with open(upload_path, 'rb') as f:
-            files = {'file': (Path(upload_path).name, f, 'audio/mpeg')}
+            files = {'file': ('audio.mp3', f, 'audio/mpeg')}
 
             print("⏳ Uploading to API...")
 
@@ -219,7 +219,7 @@ def transcribe_with_groq(video_path, api_key, language="ar"):
 
     try:
         with open(upload_path, 'rb') as f:
-            files = {'file': (Path(upload_path).name, f, 'audio/mpeg')}
+            files = {'file': ('audio.mp3', f, 'audio/mpeg')}
 
             print("⏳ Uploading to Groq...")
 
