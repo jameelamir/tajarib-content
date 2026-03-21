@@ -30,17 +30,24 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/video") {
-    const slug = url.searchParams.get("slug"), type = url.searchParams.get("type"), reelParam = url.searchParams.get("reel");
+    const slug = url.searchParams.get("slug"), type = url.searchParams.get("type"), reelParam = url.searchParams.get("reel"), stage = url.searchParams.get("stage");
     if (!slug) { res.writeHead(400); res.end("Missing slug"); return true; }
     const dir = path.join(EPISODES_DIR, slug);
     let videoPath;
     if (reelParam) {
       const isValid = (p) => fs.existsSync(p) && fs.statSync(p).size > 10240;
       const reelsDir = path.join(dir, "reels");
-      videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-final.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-final.mp4`) :
-        isValid(path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`) :
-        isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
-        path.join(reelsDir, `reel-${reelParam}.mp4`);
+      if (stage === 'pre-overlay') {
+        // Skip final video — serve subtitled > cropped > raw (for overlay preview background)
+        videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`) :
+          isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
+          path.join(reelsDir, `reel-${reelParam}.mp4`);
+      } else {
+        videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-final.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-final.mp4`) :
+          isValid(path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`) :
+          isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
+          path.join(reelsDir, `reel-${reelParam}.mp4`);
+      }
     } else if (type === 'compressed') { videoPath = path.join(dir, "publish-compressed.mp4"); }
     else if (type === 'subtitled') {
       const fullSub = path.join(dir, "full-subtitled.mp4");
@@ -147,15 +154,18 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
     const ext = path.extname(fileName).toLowerCase();
     if ([".mov", ".mp4", ".avi", ".mkv"].includes(ext)) {
-      const thumbPath = path.join(ASSETS_DIR, `.thumb-${fileName}.jpg`);
+      // Use PNG to preserve alpha/transparency from .mov overlay files
+      const thumbPath = path.join(ASSETS_DIR, `.thumb-${fileName}.png`);
+      const oldJpgThumb = path.join(ASSETS_DIR, `.thumb-${fileName}.jpg`);
+      if (fs.existsSync(oldJpgThumb)) try { fs.unlinkSync(oldJpgThumb); } catch (_) {} // clean up old JPEG thumbs
       const srcStat = fs.statSync(filePath);
       if (!fs.existsSync(thumbPath) || fs.statSync(thumbPath).mtimeMs < srcStat.mtimeMs) {
         try {
           const { execFileSync } = require("child_process");
-          execFileSync("ffmpeg", ["-y", "-i", filePath, "-frames:v", "1", "-q:v", "2", thumbPath], { stdio: "pipe" });
+          execFileSync("ffmpeg", ["-y", "-i", filePath, "-frames:v", "1", "-pix_fmt", "rgba", thumbPath], { stdio: "pipe" });
         } catch (_) { res.writeHead(500); res.end("Thumbnail failed"); return true; }
       }
-      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=60" });
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=60" });
       res.end(fs.readFileSync(thumbPath));
       return true;
     }

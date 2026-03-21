@@ -716,7 +716,7 @@ function buildReelActions(ep, reel) {
     });
     steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
-        '<button onclick="event.stopPropagation(); toggleOverlayConfig()" style="background:transparent; border:none; color:inherit; font-size:0.85rem; padding:0 4px; cursor:pointer; opacity:0.8;" title="Configure overlays">&#9881;</button>'
+        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
     });
 
     // Find next undone step
