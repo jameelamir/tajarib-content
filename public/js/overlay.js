@@ -1,12 +1,15 @@
 // ── Overlay Config Panel ─────────────────────────────────────────────────
 
 var overlayImageCache = {};
+var overlayPreviewVideo = null; // hidden video element for pre-overlay background
 
 async function toggleOverlayConfig() {
     const section = document.getElementById('overlay-config-section');
     if (section.style.display !== 'none' && section.innerHTML) {
         section.style.display = 'none';
         section.innerHTML = '';
+        // Clean up hidden preview video
+        if (overlayPreviewVideo) { overlayPreviewVideo.pause(); overlayPreviewVideo.src = ''; overlayPreviewVideo = null; }
         return;
     }
     section.style.display = '';
@@ -23,25 +26,51 @@ async function toggleOverlayConfig() {
             cta: { enabled: false, mode: 'text', text: 'www.tajarib.show', fontSize: 28, fontColor: '#ffffff', imagePath: '', x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
         };
     }
+    // Load pre-overlay video (subtitled or cropped, NOT final) for accurate canvas background
+    if (selectedReelId && currentSlug) {
+        overlayPreviewVideo = document.createElement('video');
+        overlayPreviewVideo.crossOrigin = 'anonymous';
+        overlayPreviewVideo.preload = 'auto';
+        overlayPreviewVideo.muted = true;
+        overlayPreviewVideo.addEventListener('loadeddata', function() {
+            // Auto-detect aspect ratio from actual video dimensions
+            if (overlayPreviewVideo.videoWidth > overlayPreviewVideo.videoHeight) overlayCanvasRatio = '16:9';
+            else if (overlayPreviewVideo.videoWidth === overlayPreviewVideo.videoHeight) overlayCanvasRatio = '1:1';
+            else overlayCanvasRatio = '9:16';
+            renderOverlayConfig();
+        });
+        overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(selectedReelId) + '&stage=pre-overlay&t=' + Date.now();
+    }
     renderOverlayConfig();
 }
 
 function renderOverlayConfig() {
     const section = document.getElementById('overlay-config-section');
     const c = overlayConfig;
+    // Compute canvas dimensions from actual video when available
+    var canvasW, canvasH;
+    if (overlayPreviewVideo && overlayPreviewVideo.videoWidth > 0) {
+        var vw = overlayPreviewVideo.videoWidth, vh = overlayPreviewVideo.videoHeight;
+        var maxDim = 420;
+        if (vw >= vh) { canvasW = maxDim; canvasH = Math.round(maxDim * vh / vw); }
+        else { canvasH = Math.min(520, Math.round(maxDim * vh / vw)); canvasW = Math.round(canvasH * vw / vh); }
+    } else {
+        canvasW = overlayCanvasRatio === '9:16' ? 270 : overlayCanvasRatio === '1:1' ? 300 : 640;
+        canvasH = overlayCanvasRatio === '9:16' ? 480 : overlayCanvasRatio === '1:1' ? 300 : 360;
+    }
     section.innerHTML =
         '<div class="overlay-config">' +
             '<h3>Overlay Configuration</h3>' +
             '<div style="display:flex; gap:16px; flex-wrap:wrap;">' +
                 // Canvas
-                '<div style="flex:1; min-width:180px; max-width:300px;">' +
+                '<div style="flex:1; min-width:200px; max-width:' + (canvasW + 20) + 'px;">' +
                     '<div style="display:flex; gap:4px; margin-bottom:6px;">' +
                         '<button class="' + (overlayCanvasRatio === '16:9' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'16:9\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">16:9</button>' +
                         '<button class="' + (overlayCanvasRatio === '9:16' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'9:16\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">9:16</button>' +
                         '<button class="' + (overlayCanvasRatio === '1:1' ? 'primary' : '') + '" onclick="overlayCanvasRatio=\'1:1\'; renderOverlayConfig();" style="font-size:0.65rem; padding:3px 8px;">1:1</button>' +
                     '</div>' +
                     '<div class="overlay-canvas-wrap">' +
-                        '<canvas id="overlay-canvas" width="' + (overlayCanvasRatio === '9:16' ? 270 : overlayCanvasRatio === '1:1' ? 300 : 640) + '" height="' + (overlayCanvasRatio === '9:16' ? 480 : overlayCanvasRatio === '1:1' ? 300 : 360) + '"></canvas>' +
+                        '<canvas id="overlay-canvas" width="' + canvasW + '" height="' + canvasH + '"></canvas>' +
                     '</div>' +
                     '<div style="font-size:0.65rem; color:#555; margin-top:4px;">Drag elements to reposition</div>' +
                 '</div>' +
@@ -53,6 +82,7 @@ function renderOverlayConfig() {
                             '<label>Sponsor</label>' +
                             '<input type="checkbox" id="ov-sponsor-on" ' + (c.sponsor.enabled ? 'checked' : '') + ' onchange="overlayConfig.sponsor.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
+                        '<div class="overlay-asset-info" id="ov-sponsor-info"><span style="color:#555;">sponsor.mov</span></div>' +
                         '<div class="overlay-el-body">' +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
@@ -65,6 +95,7 @@ function renderOverlayConfig() {
                             '<label>Logo</label>' +
                             '<input type="checkbox" id="ov-logo-on" ' + (c.logo.enabled ? 'checked' : '') + ' onchange="overlayConfig.logo.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
+                        '<div class="overlay-asset-info" id="ov-logo-info"><span style="color:#555;">logo.mov/png</span></div>' +
                         '<div class="overlay-el-body">' +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.x + '" oninput="overlayConfig.logo.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.y + '" oninput="overlayConfig.logo.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.y + '%</span></div>' +
@@ -144,6 +175,16 @@ function initOverlayCanvas() {
     overlayCanvasCtx = canvas.getContext('2d');
     drawOverlayCanvas();
 
+    // Redraw canvas when pre-overlay video loads so we get the real frame as background
+    var bgVideo = overlayPreviewVideo || document.querySelector('#reel-preview video');
+    if (bgVideo) {
+        var onReady = function() { drawOverlayCanvas(); };
+        bgVideo.addEventListener('loadeddata', onReady, { once: true });
+        bgVideo.addEventListener('seeked', onReady, { once: true });
+        // If video is already loaded, schedule a redraw
+        if (bgVideo.readyState >= 2) setTimeout(drawOverlayCanvas, 50);
+    }
+
     canvas.addEventListener('mousedown', function(e) {
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
@@ -186,11 +227,39 @@ function loadOverlayImage(name) {
     if (overlayImageCache[name]) return overlayImageCache[name];
     var img = new Image();
     img._failed = false;
-    img.onload = function() { drawOverlayCanvas(); };
-    img.onerror = function() { img._failed = true; };
+    img.onload = function() { drawOverlayCanvas(); updateOverlayAssetInfo(); };
+    img.onerror = function() { img._failed = true; updateOverlayAssetInfo(); };
     img.src = '/api/assets/file/' + encodeURIComponent(name);
     overlayImageCache[name] = img;
     return img;
+}
+
+// Update asset info elements with native .mov dimensions once thumbnails load
+function updateOverlayAssetInfo() {
+    var sponsorInfo = document.getElementById('ov-sponsor-info');
+    if (sponsorInfo) {
+        var img = overlayImageCache['sponsor.mov'];
+        if (img && img.naturalWidth && !img._failed) {
+            sponsorInfo.innerHTML = '<span style="color:var(--success);">&#10003; sponsor.mov</span> <span style="color:#888;">' + img.naturalWidth + '×' + img.naturalHeight + ' native</span>';
+        } else if (img && img._failed) {
+            sponsorInfo.innerHTML = '<span style="color:#f87171;">&#10007; sponsor.mov not found</span>';
+        }
+    }
+    var logoInfo = document.getElementById('ov-logo-info');
+    if (logoInfo) {
+        var found = null;
+        var exts = ['.png', '.jpg', '.mov', '.mp4'];
+        for (var i = 0; i < exts.length; i++) {
+            var img = overlayImageCache['logo' + exts[i]];
+            if (img && img.naturalWidth && !img._failed) { found = { name: 'logo' + exts[i], img: img }; break; }
+        }
+        if (found) {
+            logoInfo.innerHTML = '<span style="color:var(--success);">&#10003; ' + found.name + '</span> <span style="color:#888;">' + found.img.naturalWidth + '×' + found.img.naturalHeight + ' native</span>';
+        } else {
+            var anyFailed = exts.some(function(ext) { var im = overlayImageCache['logo' + ext]; return im && im._failed; });
+            if (anyFailed) logoInfo.innerHTML = '<span style="color:#f87171;">&#10007; no logo file found</span>';
+        }
+    }
 }
 
 // Try loading an overlay image from multiple possible filenames
@@ -209,8 +278,11 @@ function loadOverlayImageMulti(baseName, extensions) {
     return loadOverlayImage(baseName + extensions[0]); // fallback
 }
 
-// Reference video dimensions for each aspect ratio (what FFmpeg scale values map to)
+// Reference video dimensions — use actual video dimensions when available for pixel-accurate positioning
 function getRefVideoDims() {
+    if (overlayPreviewVideo && overlayPreviewVideo.videoWidth > 0) {
+        return { w: overlayPreviewVideo.videoWidth, h: overlayPreviewVideo.videoHeight };
+    }
     if (overlayCanvasRatio === '9:16') return { w: 1080, h: 1920 };
     if (overlayCanvasRatio === '1:1') return { w: 1080, h: 1080 };
     return { w: 1920, h: 1080 }; // 16:9
@@ -296,13 +368,26 @@ function drawOverlayCanvas() {
     if (!ctx) return;
     var W = canvas.width, H = canvas.height;
 
-    // Dark background with grid
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#2a2a2a';
-    ctx.lineWidth = 1;
-    for (var x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (var y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    // Background: use pre-overlay video (no baked-in overlays), fall back to reel video, then grid
+    var bgVideo = overlayPreviewVideo || document.querySelector('#reel-preview video');
+    var drewVideo = false;
+    if (bgVideo && bgVideo.readyState >= 2 && bgVideo.videoWidth > 0) {
+        try {
+            ctx.drawImage(bgVideo, 0, 0, W, H);
+            // Slight dim so overlay elements remain visible on top
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            ctx.fillRect(0, 0, W, H);
+            drewVideo = true;
+        } catch (_) {}
+    }
+    if (!drewVideo) {
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = '#2a2a2a';
+        ctx.lineWidth = 1;
+        for (var x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+        for (var y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    }
 
     // Shadow overlay preview (real shadow gradient from bottom)
     var shadowImg = loadOverlayImage('shadow-reels.png');
