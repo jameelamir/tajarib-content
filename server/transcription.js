@@ -10,18 +10,20 @@ module.exports = function init(ctx) {
 
   function startTranscription(slug, finalPath, transcribeMethod) {
     io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
+    io.emit("process-start", { slug, step: "transcribe" });
     const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
     if (transcribeMethod === "groq") args.push("--groq");
     else if (transcribeMethod === "api") args.push("--api");
     else { const tcfg = getTranscriptionConfig(); if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
 
-    const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     activeProcesses[slug] = proc;
     proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
     proc.stderr.on("data", d => io.emit("log", { slug, text: d.toString() }));
     proc.on("close", async (code) => {
       delete activeProcesses[slug];
       io.emit("log", { slug, text: `\nTranscription complete. Exit: ${code}\n` });
+      io.emit("process-end", { slug, step: "transcribe", code });
       io.emit("status-update", {});
       if (code === 0) await handlePostTranscription(slug);
     });
