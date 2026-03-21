@@ -1239,6 +1239,13 @@ function renderSidebar() {
         const guestSnippet = ep.guest ? ' &middot; ' + ep.guest : '';
         const hoverTitle = (ep.guest || '') + (ep.role ? ' (' + ep.role + ')' : '');
 
+        var clipsBtn = '';
+        if (ep.mediaType === 'episode' && ep.steps.analyzed) {
+            var clipsLabel = ep.steps.clipsAnalyzed ? 'Clips ✓' : 'Clips';
+            var clipsBg = ep.steps.clipsAnalyzed ? '#1a0f2e' : '#222';
+            clipsBtn = '<button class="ep-clips-btn" style="background:' + clipsBg + ';" onclick="event.stopPropagation(); selectEp(\'' + ep.slug + '\'); runClipsAnalysis();">' + clipsLabel + '</button>';
+        }
+
         var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" title="' + hoverTitle + '">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
@@ -1246,7 +1253,7 @@ function renderSidebar() {
             '</div>' +
             '<div class="ep-info">' +
                 '<span>' + done + '/' + total + guestSnippet + '</span>' +
-                (sizeMb ? '<span>' + sizeMb + '</span>' : '') +
+                '<span style="display:flex; align-items:center; gap:6px;">' + clipsBtn + (sizeMb ? sizeMb : '') + '</span>' +
             '</div>' +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
@@ -1427,31 +1434,23 @@ function renderMain(slug) {
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
     document.getElementById('ep-meta').innerHTML =
-        '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
-        '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
-        '<button class="text-btn" onclick="editMeta()">Edit</button>' +
         '<select onchange="changeMediaType(currentSlug, this.value)" style="background:#111; border:1px solid #333; color:#888; padding:4px 8px; border-radius:4px; font-size:0.75rem;">' +
             '<option value="episode" ' + (ep.mediaType === 'episode' ? 'selected' : '') + '>Episode</option>' +
             '<option value="reel_full" ' + (ep.mediaType === 'reel_full' ? 'selected' : '') + '>Reel (Full)</option>' +
             '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
         '</select>' +
-        '<span style="color:#333; margin-left:4px;">|</span>' +
         '<button class="header-delete" onclick="deleteEpisode(\'' + ep.slug + '\')" title="Delete episode">🗑</button>';
 
-    // Episode pipeline bar
-    renderEpisodePipelineBar(ep);
-
-    // Show Replace SRT button if episode is transcribed
+    // Episode settings section
+    var settingsSection = document.getElementById('ep-settings-section');
+    if (settingsSection) settingsSection.style.display = '';
+    document.getElementById('ep-settings-guest').value = ep.guest || '';
+    document.getElementById('ep-settings-role').value = ep.role || '';
     var replaceSrtBtn = document.getElementById('replace-srt-btn');
     if (replaceSrtBtn) replaceSrtBtn.style.display = ep.steps.transcribed ? '' : 'none';
 
-    // Show Clips button if analyzed (only for episodes)
-    var clipsBtn = document.getElementById('analyze-clips-btn');
-    if (clipsBtn) {
-        clipsBtn.style.display = (ep.mediaType === 'episode' && ep.steps.analyzed) ? '' : 'none';
-        clipsBtn.textContent = ep.steps.clipsAnalyzed ? 'Clips ✓' : 'Clips';
-        clipsBtn.style.background = ep.steps.clipsAnalyzed ? '#1a0f2e' : '#222';
-    }
+    // Episode pipeline bar
+    renderEpisodePipelineBar(ep);
 
     // Mode switch — show reel list if any reels exist (from files or analysis)
     const isCut = ep.reelStatuses && ep.reelStatuses.length > 0;
@@ -3953,9 +3952,8 @@ async function runStep(step) {
 
     if (step === 'generate' && (!ep.guest || !ep.role)) {
         pendingRun = step;
-        document.getElementById('meta-guest').value = ep.guest || '';
-        document.getElementById('meta-role').value = ep.role || '';
-        document.getElementById('meta-modal').classList.add('open');
+        openEpSettings();
+        document.getElementById('ep-settings-guest').focus();
         return;
     }
 
@@ -4155,6 +4153,37 @@ function editMeta() {
     document.getElementById('meta-guest').value = ep.guest || '';
     document.getElementById('meta-role').value = ep.role || '';
     document.getElementById('meta-modal').classList.add('open');
+}
+
+function toggleEpSettings() {
+    var body = document.getElementById('ep-settings-body');
+    var chevron = document.getElementById('ep-settings-chevron');
+    if (body.style.display === 'none') {
+        body.style.display = '';
+        chevron.style.transform = 'rotate(90deg)';
+    } else {
+        body.style.display = 'none';
+        chevron.style.transform = '';
+    }
+}
+
+function openEpSettings() {
+    var body = document.getElementById('ep-settings-body');
+    var chevron = document.getElementById('ep-settings-chevron');
+    body.style.display = '';
+    chevron.style.transform = 'rotate(90deg)';
+}
+
+async function saveSettingsInline() {
+    if (!currentSlug) return;
+    var guest = document.getElementById('ep-settings-guest').value.trim();
+    var role = document.getElementById('ep-settings-role').value.trim();
+    if (!guest || !role) return alert('Both guest name and role are required');
+    socket.emit('update-meta', {slug: currentSlug, guest: guest, role: role});
+    if (pendingRun) {
+        await runStep(pendingRun);
+        pendingRun = null;
+    }
 }
 
 function closeMetaModal() { 
