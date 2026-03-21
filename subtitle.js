@@ -281,7 +281,7 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   return entries.join("\n");
 }
 
-async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false, subtitleStyle = "animated") {
+async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false, subtitleStyle = "animated", noTranscribe = false) {
   console.log(`\n🎬 Subtitle Generator — ${slug} (style: ${subtitleStyle})\n`);
   
   const dir = path.join(EPISODES_DIR, slug);
@@ -485,7 +485,39 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       let reelWords;
       let wordStartOffset = startSec;
 
-      if (force || isYouTubeTranscript) {
+      if (noTranscribe) {
+        // Use existing reel transcript (edited) — skip re-transcription
+        const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
+        if (fs.existsSync(clipTranscriptPath)) {
+          const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
+          reelWords = clipT.words || [];
+          // If words array is empty, synthesize from segments
+          if (!reelWords.length && clipT.segments) {
+            for (const seg of clipT.segments) {
+              if (seg.words && seg.words.length) {
+                reelWords.push(...seg.words);
+              } else {
+                // synthesize from text
+                const words = seg.text.trim().split(/\s+/);
+                const dur = seg.end - seg.start;
+                words.forEach((w, i) => {
+                  reelWords.push({
+                    word: w,
+                    start: seg.start + (dur * i / words.length),
+                    end: seg.start + (dur * (i + 1) / words.length),
+                    probability: 1.0
+                  });
+                });
+              }
+            }
+          }
+          wordStartOffset = 0;
+          console.log(`   📝 Using edited reel transcript: ${reelWords.length} words`);
+        } else {
+          console.log(`   ⚠️  No reel transcript found, falling back to episode transcript`);
+          reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+        }
+      } else if (force || isYouTubeTranscript) {
         console.log(`   🎙️  Re-transcribing reel clip (force=${force})...`);
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
         const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
@@ -569,16 +601,17 @@ if (require.main === module) {
   const force = args.includes("--force");
   const titleCard = args.includes("--title-card");
   const burnOnly = args.includes("--burn-only");
+  const noTranscribe = args.includes("--no-transcribe");
   const reelId = get("--reel-id");
   const subtitleStyle = get("--subtitle-style") || "animated"; // "animated" or "static"
 
   if (!slug) {
-    console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only] [--subtitle-style animated|static]");
+    console.error("Usage: node subtitle.js --slug <slug> [--force] [--title-card] [--burn-only] [--no-transcribe] [--subtitle-style animated|static]");
     process.exit(1);
   }
   if (!["animated", "static"].includes(subtitleStyle)) {
     console.error(`❌ Invalid --subtitle-style "${subtitleStyle}". Use "animated" or "static".`);
     process.exit(1);
   }
-  subtitle(slug, force, titleCard, reelId, burnOnly, subtitleStyle).catch(err => { console.error("❌", err.message); process.exit(1); });
+  subtitle(slug, force, titleCard, reelId, burnOnly, subtitleStyle, noTranscribe).catch(err => { console.error("❌", err.message); process.exit(1); });
 }

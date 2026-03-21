@@ -151,6 +151,24 @@ function renderReelDetail(ep, reelId) {
         }
     }
 
+    // Reel transcript editor — show if reel transcript exists
+    var transcriptEditorEl = document.getElementById('reel-transcript-editor');
+    if (transcriptEditorEl) {
+        // Always show for subtitled reels (they have a reel transcript from Groq/Whisper)
+        if (r.subtitled || r.cut || r.cropped) {
+            transcriptEditorEl.style.display = '';
+            transcriptEditorEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
+                    '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                '</div>' +
+                '<div id="reel-transcript-content" style="display:none;"></div>';
+        } else {
+            transcriptEditorEl.style.display = 'none';
+            transcriptEditorEl.innerHTML = '';
+        }
+    }
+
     // Subtitle editor — show if ASS/SRT file exists
     var subEditorEl = document.getElementById('reel-subtitle-editor');
     if (subEditorEl) {
@@ -1740,6 +1758,140 @@ async function saveReelTrim(reelId) {
         });
     } catch (err) {
         showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+// ─── Reel Transcript Editor ──────────────────────────────────────────────────
+
+async function loadReelTranscript(reelId) {
+    var contentEl = document.getElementById('reel-transcript-content');
+    if (!contentEl) return;
+    contentEl.style.display = '';
+    contentEl.innerHTML = '<div style="color:#888; font-size:0.7rem; padding:8px;">Loading...</div>';
+
+    var padded = String(reelId).padStart(2, '0');
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+        if (!res.ok) throw new Error('No reel transcript found');
+        var data = await res.json();
+        var segments = data.segments || [];
+
+        var html = '<div class="reel-transcript-segments" style="max-height:300px; overflow-y:auto; margin-bottom:8px;">';
+        segments.forEach(function(seg, i) {
+            var time = _fmtTranscriptTime(seg.start);
+            html += '<div class="seg-row" style="display:flex; gap:6px; margin-bottom:4px; align-items:flex-start;">' +
+                '<span style="font-size:0.65rem; color:#555; font-family:monospace; min-width:48px; padding-top:6px; cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')">' + time + '</span>' +
+                '<textarea class="reel-seg-input content-textarea" data-idx="' + i + '" data-start="' + seg.start + '" data-end="' + seg.end + '" ' +
+                'rows="1" style="flex:1; font-size:0.78rem; direction:rtl; resize:vertical; padding:4px 6px; min-height:24px;"' +
+                ' oninput="this.style.height=\'auto\'; this.style.height=this.scrollHeight+\'px\'">' +
+                escHtml(seg.text) + '</textarea>' +
+            '</div>';
+        });
+        html += '</div>';
+        html += '<div style="display:flex; gap:6px;">' +
+            '<button onclick="saveReelTranscript(\'' + reelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-burn Subs</button>' +
+        '</div>' +
+        '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
+
+        contentEl.innerHTML = html;
+
+        // Auto-resize textareas
+        contentEl.querySelectorAll('.reel-seg-input').forEach(function(ta) {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
+        });
+    } catch (err) {
+        contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
+    }
+}
+
+function seekReelVideo(time) {
+    var video = document.querySelector('#reel-preview video');
+    if (video) {
+        video.currentTime = time;
+        video.play();
+    }
+}
+
+function _fmtTranscriptTime(sec) {
+    var m = Math.floor(sec / 60);
+    var s = Math.floor(sec % 60);
+    var ms = Math.floor((sec % 1) * 10);
+    return m + ':' + String(s).padStart(2, '0') + '.' + ms;
+}
+
+async function saveReelTranscript(reelId) {
+    var statusEl = document.getElementById('reel-transcript-status');
+    if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
+
+    // Collect edited segments
+    var inputs = document.querySelectorAll('.reel-seg-input');
+    if (!inputs.length) return;
+
+    var padded = String(reelId).padStart(2, '0');
+    try {
+        // Load existing transcript to preserve structure
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+        var transcript = await res.json();
+
+        // Update segment text and re-synthesize words from edited text
+        inputs.forEach(function(input) {
+            var idx = parseInt(input.dataset.idx);
+            var seg = transcript.segments[idx];
+            if (!seg) return;
+            var newText = input.value.trim();
+            if (newText === seg.text) return; // unchanged
+
+            seg.text = newText;
+            // Re-synthesize word timestamps from edited text
+            var words = newText.split(/\s+/).filter(function(w) { return w; });
+            var dur = seg.end - seg.start;
+            seg.words = words.map(function(w, i) {
+                return {
+                    word: w,
+                    start: parseFloat((seg.start + (dur * i / words.length)).toFixed(3)),
+                    end: parseFloat((seg.start + (dur * (i + 1) / words.length)).toFixed(3)),
+                    probability: 1.0
+                };
+            });
+        });
+
+        // Rebuild top-level words and full_text
+        transcript.words = [];
+        transcript.full_text = '';
+        transcript.segments.forEach(function(seg) {
+            if (seg.words) transcript.words.push.apply(transcript.words, seg.words);
+            transcript.full_text += (transcript.full_text ? ' ' : '') + seg.text;
+        });
+        transcript.word_count = transcript.words.length;
+
+        // Save transcript
+        await fetch('/api/file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                slug: currentSlug,
+                file: 'reels/reel-' + padded + '-transcript.json',
+                content: JSON.stringify(transcript, null, 2)
+            })
+        });
+
+        if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
+
+        // Trigger subtitle re-burn using the edited transcript (no re-transcription)
+        await fetch('/api/run-step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                slug: currentSlug,
+                step: 'subtitle',
+                reelId: reelId,
+                force: true,
+                noTranscribe: true
+            })
+        });
+    } catch (err) {
+        if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
     }
 }
 

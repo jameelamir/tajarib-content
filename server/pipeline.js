@@ -80,7 +80,7 @@ module.exports = function init(ctx) {
     io.emit("status-update", {});
   }
 
-  function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle }) {
+  function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe }) {
     const procKey = reelId ? `${slug}:${reelId}` : slug;
     if (activeProcesses[procKey]) { io.emit("toast", { type: "error", message: `${slug}${reelId ? ' reel ' + reelId : ''} is already running` }); return; }
     const dir = path.join(EPISODES_DIR, slug);
@@ -110,7 +110,7 @@ module.exports = function init(ctx) {
         if (!found) { io.emit("toast", { type: "error", message: `No video in ${slug}/` }); return; }
         cmd = NODE_BIN; args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break;
       case "crop": cmd = NODE_BIN; args = ["crop.js", "--slug", slug]; if (ratio) args.push("--ratio", ratio); if (faceTrack) args.push("--face-track"); if (reelId) args.push("--reel-id", reelId); if (preferSide) args.push("--prefer-side", preferSide); if (force) args.push("--force"); break;
-      case "subtitle": cmd = NODE_BIN; args = ["subtitle.js", "--slug", slug]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); if (burnOnly) args.push("--burn-only"); if (subtitleStyle) args.push("--subtitle-style", subtitleStyle); break;
+      case "subtitle": cmd = NODE_BIN; args = ["subtitle.js", "--slug", slug]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); if (burnOnly) args.push("--burn-only"); if (noTranscribe) args.push("--no-transcribe"); if (subtitleStyle) args.push("--subtitle-style", subtitleStyle); break;
       case "overlay": { cmd = NODE_BIN; const hasConfig = fs.existsSync(path.join(dir, "overlay-config.json")); args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all"]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break; }
       case "compose": cmd = NODE_BIN; args = ["compose.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); if (!fs.existsSync(path.join(dir, "switches.json"))) args.push("--ai-switch"); break;
       default: io.emit("toast", { type: "error", message: `Unknown step: ${step}` }); return;
