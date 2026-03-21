@@ -16,38 +16,49 @@ async function loadTranscriptionConfig() {
 function updateTranscriptionUI() {
     const dot = document.getElementById('api-status-dot');
     const text = document.getElementById('api-status-text');
+    const method = transcriptionConfig.defaultMethod || 'local';
 
-    if (transcriptionConfig.defaultMethod === 'groq' && transcriptionConfig.hasGroqKey) {
-        dot.style.background = 'var(--success)';
-        text.textContent = 'Groq Ready (Default)';
-        text.style.color = '#4ade80';
-    } else if (transcriptionConfig.hasGroqKey || transcriptionConfig.hasApiKey) {
-        dot.style.background = 'var(--success)';
-        const method = transcriptionConfig.defaultMethod;
-        text.textContent = method === 'api' ? 'API Ready (Default)' : method === 'groq' ? 'Groq Ready (Default)' : 'API Key Set';
-        text.style.color = '#4ade80';
+    if (method === 'groq') {
+        if (transcriptionConfig.hasGroqKey) {
+            dot.style.background = 'var(--success)';
+            text.textContent = 'Groq Ready';
+            text.style.color = '#4ade80';
+        } else {
+            dot.style.background = '#f59e0b';
+            text.textContent = 'Groq selected — enter API key below';
+            text.style.color = '#fbbf24';
+        }
+    } else if (method === 'api') {
+        if (transcriptionConfig.hasApiKey) {
+            dot.style.background = 'var(--success)';
+            text.textContent = 'Haimaker Ready';
+            text.style.color = '#4ade80';
+        } else {
+            dot.style.background = '#f59e0b';
+            text.textContent = 'Haimaker selected — no API key';
+            text.style.color = '#fbbf24';
+        }
     } else {
-        dot.style.background = '#f59e0b';
-        text.textContent = 'Local Only';
-        text.style.color = '#fbbf24';
+        dot.style.background = 'var(--success)';
+        text.textContent = 'Local';
+        text.style.color = '#4ade80';
     }
 }
 
-function openTranscriptionModal() {
-    document.getElementById('transcription-modal').classList.add('open');
-    const apiKeyEl = document.getElementById('transcription-api-key');
-    if (apiKeyEl) apiKeyEl.value = '';
+function populateTranscriptionFields() {
     const groqKeyEl = document.getElementById('transcription-groq-key');
     if (groqKeyEl) groqKeyEl.value = '';
-    document.getElementById('transcription-default-method').value = transcriptionConfig.defaultMethod || 'local';
-    document.getElementById('api-key-status').style.display = 'none';
+    const methodEl = document.getElementById('transcription-default-method');
+    if (methodEl) methodEl.value = transcriptionConfig.defaultMethod || 'local';
+    const statusEl = document.getElementById('api-key-status');
+    if (statusEl) statusEl.style.display = 'none';
     const groqSaved = document.getElementById('groq-key-saved');
     if (groqSaved) groqSaved.style.display = transcriptionConfig.hasGroqKey ? '' : 'none';
 }
 
-function closeTranscriptionModal() {
-    document.getElementById('transcription-modal').classList.remove('open');
-}
+// Keep these for backwards compat (other code may call them)
+function openTranscriptionModal() { populateTranscriptionFields(); }
+function closeTranscriptionModal() {}
 
 async function saveTranscriptionConfig() {
     const apiKeyEl = document.getElementById('transcription-api-key');
@@ -82,11 +93,11 @@ async function saveTranscriptionConfig() {
             statusDiv.style.display = 'block';
             statusDiv.style.background = '#064e3b';
             statusDiv.style.color = '#6ee7b7';
-            statusDiv.textContent = '✓ Settings saved successfully';
+            statusDiv.textContent = '✓ Settings saved';
 
             setTimeout(() => {
-                closeTranscriptionModal();
-            }, 1000);
+                statusDiv.style.display = 'none';
+            }, 2000);
         }
     } catch (err) {
         statusDiv.style.display = 'block';
@@ -206,6 +217,7 @@ function toggleSection(name) {
 // Settings modal
 function openSettingsModal() {
     document.getElementById('settings-modal').classList.add('open');
+    populateTranscriptionFields();
 }
 function closeSettingsModal() {
     document.getElementById('settings-modal').classList.remove('open');

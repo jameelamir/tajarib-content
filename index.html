@@ -265,7 +265,7 @@
                 </label>
             </div>
             <div id="api-key-warning" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">
-                ⚠️ No API key configured. <a href="#" onclick="closeUploadModal(); openTranscriptionModal(); return false;" style="color:var(--accent);">Add key first →</a>
+                ⚠️ No API key configured. <a href="#" onclick="closeUploadModal(); openSettingsModal(); return false;" style="color:var(--accent);">Add key first →</a>
             </div>
         </div>
         
@@ -341,56 +341,6 @@
     </div>
 </div>
 
-<!-- Transcription Config Modal -->
-<div class="modal" id="transcription-modal">
-    <div class="modal-box">
-        <h3>🎙️ Transcription Settings</h3>
-        <div style="background:#161616; padding:12px; border-radius:6px; margin-bottom:16px;">
-            <div style="font-size:0.75rem; color:#888; margin-bottom:8px;">
-                <strong>Local (Free)</strong> — Uses your server's CPU. Good for short clips.
-            </div>
-            <div style="font-size:0.75rem; color:#888; margin-bottom:8px;">
-                <strong>Groq (Fast)</strong> — Uses Groq's Whisper Large V3. Very fast, free tier available.
-            </div>
-            <div style="font-size:0.75rem; color:#888;">
-                <strong>Haimaker (Paid)</strong> — Uses Haimaker's Whisper Large.
-            </div>
-        </div>
-        <div class="field">
-            <label>Default Method</label>
-            <select id="transcription-default-method">
-                <option value="local">🏠 Local (Free)</option>
-                <option value="groq">⚡ Groq (Fast)</option>
-                <option value="api">🌐 Haimaker (Paid)</option>
-            </select>
-        </div>
-        <div class="field" style="margin-top:12px;">
-            <label>Groq API Key <span id="groq-key-saved" style="color:#4ade80; font-size:0.7rem; display:none;">✓ Saved</span></label>
-            <input type="password" id="transcription-groq-key" placeholder="gsk_... (leave blank to keep current)" style="font-family:monospace; font-size:0.8rem;">
-            <div style="font-size:0.65rem; color:#888; margin-top:4px;">
-                Get a key from <a href="https://console.groq.com" target="_blank" style="color:#60a5fa;">console.groq.com</a>
-            </div>
-        </div>
-        <div class="field" style="margin-top:12px;">
-            <label>Local Model</label>
-            <select id="transcription-local-model">
-                <option value="large-v3">large-v3 — best accuracy (~4 GB RAM)</option>
-                <option value="medium">medium — good balance (~2 GB RAM)</option>
-                <option value="small">small — lighter (~1 GB RAM)</option>
-                <option value="base">base — fast (~500 MB RAM)</option>
-                <option value="tiny">tiny — fastest (~300 MB RAM)</option>
-            </select>
-            <div style="font-size:0.65rem; color:#888; margin-top:4px;">
-                Smaller models use less RAM and run faster, but are less accurate — especially for Arabic.
-            </div>
-        </div>
-        <div id="api-key-status" style="font-size:0.75rem; padding:8px; border-radius:4px; display:none;"></div>
-        <div class="modal-actions">
-            <button onclick="closeTranscriptionModal()">Close</button>
-            <button class="primary" onclick="saveTranscriptionConfig()">Save Default</button>
-        </div>
-    </div>
-</div>
 
 <!-- Switch Point Editor Modal -->
 <div class="modal" id="switch-modal">
@@ -541,9 +491,32 @@
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                     <span id="api-status-text" style="font-size:0.75rem; color:#666;">Checking...</span>
                 </div>
-                <button onclick="openTranscriptionModal()" style="font-size:0.75rem; padding:6px 10px; width:100%;">
-                    Configure API Key
-                </button>
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Default Method</label>
+                <select id="transcription-default-method" style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; margin-bottom:10px;">
+                    <option value="local">🏠 Local (Free)</option>
+                    <option value="groq">⚡ Groq (Fast)</option>
+                    <option value="api">🌐 Haimaker (Paid)</option>
+                </select>
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Groq API Key <span id="groq-key-saved" style="color:#4ade80; font-size:0.7rem; display:none;">✓ Saved</span></label>
+                <input type="password" id="transcription-groq-key" placeholder="gsk_... (leave blank to keep current)"
+                    style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; font-family:monospace; margin-bottom:4px;"
+                    autocomplete="off" spellcheck="false"
+                />
+                <div style="font-size:0.65rem; color:#555; margin-bottom:10px;">
+                    Get a key from <a href="https://console.groq.com" target="_blank" style="color:#60a5fa;">console.groq.com</a>
+                </div>
+                <label style="font-size:0.7rem; color:#666; margin-bottom:4px; display:block;">Local Model</label>
+                <select id="transcription-local-model" style="background:#0a0a0a; border:1px solid #333; color:#ddd; padding:8px 10px; border-radius:6px; font-size:0.75rem; width:100%; margin-bottom:10px;">
+                    <option value="large-v3">large-v3 — best accuracy</option>
+                    <option value="medium">medium — good balance</option>
+                    <option value="small">small — lighter</option>
+                    <option value="base">base — fast</option>
+                    <option value="tiny">tiny — fastest</option>
+                </select>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <button onclick="saveTranscriptionConfig()" style="font-size:0.75rem; padding:6px 12px; flex:1;">Save</button>
+                </div>
+                <div id="api-key-status" style="font-size:0.7rem; margin-top:6px; color:#666; padding:6px; border-radius:4px; display:none;"></div>
             </div>
 
             <!-- Generation -->

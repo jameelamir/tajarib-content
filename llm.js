@@ -13,8 +13,14 @@
 
 const fs = require("fs");
 const path = require("path");
+const { GLOBAL_AUTH_PATH, migrateIfNeeded } = require("./server/global-config");
 
-const AUTH_PATH = path.join(__dirname, "auth.json");
+const LOCAL_AUTH_PATH = path.join(__dirname, "auth.json");
+
+// Migrate workspace auth to global on first run
+migrateIfNeeded(LOCAL_AUTH_PATH, GLOBAL_AUTH_PATH);
+
+const AUTH_PATH = GLOBAL_AUTH_PATH;
 
 const DEFAULT_MODEL = "claude-sonnet-4-5-20241022";
 

@@ -4,29 +4,35 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { GLOBAL_TRANSCRIPTION_CONFIG, migrateIfNeeded } = require("./global-config");
 
 module.exports = function init(ctx) {
   const { WORKSPACE_DIR, EPISODES_DIR, loadJSON, loadMeta, saveJSON } = ctx;
-  const TRANSCRIPTION_CONFIG_FILE = path.join(WORKSPACE_DIR, "transcription-config.json");
+  const LOCAL_TRANSCRIPTION_CONFIG = path.join(WORKSPACE_DIR, "transcription-config.json");
+
+  // Migrate workspace config to global on first run
+  migrateIfNeeded(LOCAL_TRANSCRIPTION_CONFIG, GLOBAL_TRANSCRIPTION_CONFIG);
+
+  const TRANSCRIPTION_CONFIG_FILE = GLOBAL_TRANSCRIPTION_CONFIG;
 
   function getTranscriptionConfig() {
-    const localConfig = loadJSON(TRANSCRIPTION_CONFIG_FILE);
+    const globalConfig = loadJSON(GLOBAL_TRANSCRIPTION_CONFIG);
     const mainAgentConfig = loadJSON("/root/.openclaw/agents/main/agent/models.json");
     const apiKey = mainAgentConfig?.providers?.haimaker?.apiKey;
     return {
-      apiKey: apiKey || localConfig?.apiKey || null,
-      groqApiKey: localConfig?.groqApiKey || null,
-      defaultMethod: localConfig?.defaultMethod || "local",
-      localModel: localConfig?.localModel || "large-v3"
+      apiKey: apiKey || globalConfig?.apiKey || null,
+      groqApiKey: globalConfig?.groqApiKey || null,
+      defaultMethod: globalConfig?.defaultMethod || (globalConfig?.groqApiKey ? "groq" : "local"),
+      localModel: globalConfig?.localModel || "large-v3"
     };
   }
 
   function saveTranscriptionConfig(config) {
-    const existing = loadJSON(TRANSCRIPTION_CONFIG_FILE) || {};
+    const existing = loadJSON(GLOBAL_TRANSCRIPTION_CONFIG) || {};
     if (config.defaultMethod) existing.defaultMethod = config.defaultMethod;
     if (config.localModel !== undefined) existing.localModel = config.localModel;
     if (config.groqApiKey !== undefined) existing.groqApiKey = config.groqApiKey || null;
-    saveJSON(TRANSCRIPTION_CONFIG_FILE, existing);
+    saveJSON(GLOBAL_TRANSCRIPTION_CONFIG, existing);
   }
 
   function getEpisodes() {

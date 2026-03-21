@@ -91,7 +91,10 @@ module.exports = function init(ctx) {
         cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
         if (force) args.push("--force");
         const tcfg = getTranscriptionConfig();
-        const tMethod = tcfg.defaultMethod || "local";
+        let tMethod = tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
+        // Fall back to local if selected method has no key
+        if (tMethod === "groq" && !tcfg.groqApiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Groq selected but no API key — falling back to local\n" }); }
+        if (tMethod === "api" && !tcfg.apiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Haimaker selected but no API key — falling back to local\n" }); }
         if (tMethod === "groq") { args.push("--groq"); io.emit("log", { slug, text: "Using Groq API (whisper-large-v3) for transcription...\n" }); }
         else if (tMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
         else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
