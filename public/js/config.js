@@ -41,6 +41,8 @@ function openTranscriptionModal() {
     if (groqKeyEl) groqKeyEl.value = '';
     document.getElementById('transcription-default-method').value = transcriptionConfig.defaultMethod || 'local';
     document.getElementById('api-key-status').style.display = 'none';
+    const groqSaved = document.getElementById('groq-key-saved');
+    if (groqSaved) groqSaved.style.display = transcriptionConfig.hasGroqKey ? '' : 'none';
 }
 
 function closeTranscriptionModal() {
