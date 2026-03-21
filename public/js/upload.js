@@ -92,25 +92,17 @@ function startUploadFlow(file) {
 
     // Set default transcription method from config
     const defaultMethod = transcriptionConfig.defaultMethod || 'local';
-    document.getElementById('radio-local').checked = defaultMethod === 'local';
-    document.getElementById('radio-api').checked = defaultMethod === 'api';
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(r => r.checked = r.value === defaultMethod);
 
     // Show warning if API selected but no key
     const apiWarning = document.getElementById('api-key-warning');
-    if (defaultMethod === 'api' && !transcriptionConfig.hasApiKey) {
-        apiWarning.style.display = 'block';
-    } else {
-        apiWarning.style.display = 'none';
-    }
+    const needsWarning = (m) => (m === 'api' && !transcriptionConfig.hasApiKey) || (m === 'groq' && !transcriptionConfig.hasGroqKey);
+    apiWarning.style.display = needsWarning(defaultMethod) ? 'block' : 'none';
 
     // Update warning when selection changes
     document.querySelectorAll('input[name="transcribe-method"]').forEach(radio => {
         radio.onchange = () => {
-            if (radio.value === 'api' && !transcriptionConfig.hasApiKey) {
-                apiWarning.style.display = 'block';
-            } else {
-                apiWarning.style.display = 'none';
-            }
+            apiWarning.style.display = needsWarning(radio.value) ? 'block' : 'none';
         };
     });
 
@@ -159,14 +151,14 @@ function startUrlUploadFlow() {
     document.getElementById('upload-role').value = '';
 
     const defaultMethod = transcriptionConfig.defaultMethod || 'local';
-    document.getElementById('radio-local').checked = defaultMethod === 'local';
-    document.getElementById('radio-api').checked = defaultMethod === 'api';
+    document.querySelectorAll('input[name="transcribe-method"]').forEach(r => r.checked = r.value === defaultMethod);
 
     const apiWarning = document.getElementById('api-key-warning');
-    apiWarning.style.display = (defaultMethod === 'api' && !transcriptionConfig.hasApiKey) ? 'block' : 'none';
+    const needsWarning = (m) => (m === 'api' && !transcriptionConfig.hasApiKey) || (m === 'groq' && !transcriptionConfig.hasGroqKey);
+    apiWarning.style.display = needsWarning(defaultMethod) ? 'block' : 'none';
     document.querySelectorAll('input[name="transcribe-method"]').forEach(radio => {
         radio.onchange = () => {
-            apiWarning.style.display = (radio.value === 'api' && !transcriptionConfig.hasApiKey) ? 'block' : 'none';
+            apiWarning.style.display = needsWarning(radio.value) ? 'block' : 'none';
         };
     });
 

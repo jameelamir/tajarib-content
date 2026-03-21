@@ -1,7 +1,7 @@
 // ── Configuration: Transcription, LLM, Prompts, Settings, Models ─────────────
 
 // Transcription Config
-let transcriptionConfig = { hasApiKey: false, defaultMethod: 'local' };
+let transcriptionConfig = { hasApiKey: false, hasGroqKey: false, defaultMethod: 'local' };
 
 async function loadTranscriptionConfig() {
     try {
@@ -17,9 +17,14 @@ function updateTranscriptionUI() {
     const dot = document.getElementById('api-status-dot');
     const text = document.getElementById('api-status-text');
 
-    if (transcriptionConfig.hasApiKey) {
+    if (transcriptionConfig.defaultMethod === 'groq' && transcriptionConfig.hasGroqKey) {
         dot.style.background = 'var(--success)';
-        text.textContent = transcriptionConfig.defaultMethod === 'api' ? 'API Ready (Default)' : 'API Key Set';
+        text.textContent = 'Groq Ready (Default)';
+        text.style.color = '#4ade80';
+    } else if (transcriptionConfig.hasGroqKey || transcriptionConfig.hasApiKey) {
+        dot.style.background = 'var(--success)';
+        const method = transcriptionConfig.defaultMethod;
+        text.textContent = method === 'api' ? 'API Ready (Default)' : method === 'groq' ? 'Groq Ready (Default)' : 'API Key Set';
         text.style.color = '#4ade80';
     } else {
         dot.style.background = '#f59e0b';
@@ -30,7 +35,10 @@ function updateTranscriptionUI() {
 
 function openTranscriptionModal() {
     document.getElementById('transcription-modal').classList.add('open');
-    document.getElementById('transcription-api-key').value = '';
+    const apiKeyEl = document.getElementById('transcription-api-key');
+    if (apiKeyEl) apiKeyEl.value = '';
+    const groqKeyEl = document.getElementById('transcription-groq-key');
+    if (groqKeyEl) groqKeyEl.value = '';
     document.getElementById('transcription-default-method').value = transcriptionConfig.defaultMethod || 'local';
     document.getElementById('api-key-status').style.display = 'none';
 }
@@ -40,12 +48,16 @@ function closeTranscriptionModal() {
 }
 
 async function saveTranscriptionConfig() {
-    const apiKey = document.getElementById('transcription-api-key').value.trim();
+    const apiKeyEl = document.getElementById('transcription-api-key');
+    const apiKey = apiKeyEl ? apiKeyEl.value.trim() : '';
+    const groqKeyEl = document.getElementById('transcription-groq-key');
+    const groqApiKey = groqKeyEl ? groqKeyEl.value.trim() : '';
     const defaultMethod = document.getElementById('transcription-default-method').value;
     const statusDiv = document.getElementById('api-key-status');
 
     const payload = { defaultMethod };
     if (apiKey) payload.apiKey = apiKey;
+    if (groqApiKey) payload.groqApiKey = groqApiKey;
 
     try {
         const res = await fetch('/api/transcription-config', {
@@ -57,6 +69,7 @@ async function saveTranscriptionConfig() {
 
         if (data.success) {
             transcriptionConfig.hasApiKey = data.hasApiKey;
+            transcriptionConfig.hasGroqKey = data.hasGroqKey;
             transcriptionConfig.defaultMethod = defaultMethod;
             updateTranscriptionUI();
 
