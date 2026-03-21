@@ -714,7 +714,11 @@ function buildReelActions(ep, reel) {
             '<input type="checkbox" id="reel-face-track" style="accent-color:var(--accent); width:12px; height:12px;" checked>Face' +
         '</label>'
     });
-    steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled });
+    steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled, extra:
+        '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
+            '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
+        '</select>'
+    });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
         '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
     });
@@ -1846,6 +1850,11 @@ async function runReelStep(reelId, step) {
         body.ratio = ratioEl ? ratioEl.value : '9:16';
         var ftEl = document.getElementById('reel-face-track');
         body.faceTrack = ftEl ? ftEl.checked : false;
+    }
+
+    if (step === 'subtitle') {
+        var styleEl = document.getElementById('reel-subtitle-style');
+        body.subtitleStyle = styleEl ? styleEl.value : 'animated';
     }
 
     try {

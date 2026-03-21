@@ -12,7 +12,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/run-step") {
     const body = await readBody(req);
     try {
-      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly } = JSON.parse(body);
+      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle } = JSON.parse(body);
       if (!slug || !step) throw new Error("slug + step required");
       const meta = loadMeta(slug);
       const mediaType = meta.mediaType || "episode";
@@ -22,8 +22,8 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       if (step === "compose" && !meta.multiTrack) throw new Error("Compose step requires a multi-track episode");
       if (step === "generate" && (!meta.guest || !meta.role)) throw new Error("Guest name and role required for generation");
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
-      if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack });
-      else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly });
+      if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack, subtitleStyle });
+      else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle });
     } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }
