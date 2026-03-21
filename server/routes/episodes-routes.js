@@ -19,7 +19,12 @@ module.exports = async function episodesRoutes(req, res, url, ctx) {
     const epDir = path.join(EPISODES_DIR, slug);
     if (!fs.existsSync(epDir)) { res.writeHead(404, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Episode not found" })); return true; }
     try {
-      if (activeProcesses[slug]) { try { activeProcesses[slug].kill("SIGTERM"); } catch (_) {} delete activeProcesses[slug]; }
+      for (const [key, proc] of Object.entries(activeProcesses)) {
+        if (key === slug || key.startsWith(slug + ':')) {
+          try { proc.kill("SIGTERM"); } catch (_) {}
+          delete activeProcesses[key];
+        }
+      }
       fs.rmSync(epDir, { recursive: true, force: true });
       if (logs[slug]) delete logs[slug];
       res.writeHead(200, { "Content-Type": "application/json" });

@@ -219,7 +219,7 @@ async function deleteEpisode(slug) {
 function renderMain(slug) {
     const ep = episodes.find(e => e.slug === slug);
     if (!ep) return;
-    ep.isRunning = !!runningStep[ep.slug];
+    ep.isRunning = isSlugRunning(ep.slug);
 
     // Header
     document.getElementById('ep-title').textContent = slug;
@@ -314,7 +314,7 @@ function renderEpisodePipelineBar(ep) {
     var nextFound = false;
     bar.innerHTML = stepsToShow.map(function(s, i) {
         var done = ep.steps[stepKeyMap[s.id] || s.id];
-        var isRunning = runningStep[ep.slug] === s.id;
+        var isRunning = isStepRunning(ep.slug, s.id);
         var cls = 'ep-step-chip';
         if (isRunning) cls += ' running';
         else if (done) cls += ' done';
