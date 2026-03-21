@@ -14,8 +14,10 @@ Environment:
 import argparse
 import json
 import os
+import subprocess
 import sys
 import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -85,6 +87,28 @@ def load_api_key(provider="haimaker"):
 
     return None
 
+def extract_audio(video_path):
+    """Extract audio as MP3 for cloud upload. Returns temp file path, or None if already audio."""
+    ext = Path(video_path).suffix.lower()
+    if ext in ('.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a'):
+        return None  # Already an audio file, no need to extract
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    tmp.close()
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video_path), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", tmp.name],
+            capture_output=True, timeout=120
+        )
+        orig_size = os.path.getsize(video_path)
+        mp3_size = os.path.getsize(tmp.name)
+        if mp3_size > 0:
+            print(f"🎵 Extracted audio: {orig_size // 1024 // 1024}MB → {mp3_size // 1024 // 1024}MB MP3")
+            return tmp.name
+    except Exception as e:
+        print(f"⚠️  Audio extraction failed ({e}), uploading original file")
+    os.unlink(tmp.name)
+    return None
+
 def transcribe_with_api(video_path, api_key, language="ar"):
     """Transcribe using Haimaker API with Whisper Large."""
     if not HAS_REQUESTS:
@@ -94,34 +118,39 @@ def transcribe_with_api(video_path, api_key, language="ar"):
     
     print(f"🌐 Using Haimaker API for transcription...")
     print(f"📁 Uploading: {video_path}")
-    
-    # Upload and transcribe
-    with open(video_path, 'rb') as f:
-        # First, upload the file
-        files = {'file': (Path(video_path).name, f, 'audio/mpeg')}
-        
-        print("⏳ Uploading to API...")
-        
-        # Try the audio/transcriptions endpoint
-        try:
-            response = requests.post(
-                f"{BASE_URL}/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                files=files,
-                data={
-                    "model": "whisper-large-v3",
-                    "language": language,
-                    "response_format": "verbose_json",
-                    "timestamp_granularities": ["word", "segment"]
-                },
-                timeout=300
-            )
-        except requests.exceptions.ConnectionError:
-            print("❌ Could not connect to Haimaker API. Check your internet connection.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            print(f"❌ API request failed: {e}", file=sys.stderr)
-            sys.exit(1)
+
+    # Extract audio to reduce upload size
+    audio_path = extract_audio(video_path)
+    upload_path = audio_path or video_path
+
+    try:
+        with open(upload_path, 'rb') as f:
+            files = {'file': (Path(upload_path).name, f, 'audio/mpeg')}
+
+            print("⏳ Uploading to API...")
+
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files=files,
+                    data={
+                        "model": "whisper-large-v3",
+                        "language": language,
+                        "response_format": "verbose_json",
+                        "timestamp_granularities": ["word", "segment"]
+                    },
+                    timeout=300
+                )
+            except requests.exceptions.ConnectionError:
+                print("❌ Could not connect to Haimaker API. Check your internet connection.", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"❌ API request failed: {e}", file=sys.stderr)
+                sys.exit(1)
+    finally:
+        if audio_path:
+            os.unlink(audio_path)
     
     if response.status_code != 200:
         print(f"❌ API Error {response.status_code}: {response.text}", file=sys.stderr)
@@ -184,31 +213,39 @@ def transcribe_with_groq(video_path, api_key, language="ar"):
     print(f"🌐 Using Groq API for transcription (whisper-large-v3)...")
     print(f"📁 Uploading: {video_path}")
 
-    with open(video_path, 'rb') as f:
-        files = {'file': (Path(video_path).name, f, 'audio/mpeg')}
+    # Extract audio to reduce upload size
+    audio_path = extract_audio(video_path)
+    upload_path = audio_path or video_path
 
-        print("⏳ Uploading to Groq...")
+    try:
+        with open(upload_path, 'rb') as f:
+            files = {'file': (Path(upload_path).name, f, 'audio/mpeg')}
 
-        try:
-            response = requests.post(
-                f"{BASE_URL}/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                files=files,
-                data=[
-                    ("model", "whisper-large-v3"),
-                    ("language", language),
-                    ("response_format", "verbose_json"),
-                    ("timestamp_granularities[]", "word"),
-                    ("timestamp_granularities[]", "segment"),
-                ],
-                timeout=300
-            )
-        except requests.exceptions.ConnectionError:
-            print("❌ Could not connect to Groq API. Check your internet connection.", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            print(f"❌ Groq API request failed: {e}", file=sys.stderr)
-            sys.exit(1)
+            print("⏳ Uploading to Groq...")
+
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files=files,
+                    data=[
+                        ("model", "whisper-large-v3"),
+                        ("language", language),
+                        ("response_format", "verbose_json"),
+                        ("timestamp_granularities[]", "word"),
+                        ("timestamp_granularities[]", "segment"),
+                    ],
+                    timeout=300
+                )
+            except requests.exceptions.ConnectionError:
+                print("❌ Could not connect to Groq API. Check your internet connection.", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"❌ Groq API request failed: {e}", file=sys.stderr)
+                sys.exit(1)
+    finally:
+        if audio_path:
+            os.unlink(audio_path)
 
     if response.status_code != 200:
         print(f"❌ Groq API Error {response.status_code}: {response.text}", file=sys.stderr)
