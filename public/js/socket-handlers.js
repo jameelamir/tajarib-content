@@ -78,7 +78,7 @@ function setupSocketHandlers() {
             if (!logs[slug]) logs[slug] = text;
         }
         // Update UI if we're viewing a running episode
-        if (currentSlug && runningStep[currentSlug]) {
+        if (currentSlug && isSlugRunning(currentSlug)) {
             var stopBtn = document.getElementById('stop-btn');
             if (stopBtn) stopBtn.style.display = '';
         }
@@ -101,11 +101,18 @@ function setupSocketHandlers() {
         if (currentSlug === data.slug) updateLogs();
     });
     socket.on('process-start', function(data) {
-        runningStep[data.slug] = data.step;
+        var procKey = data.reelId ? data.slug + ':' + data.reelId : data.slug;
+        runningStep[procKey] = data.step;
         if (currentSlug === data.slug) renderMain(currentSlug);
     });
     socket.on('process-end', function(data) {
-        delete runningStep[data.slug];
+        if (data.step === 'stopped') {
+            // Stop kills all processes for this slug — clear all matching keys
+            for (var k in runningStep) { if (k === data.slug || k.startsWith(data.slug + ':')) delete runningStep[k]; }
+        } else {
+            var procKey = data.reelId ? data.slug + ':' + data.reelId : data.slug;
+            delete runningStep[procKey];
+        }
         refresh();
         if (data.step === 'cut' && data.code === 0 && currentSlug === data.slug) {
             setTimeout(function() { selectedReelId = null; renderMain(currentSlug); }, 500);
