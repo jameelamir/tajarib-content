@@ -24,7 +24,8 @@ const WORKSPACE_DIR = __dirname;
 const EPISODES_DIR = path.join(WORKSPACE_DIR, "episodes");
 const UPLOADS_DIR = path.join(WORKSPACE_DIR, "uploads");
 const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
-const BUFFER_CONFIG_FILE = path.join(WORKSPACE_DIR, "buffer-config.json");
+const { GLOBAL_CONFIG_DIR } = require("./server/global-config");
+const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 
 [EPISODES_DIR, UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 

@@ -45,14 +45,18 @@ def load_api_key(provider="haimaker"):
         api_key = os.environ.get('GROQ_API_KEY')
         if api_key:
             return api_key
-        # Try transcription-specific config
-        config_path = Path(__file__).parent / "transcription-config.json"
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text())
-                return config.get('groqApiKey')
-            except:
-                pass
+        # Try global config (~/.tajarib/), then workspace-local fallback
+        global_path = Path.home() / ".tajarib" / "transcription-config.json"
+        local_path = Path(__file__).parent / "transcription-config.json"
+        for config_path in [global_path, local_path]:
+            if config_path.exists():
+                try:
+                    config = json.loads(config_path.read_text())
+                    key = config.get('groqApiKey')
+                    if key:
+                        return key
+                except:
+                    pass
         return None
 
     # Haimaker provider
