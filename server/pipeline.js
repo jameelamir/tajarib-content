@@ -7,7 +7,7 @@ const { spawn } = require("child_process");
 
 module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, NODE_BIN,
-    activeProcesses, activeSteps, loadJSON, loadMeta, saveMeta, handlePostTranscription } = ctx;
+    activeProcesses, activeSteps, loadJSON, loadMeta, saveMeta, handlePostTranscription, getTranscriptionConfig } = ctx;
 
   function spawnReelStep(slug, reelId, step, opts = {}) {
     return new Promise((resolve) => {
@@ -92,6 +92,7 @@ module.exports = function init(ctx) {
         if (force) args.push("--force");
         const epMeta = loadMeta(slug);
         if (epMeta.transcribeMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
+        else { const tcfg = getTranscriptionConfig(); if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
         break;
       case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;

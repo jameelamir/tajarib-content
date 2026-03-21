@@ -6,12 +6,13 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 module.exports = function init(ctx) {
-  const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, activeProcesses, handlePostTranscription } = ctx;
+  const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, activeProcesses, handlePostTranscription, getTranscriptionConfig } = ctx;
 
   function startTranscription(slug, finalPath, transcribeMethod) {
     io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
     const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
     if (transcribeMethod === "api") args.push("--api");
+    else { const tcfg = getTranscriptionConfig(); if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
 
     const proc = spawn(PYTHON_BIN, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
     activeProcesses[slug] = proc;
