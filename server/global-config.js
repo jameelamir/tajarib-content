@@ -17,14 +17,28 @@ const GLOBAL_TRANSCRIPTION_CONFIG = path.join(GLOBAL_CONFIG_DIR, "transcription-
 const GLOBAL_AUTH_PATH = path.join(GLOBAL_CONFIG_DIR, "auth.json");
 
 /**
- * Migrate a workspace-local config to global if global doesn't exist yet.
+ * Migrate workspace-local config into global. If global doesn't exist, copy it.
+ * If global exists, merge any non-null values from local (local wins for API keys).
  */
 function migrateIfNeeded(localPath, globalPath) {
-  if (!fs.existsSync(globalPath) && fs.existsSync(localPath)) {
-    try {
-      fs.copyFileSync(localPath, globalPath);
-    } catch (_) {}
-  }
+  if (!fs.existsSync(localPath)) return;
+  try {
+    const local = JSON.parse(fs.readFileSync(localPath, "utf8"));
+    if (!fs.existsSync(globalPath)) {
+      fs.writeFileSync(globalPath, JSON.stringify(local, null, 2));
+      return;
+    }
+    // Merge: local non-null values fill in missing/null global values
+    const global = JSON.parse(fs.readFileSync(globalPath, "utf8"));
+    let changed = false;
+    for (const [k, v] of Object.entries(local)) {
+      if (v != null && (global[k] == null || global[k] === "")) {
+        global[k] = v;
+        changed = true;
+      }
+    }
+    if (changed) fs.writeFileSync(globalPath, JSON.stringify(global, null, 2));
+  } catch (_) {}
 }
 
 module.exports = { GLOBAL_CONFIG_DIR, GLOBAL_TRANSCRIPTION_CONFIG, GLOBAL_AUTH_PATH, migrateIfNeeded };
