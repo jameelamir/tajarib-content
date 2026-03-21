@@ -9,11 +9,15 @@ const EPISODES_DIR = path.join(__dirname, "episodes");
 
 /**
  * Parse a timestamp string (MM:SS or HH:MM:SS) into seconds.
+ * Also handles plain numeric strings (treated as raw seconds).
  */
 function toSeconds(ts) {
-  const parts = ts.split(":").map(Number);
+  if (!ts) return 0;
+  const str = String(ts);
+  const parts = str.split(":").map(Number);
   if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return parseFloat(str) || 0;
 }
 
 /**
