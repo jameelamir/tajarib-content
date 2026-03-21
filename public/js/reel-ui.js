@@ -173,12 +173,8 @@ function renderReelDetail(ep, reelId) {
         }
     }
 
-    // Console
-    document.getElementById('reel-console-title').textContent = 'Console — Reel ' + reelId;
-    var reelKey = currentSlug + ':' + reelId;
-    document.getElementById('logs-output-reel').textContent = reelLogs[reelKey] || logs[currentSlug] || '';
-    var logsEl = document.getElementById('logs-output-reel');
-    logsEl.scrollTop = logsEl.scrollHeight;
+    // Update console drawer with reel context
+    updateLogs();
 }
 
 // ─── Reel-Full View ───────────────────────────────────────────────────────────
@@ -255,7 +251,7 @@ function switchReelFullTab(tab) {
     document.querySelectorAll('.reel-full-tab').forEach(function(el) {
         el.classList.toggle('active', el.dataset.tab === tab);
     });
-    ['caption', 'transcript', 'console'].forEach(function(t) {
+    ['caption', 'transcript'].forEach(function(t) {
         var body = document.getElementById('rfTab-' + t);
         if (body) {
             body.classList.toggle('active', t === tab);
