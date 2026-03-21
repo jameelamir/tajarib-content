@@ -78,12 +78,26 @@
             <div class="header-meta" id="ep-meta"></div>
         </div>
 
+        <!-- Episode Settings (collapsible) -->
+        <div id="ep-settings-section" style="display:none; flex-shrink:0;">
+            <div onclick="toggleEpSettings()" style="cursor:pointer; display:flex; align-items:center; gap:6px; padding:4px 0; font-size:0.72rem; color:#555; user-select:none;" onmouseenter="this.style.color='#888'" onmouseleave="this.style.color='#555'">
+                <span id="ep-settings-chevron" style="font-size:0.5rem; transition:transform 0.2s;">▶</span>
+                <span>Episode Settings</span>
+            </div>
+            <div id="ep-settings-body" style="display:none; padding:6px 0 2px;">
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                    <input type="text" id="ep-settings-guest" placeholder="اسم الضيف" dir="rtl" style="flex:1; min-width:120px; padding:5px 10px; background:#111; border:1px solid #333; color:#eee; border-radius:4px; font-size:0.75rem;">
+                    <input type="text" id="ep-settings-role" placeholder="المنصب" dir="rtl" style="flex:1; min-width:120px; padding:5px 10px; background:#111; border:1px solid #333; color:#eee; border-radius:4px; font-size:0.75rem;">
+                    <button onclick="saveSettingsInline()" style="padding:5px 12px; background:#1a1028; border:1px solid #7c3aed; color:#a855f7; border-radius:4px; font-size:0.7rem; cursor:pointer; white-space:nowrap;">Save</button>
+                    <input type="file" id="replace-srt-input" accept=".srt,.vtt" style="display:none;" onchange="handleReplaceSrt(this)">
+                    <button id="replace-srt-btn" style="display:none; font-size:0.65rem; padding:5px 10px; background:#222; border:1px solid #444; color:#aaa; border-radius:4px; white-space:nowrap; cursor:pointer;" onclick="document.getElementById('replace-srt-input').click()">Replace SRT</button>
+                </div>
+            </div>
+        </div>
+
         <!-- SHARED: Episode-level pipeline chips -->
         <div style="display:flex; align-items:center; gap:8px;">
             <div class="episode-pipeline-bar" id="episode-pipeline-bar" style="flex:1;"></div>
-            <input type="file" id="replace-srt-input" accept=".srt,.vtt" style="display:none;" onchange="handleReplaceSrt(this)">
-            <button id="replace-srt-btn" style="display:none; font-size:0.65rem; padding:3px 8px; background:#222; border:1px solid #444; color:#aaa; border-radius:4px; white-space:nowrap; cursor:pointer;" onclick="document.getElementById('replace-srt-input').click()">Replace SRT</button>
-            <button id="analyze-clips-btn" style="display:none; font-size:0.65rem; padding:3px 8px; background:#222; border:1px solid #7c3aed; color:#a855f7; border-radius:4px; white-space:nowrap; cursor:pointer;" onclick="runClipsAnalysis()">Clips</button>
         </div>
 
         <!-- MODE A: Pre-Cut (episode-level) -->
