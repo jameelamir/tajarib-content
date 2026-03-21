@@ -60,7 +60,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #c084fc); width: 0%; transition: width 0.3s ease; border-radius: 3px; box-shadow: 0 0 8px var(--accent-glow); }
 .progress-text { font-size: 0.75rem; color: #888; text-align: center; }
 
-.main { flex: 1; display: flex; flex-direction: column; padding: 24px; gap: 20px; min-width: 0; overflow: hidden; }
+.main { flex: 1; display: flex; flex-direction: row; min-width: 0; overflow: hidden; }
+.main-content { flex: 1; display: flex; flex-direction: column; padding: 24px; gap: 20px; min-width: 0; overflow: hidden; }
 .header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .header h2 { font-size: var(--fs-2xl); letter-spacing: -0.02em; font-weight: 700; background: linear-gradient(135deg, #fff 0%, #aaa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .header-meta { font-size: var(--fs-base); color: #888; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -198,6 +199,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .precut-console { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #111; }
 .precut-console .panel-header { padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
 .precut-console pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.78rem; color: #aaa; white-space: pre-wrap; line-height: 1.5; }
+
+/* Collapsible Console Drawer */
+.console-drawer { width: 0; overflow: hidden; background: #111; border-left: 1px solid transparent; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.25s ease, border-color 0.25s ease; }
+.console-drawer.open { width: 380px; border-left-color: var(--border); }
+.console-drawer-header { padding: 10px 14px; background: #1a1a1a; border-bottom: 1px solid var(--border); font-size: 0.8rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; min-width: 380px; }
+.console-drawer-close { background: none; border: none; color: #555; font-size: 1.1rem; cursor: pointer; padding: 2px 6px; min-height: auto; line-height: 1; }
+.console-drawer-close:hover { color: #aaa; background: none; }
+.console-drawer pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', monospace; font-size: 0.75rem; color: #aaa; white-space: pre-wrap; line-height: 1.4; min-width: 380px; }
+.console-toggle-btn { background: #1a1a1a; border: 1px solid var(--border); color: #555; font-size: 0.75rem; padding: 5px 8px; border-radius: 6px; cursor: pointer; min-height: auto; line-height: 1; transition: all 0.15s; }
+.console-toggle-btn:hover { color: var(--accent); border-color: var(--accent); background: rgba(168,85,247,0.08); }
+.console-toggle-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(168,85,247,0.1); }
 
 /* Reel-full pre-cut layout */
 .reel-full-layout { display: flex; flex-direction: column; flex: 1; overflow: hidden; gap: 0; }
@@ -377,7 +389,10 @@ pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', mon
     body { flex-direction: column; height: auto; overflow: auto; }
     .sidebar { width: 100%; height: auto; max-height: 35vh; border-right: none; border-bottom: 1px solid var(--border); }
     .ep-list { max-height: 180px; }
-    .main { height: auto; min-height: 65vh; padding: 16px; gap: 16px; }
+    .main { height: auto; min-height: 65vh; flex-direction: column; }
+    .main-content { padding: 16px; gap: 16px; }
+    .console-drawer.open { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 30vh; }
+    .console-drawer-header, .console-drawer pre.logs { min-width: 0; }
     .header { flex-wrap: wrap; gap: 8px; }
     .header h2 { font-size: 1.1rem; }
     .header-meta { font-size: 0.75rem; flex-wrap: wrap; gap: 8px; }
@@ -398,7 +413,7 @@ pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', mon
     .sidebar-header { padding: 12px 14px; font-size: 0.9rem; }
     .ep-item { padding: 12px 14px; }
     .ep-slug { font-size: 0.85rem; }
-    .main { padding: 12px; }
+    .main-content { padding: 12px; }
     button { padding: 8px 10px; font-size: 0.75rem; }
     .content-textarea { font-size: 0.8rem; min-height: 100px; }
     .seg-ts { min-width: 40px; font-size: 0.65rem; }

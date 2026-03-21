@@ -130,24 +130,25 @@ function selectEp(slug) {
 }
 
 function updateLogs() {
-    // Pre-cut console (episodes)
-    var el = document.getElementById('logs-output');
-    if (el) {
-        el.textContent = logs[currentSlug] || '';
-        el.scrollTop = el.scrollHeight;
+    var el = document.getElementById('console-drawer-logs');
+    if (!el) return;
+    var reelKey = selectedReelId ? (currentSlug + ':' + selectedReelId) : '';
+    el.textContent = (reelKey && reelLogs[reelKey]) || logs[currentSlug] || '';
+    el.scrollTop = el.scrollHeight;
+    // Update title
+    var titleEl = document.getElementById('console-drawer-title');
+    if (titleEl) {
+        titleEl.textContent = selectedReelId ? 'Console — Reel ' + selectedReelId : 'Console';
     }
-    // Reel-full console
-    var rfEl = document.getElementById('logs-output-rf');
-    if (rfEl) {
-        rfEl.textContent = logs[currentSlug] || '';
-        rfEl.scrollTop = rfEl.scrollHeight;
-    }
-    // Per-reel console (also shows episode-level logs as fallback)
-    var reelEl = document.getElementById('logs-output-reel');
-    if (reelEl) {
-        var reelKey = selectedReelId ? (currentSlug + ':' + selectedReelId) : '';
-        reelEl.textContent = (reelKey && reelLogs[reelKey]) || logs[currentSlug] || '';
-        reelEl.scrollTop = reelEl.scrollHeight;
+}
+
+function toggleConsole() {
+    var drawer = document.getElementById('console-drawer');
+    var btn = document.getElementById('console-toggle-btn');
+    if (drawer) {
+        drawer.classList.toggle('open');
+        if (btn) btn.classList.toggle('active', drawer.classList.contains('open'));
+        if (drawer.classList.contains('open')) updateLogs();
     }
 }
 
@@ -265,9 +266,9 @@ function renderMain(slug) {
             document.getElementById('reel-detail-empty').style.display = 'flex';
             document.getElementById('reel-detail').style.display = 'none';
         }
-        // Show/hide reel-level stop button
-        var stopReelBtn = document.getElementById('stop-btn-reel');
-        if (stopReelBtn) stopReelBtn.style.display = ep.isRunning ? '' : 'none';
+        // Show/hide stop button in pipeline bar
+        var pipeStopBtn = document.getElementById('pipeline-stop-btn');
+        if (pipeStopBtn) pipeStopBtn.style.display = ep.isRunning ? '' : 'none';
         // Topic clip
         var tcSection = document.getElementById('topic-clip-section');
         if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';
@@ -286,16 +287,14 @@ function renderMain(slug) {
         document.getElementById('post-cut-view').style.display = 'none';
 
         var isReelFull = ep.mediaType === 'reel_full';
-        document.getElementById('precut-console-only').style.display = isReelFull ? 'none' : 'flex';
+        document.getElementById('precut-status').style.display = isReelFull ? 'none' : 'flex';
         document.getElementById('reel-full-layout').style.display = isReelFull ? 'flex' : 'none';
 
         if (isReelFull) {
             renderReelFullView(ep);
-            var stopRf = document.getElementById('stop-btn-rf');
-            if (stopRf) stopRf.style.display = ep.isRunning ? '' : 'none';
-        } else {
-            document.getElementById('stop-btn').style.display = ep.isRunning ? '' : 'none';
         }
+        var pipeStopBtn2 = document.getElementById('pipeline-stop-btn');
+        if (pipeStopBtn2) pipeStopBtn2.style.display = ep.isRunning ? '' : 'none';
     }
 }
 
