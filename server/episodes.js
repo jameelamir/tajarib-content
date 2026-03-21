@@ -15,13 +15,15 @@ module.exports = function init(ctx) {
     const apiKey = mainAgentConfig?.providers?.haimaker?.apiKey;
     return {
       apiKey: apiKey || localConfig?.apiKey || null,
-      defaultMethod: localConfig?.defaultMethod || "local"
+      defaultMethod: localConfig?.defaultMethod || "local",
+      localModel: localConfig?.localModel || "large-v3"
     };
   }
 
   function saveTranscriptionConfig(config) {
     const existing = loadJSON(TRANSCRIPTION_CONFIG_FILE) || {};
     if (config.defaultMethod) existing.defaultMethod = config.defaultMethod;
+    if (config.localModel !== undefined) existing.localModel = config.localModel;
     saveJSON(TRANSCRIPTION_CONFIG_FILE, existing);
   }
 

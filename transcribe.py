@@ -157,9 +157,9 @@ def transcribe_local(video_path, model_name="large-v3"):
     """Transcribe using local faster-whisper."""
     if not HAS_LOCAL:
         raise ImportError("faster-whisper not installed. Run: pip install faster-whisper")
-    
+
     print(f"🤖 Using local Whisper model: {model_name}")
-    
+
     # Load model
     print(f"⏳ Loading Whisper model '{model_name}'...")
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
