@@ -132,9 +132,9 @@ io.on("connection", (socket) => {
 function gracefulShutdown(signal) {
   const count = Object.keys(ctx.activeProcesses).length;
   console.log(`\n[${signal}] Shutting down, killing ${count} child process(es)...`);
-  for (const [slug, proc] of Object.entries(ctx.activeProcesses)) {
+  for (const [key, proc] of Object.entries(ctx.activeProcesses)) {
     try { process.kill(-proc.pid, 'SIGTERM'); } catch (e) { try { proc.kill('SIGTERM'); } catch (_) {} }
-    delete ctx.activeProcesses[slug];
+    delete ctx.activeProcesses[key];
   }
   setTimeout(() => process.exit(0), 2000);
 }
