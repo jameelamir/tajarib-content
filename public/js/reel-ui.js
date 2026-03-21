@@ -1764,6 +1764,7 @@ async function saveReelTrim(reelId) {
 // ─── Reel Transcript Editor ──────────────────────────────────────────────────
 
 var reelTranscriptData = null;
+var reelTranscriptReelId = null;
 
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
@@ -1772,63 +1773,139 @@ async function loadReelTranscript(reelId) {
     contentEl.innerHTML = '<div style="color:#888; font-size:0.7rem; padding:8px;">Loading...</div>';
 
     var padded = String(reelId).padStart(2, '0');
+    reelTranscriptReelId = reelId;
     try {
         var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
         if (!res.ok) throw new Error('No reel transcript found');
         reelTranscriptData = JSON.parse(await res.text());
-        var segments = reelTranscriptData.segments || [];
 
-        var html = '<div class="seg-list" style="max-height:350px; overflow-y:auto; margin-bottom:8px; padding:6px;">';
-        segments.forEach(function(seg, i) {
-            var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
-            var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
-
-            // Synthesize word-level data if missing
-            if ((!seg.words || seg.words.length === 0) && seg.text && seg.text.trim()) {
-                var tokens = seg.text.trim().split(/\s+/);
-                var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
-                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
-                seg.words = tokens.map(function(tok, ti) {
-                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
-                });
-            }
-
-            if (seg.words && seg.words.length > 0) {
-                var wordSpans = seg.words.map(function(w, wi) {
-                    var txt = (w.word || '').trim();
-                    return '<span class="seg-word" contenteditable="true" data-seg="' + i + '" data-word="' + wi + '" ' +
-                        'data-original="' + escHtml(txt) + '" spellcheck="false">' + escHtml(txt) + '</span>';
-                }).join('');
-                html += '<div class="seg-row">' +
-                    '<span class="seg-ts" style="cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')" title="Jump to ' + mins + ':' + secs + '">' + mins + ':' + secs + '</span>' +
-                    '<div class="seg-words" data-seg="' + i + '">' + wordSpans + '</div>' +
-                '</div>';
-            } else {
-                html += '<div class="seg-row">' +
-                    '<span class="seg-ts" style="cursor:pointer;" onclick="seekReelVideo(' + seg.start + ')">' + mins + ':' + secs + '</span>' +
-                    '<div class="seg-words" data-seg="' + i + '"></div>' +
-                '</div>';
-            }
-        });
-        html += '</div>';
-        html += '<div style="display:flex; gap:6px;">' +
-            '<button onclick="saveReelTranscript(\'' + reelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-burn Subs</button>' +
-        '</div>' +
-        '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
-
-        contentEl.innerHTML = html;
-
-        // Word editing: mark edited, Enter to confirm
-        contentEl.querySelectorAll('.seg-word').forEach(function(el) {
-            el.addEventListener('input', function() {
-                this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
-            });
-            el.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
-            });
-        });
+        rtRenderSegments(contentEl);
     } catch (err) {
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
+    }
+}
+
+function rtRenderSegments(containerEl) {
+    if (!containerEl) containerEl = document.getElementById('reel-transcript-content');
+    if (!containerEl || !reelTranscriptData) return;
+    var segs = reelTranscriptData.segments || [];
+
+    var html = '<div id="rt-seg-list" style="max-height:350px; overflow-y:auto; padding:4px 0; margin-bottom:8px;">';
+    for (var i = 0; i < segs.length; i++) {
+        var seg = segs[i];
+        var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
+        var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
+
+        html += '<div class="tm-seg in-range" data-idx="' + i + '" onclick="seekReelVideo(' + seg.start + ')">' +
+            '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(seg.text) + '" spellcheck="false">' + escHtml(seg.text) + '</span>' +
+            '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+        '</div>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex; gap:6px;">' +
+        '<button onclick="saveReelTranscript(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-burn Subs</button>' +
+    '</div>' +
+    '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
+
+    containerEl.innerHTML = html;
+
+    // Wire up CapCut-style editing: Enter=split, Backspace@start=merge, input=mark edited
+    containerEl.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+        el.addEventListener('click', function(e) { e.stopPropagation(); });
+        el.addEventListener('focus', function(e) { e.stopPropagation(); });
+        el.addEventListener('input', function() {
+            this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
+        });
+        el.addEventListener('keydown', function(e) {
+            var segIdx = parseInt(this.dataset.seg);
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                rtSplitSegment(segIdx, this);
+            } else if (e.key === 'Backspace') {
+                var sel = window.getSelection();
+                if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
+                    if (sel.getRangeAt(0).startOffset === 0) {
+                        e.preventDefault();
+                        rtMergeWithPrev(segIdx);
+                    }
+                }
+            }
+        });
+    });
+}
+
+function rtSplitSegment(segIdx, el) {
+    var segs = reelTranscriptData.segments;
+    var seg = segs[segIdx];
+    if (!seg) return;
+
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var offset = sel.getRangeAt(0).startOffset;
+    var fullText = el.textContent;
+    if (offset === 0 || offset >= fullText.length) return;
+
+    var textBefore = fullText.substring(0, offset).trim();
+    var textAfter = fullText.substring(offset).trim();
+    if (!textBefore || !textAfter) return;
+
+    var segDur = (seg.end || seg.start) - seg.start;
+    var ratio = offset / fullText.length;
+    var splitTime = seg.start + segDur * ratio;
+
+    var wordsBefore = textBefore.split(/\s+/).filter(function(t) { return t; });
+    var wordsAfter = textAfter.split(/\s+/).filter(function(t) { return t; });
+    var dur1 = splitTime - seg.start;
+    var dur2 = (seg.end || splitTime) - splitTime;
+
+    var seg1 = { start: seg.start, end: splitTime, text: textBefore,
+        words: wordsBefore.map(function(w, i) { var wd = dur1 / wordsBefore.length; return { word: w, start: seg.start + i * wd, end: seg.start + (i + 1) * wd, probability: 0.5 }; })
+    };
+    var seg2 = { start: splitTime, end: seg.end || splitTime, text: textAfter,
+        words: wordsAfter.map(function(w, i) { var wd = dur2 / wordsAfter.length; return { word: w, start: splitTime + i * wd, end: splitTime + (i + 1) * wd, probability: 0.5 }; })
+    };
+
+    segs.splice(segIdx, 1, seg1, seg2);
+    rtRenderSegments();
+
+    // Focus the second segment at the start
+    var newEl = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (segIdx + 1) + '"]');
+    if (newEl) {
+        newEl.focus();
+        var r = document.createRange();
+        r.setStart(newEl.firstChild || newEl, 0);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+}
+
+function rtMergeWithPrev(segIdx) {
+    var segs = reelTranscriptData.segments;
+    if (segIdx <= 0) return;
+    var prev = segs[segIdx - 1];
+    var curr = segs[segIdx];
+    var prevLen = prev.text.length;
+
+    prev.text = prev.text + ' ' + curr.text;
+    prev.end = curr.end || curr.start;
+    prev.words = (prev.words || []).concat(curr.words || []);
+    segs.splice(segIdx, 1);
+
+    rtRenderSegments();
+
+    // Place cursor at the join point
+    var el = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (segIdx - 1) + '"]');
+    if (el && el.firstChild) {
+        el.focus();
+        var r = document.createRange();
+        var pos = Math.min(prevLen + 1, el.firstChild.textContent.length);
+        r.setStart(el.firstChild, pos);
+        r.collapse(true);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
     }
 }
 
@@ -1840,13 +1917,6 @@ function seekReelVideo(time) {
     }
 }
 
-function _fmtTranscriptTime(sec) {
-    var m = Math.floor(sec / 60);
-    var s = Math.floor(sec % 60);
-    var ms = Math.floor((sec % 1) * 10);
-    return m + ':' + String(s).padStart(2, '0') + '.' + ms;
-}
-
 async function saveReelTranscript(reelId) {
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
@@ -1854,32 +1924,34 @@ async function saveReelTranscript(reelId) {
     if (!reelTranscriptData) return;
     var padded = String(reelId).padStart(2, '0');
     var transcript = reelTranscriptData;
+    var segs = transcript.segments;
 
     try {
-        // Collect word-level edits from contenteditable spans
-        var contentEl = document.getElementById('reel-transcript-content');
-        if (!contentEl) return;
-
-        contentEl.querySelectorAll('.seg-words').forEach(function(container) {
-            var segIdx = parseInt(container.dataset.seg);
-            var seg = transcript.segments[segIdx];
-            if (!seg || !seg.words) return;
-            container.querySelectorAll('.seg-word').forEach(function(el) {
-                var wordIdx = parseInt(el.dataset.word);
+        // Collect edits from CapCut-style contenteditable text blocks
+        var segList = document.getElementById('rt-seg-list');
+        if (segList) {
+            segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+                var segIdx = parseInt(el.dataset.seg);
+                var seg = segs[segIdx];
+                if (!seg) return;
                 var newText = el.textContent.trim();
-                if (seg.words[wordIdx]) {
-                    seg.words[wordIdx].word = newText;
+                if (newText !== (seg.text || '').trim()) {
+                    seg.text = newText;
+                    // Rebuild word-level data from edited text
+                    var tokens = newText.split(/\s+/).filter(function(t) { return t; });
+                    var segDur = (seg.end || seg.start) - seg.start;
+                    var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
+                    seg.words = tokens.map(function(tok, ti) {
+                        return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
+                    });
                 }
             });
-            // Remove empty words and rebuild segment text
-            seg.words = seg.words.filter(function(w) { return w.word.trim().length > 0; });
-            seg.text = seg.words.map(function(w) { return w.word; }).join(' ');
-        });
+        }
 
         // Rebuild top-level words and full_text
         transcript.words = [];
         transcript.full_text = '';
-        transcript.segments.forEach(function(seg) {
+        segs.forEach(function(seg) {
             if (seg.words) transcript.words.push.apply(transcript.words, seg.words);
             transcript.full_text += (transcript.full_text ? ' ' : '') + seg.text;
         });
@@ -1897,10 +1969,12 @@ async function saveReelTranscript(reelId) {
         });
 
         // Reset edited markers
-        contentEl.querySelectorAll('.seg-word.edited').forEach(function(el) {
-            el.dataset.original = el.textContent.trim();
-            el.classList.remove('edited');
-        });
+        if (segList) {
+            segList.querySelectorAll('.tm-text.edited').forEach(function(el) {
+                el.dataset.original = el.textContent.trim();
+                el.classList.remove('edited');
+            });
+        }
 
         if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
 
