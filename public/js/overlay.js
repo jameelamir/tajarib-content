@@ -304,12 +304,10 @@ function drawOverlayCanvas() {
     for (var x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (var y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 
-    // Shadow overlay preview (if shadow-reels-light.png exists)
-    var shadowImg = loadOverlayImage('shadow-reels-light.png');
+    // Shadow overlay preview (real shadow gradient from bottom)
+    var shadowImg = loadOverlayImage('shadow-reels.png');
     if (shadowImg.naturalWidth) {
-        ctx.globalAlpha = 0.5;
         ctx.drawImage(shadowImg, 0, 0, W, H);
-        ctx.globalAlpha = 1.0;
     }
 
     // Logo vignette (full-frame, drawn when logo is enabled — matches overlay.js)
