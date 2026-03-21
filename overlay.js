@@ -270,7 +270,7 @@ async function overlay(slug, options) {
     const vfFilters = [];
 
     // Shadow gradient PNG — injected as extra input, composited before everything else
-    const shadowFile = path.join(ASSETS_DIR, "shadow-reels-light.png");
+    const shadowFile = path.join(ASSETS_DIR, "shadow-reels.png");
     let shadowInput = null;
     let shadowIsStatic = false;
     if (fs.existsSync(shadowFile)) {
