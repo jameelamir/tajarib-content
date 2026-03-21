@@ -111,10 +111,15 @@ io.on("connection", (socket) => {
   socket.emit("restore-state", { activeSteps: ctx.activeSteps, logs: ctx.serverLogs });
 
   socket.on("stop-step", ({ slug }) => {
-    if (ctx.activeProcesses[slug]) {
-      const proc = ctx.activeProcesses[slug];
-      try { process.kill(-proc.pid, "SIGKILL"); } catch (_) { try { proc.kill("SIGKILL"); } catch (_2) {} }
-      delete ctx.activeProcesses[slug]; delete ctx.activeSteps[slug];
+    let stopped = false;
+    for (const [key, proc] of Object.entries(ctx.activeProcesses)) {
+      if (key === slug || key.startsWith(slug + ':')) {
+        try { process.kill(-proc.pid, "SIGKILL"); } catch (_) { try { proc.kill("SIGKILL"); } catch (_2) {} }
+        delete ctx.activeProcesses[key]; delete ctx.activeSteps[key];
+        stopped = true;
+      }
+    }
+    if (stopped) {
       io.emit("log", { slug, text: "\n🛑 Process stopped manually.\n" });
       io.emit("process-end", { slug, step: "stopped", code: -1 });
       io.emit("status-update", {});
