@@ -15,6 +15,7 @@ module.exports = function init(ctx) {
     const apiKey = mainAgentConfig?.providers?.haimaker?.apiKey;
     return {
       apiKey: apiKey || localConfig?.apiKey || null,
+      groqApiKey: localConfig?.groqApiKey || null,
       defaultMethod: localConfig?.defaultMethod || "local",
       localModel: localConfig?.localModel || "large-v3"
     };
@@ -24,6 +25,7 @@ module.exports = function init(ctx) {
     const existing = loadJSON(TRANSCRIPTION_CONFIG_FILE) || {};
     if (config.defaultMethod) existing.defaultMethod = config.defaultMethod;
     if (config.localModel !== undefined) existing.localModel = config.localModel;
+    if (config.groqApiKey !== undefined) existing.groqApiKey = config.groqApiKey || null;
     saveJSON(TRANSCRIPTION_CONFIG_FILE, existing);
   }
 

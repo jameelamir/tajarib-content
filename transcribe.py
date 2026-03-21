@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Step 1: Transcribe an episode video/audio file using faster-whisper (local) or Haimaker API.
+Step 1: Transcribe an episode video/audio file using faster-whisper (local), Haimaker API, or Groq API.
 Outputs word-level timestamped transcript to episodes/{slug}/transcript.json
 
 Usage:
-  python3 transcribe.py <video_file> [--slug my-episode] [--model large-v3] [--force] [--api]
+  python3 transcribe.py <video_file> [--slug my-episode] [--model large-v3] [--force] [--api] [--groq]
 
 Environment:
-  HAIMAKER_API_KEY - Required for API mode
+  HAIMAKER_API_KEY - Required for Haimaker API mode
+  GROQ_API_KEY     - Required for Groq API mode
 """
 
 import argparse
@@ -37,13 +38,29 @@ def slugify(name):
     name = re.sub(r'[\s_]+', '-', name.strip())
     return name
 
-def load_api_key():
-    """Load Haimaker API key from main agent config or environment."""
+def load_api_key(provider="haimaker"):
+    """Load API key for the given provider from config or environment."""
+    if provider == "groq":
+        # Try environment first
+        api_key = os.environ.get('GROQ_API_KEY')
+        if api_key:
+            return api_key
+        # Try transcription-specific config
+        config_path = Path(__file__).parent / "transcription-config.json"
+        if config_path.exists():
+            try:
+                config = json.loads(config_path.read_text())
+                return config.get('groqApiKey')
+            except:
+                pass
+        return None
+
+    # Haimaker provider
     # Try environment first
     api_key = os.environ.get('HAIMAKER_API_KEY')
     if api_key:
         return api_key
-    
+
     # Try main agent models.json (same key used by Jassim)
     main_agent_config = Path("/root/.openclaw/agents/main/agent/models.json")
     if main_agent_config.exists():
@@ -52,7 +69,7 @@ def load_api_key():
             return config.get('providers', {}).get('haimaker', {}).get('apiKey')
         except:
             pass
-    
+
     # Try transcription-specific config (user override)
     config_path = Path(__file__).parent / "transcription-config.json"
     if config_path.exists():
@@ -61,7 +78,7 @@ def load_api_key():
             return config.get('apiKey') or config.get('haimakerApiKey')
         except:
             pass
-    
+
     return None
 
 def transcribe_with_api(video_path, api_key, language="ar"):
@@ -153,6 +170,93 @@ def transcribe_with_api(video_path, api_key, language="ar"):
     
     return output
 
+def transcribe_with_groq(video_path, api_key, language="ar"):
+    """Transcribe using Groq API with Whisper Large V3."""
+    if not HAS_REQUESTS:
+        raise ImportError("requests library not installed. Run: pip install requests")
+
+    BASE_URL = "https://api.groq.com/openai/v1"
+
+    print(f"🌐 Using Groq API for transcription (whisper-large-v3)...")
+    print(f"📁 Uploading: {video_path}")
+
+    with open(video_path, 'rb') as f:
+        files = {'file': (Path(video_path).name, f, 'audio/mpeg')}
+
+        print("⏳ Uploading to Groq...")
+
+        try:
+            response = requests.post(
+                f"{BASE_URL}/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=files,
+                data=[
+                    ("model", "whisper-large-v3"),
+                    ("language", language),
+                    ("response_format", "verbose_json"),
+                    ("timestamp_granularities[]", "word"),
+                    ("timestamp_granularities[]", "segment"),
+                ],
+                timeout=300
+            )
+        except requests.exceptions.ConnectionError:
+            print("❌ Could not connect to Groq API. Check your internet connection.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"❌ Groq API request failed: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if response.status_code != 200:
+        print(f"❌ Groq API Error {response.status_code}: {response.text}", file=sys.stderr)
+        sys.exit(1)
+
+    result = response.json()
+
+    # Convert to our format
+    segments = []
+    words_all = []
+
+    for seg in result.get('segments', []):
+        seg_words = []
+        for w in seg.get('words', []):
+            word_obj = {
+                "word": w.get('word', ''),
+                "start": round(w.get('start', 0), 3),
+                "end": round(w.get('end', 0), 3),
+                "probability": round(w.get('probability', 1.0), 3)
+            }
+            seg_words.append(word_obj)
+            words_all.append(word_obj)
+
+        seg_obj = {
+            "id": seg.get('id', 0),
+            "start": round(seg.get('start', 0), 3),
+            "end": round(seg.get('end', 0), 3),
+            "text": seg.get('text', '').strip(),
+            "words": seg_words
+        }
+        segments.append(seg_obj)
+
+    full_text = result.get('text', '').strip()
+    duration = segments[-1]["end"] if segments else 0
+
+    output = {
+        "slug": None,
+        "source_file": str(video_path),
+        "language": result.get('language', language),
+        "language_probability": 1.0,
+        "duration_seconds": round(duration, 3),
+        "model": "whisper-large-v3",
+        "word_count": len(words_all),
+        "segment_count": len(segments),
+        "full_text": full_text,
+        "segments": segments,
+        "words": words_all,
+        "api_provider": "groq"
+    }
+
+    return output
+
 def transcribe_local(video_path, model_name="large-v3"):
     """Transcribe using local faster-whisper."""
     if not HAS_LOCAL:
@@ -228,7 +332,7 @@ def transcribe_local(video_path, model_name="large-v3"):
     
     return output
 
-def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_api=False, output_file=None):
+def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_api=False, use_groq=False, output_file=None):
     video_path = Path(video_path).resolve()
     if not video_path.exists():
         print(f"❌ File not found: {video_path}", file=sys.stderr)
@@ -255,8 +359,20 @@ def transcribe(video_path, slug=None, model_name="large-v3", force=False, use_ap
     print()
 
     # Transcribe
-    if use_api:
-        api_key = load_api_key()
+    if use_groq:
+        api_key = load_api_key("groq")
+        if not api_key:
+            print("❌ No Groq API key found! Set GROQ_API_KEY environment variable or configure via dashboard.", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            result = transcribe_with_groq(video_path, api_key)
+        except Exception as e:
+            print(f"❌ Groq transcription failed: {e}", file=sys.stderr)
+            print("   Falling back to local transcription...", file=sys.stderr)
+            result = transcribe_local(video_path, model_name)
+    elif use_api:
+        api_key = load_api_key("haimaker")
         if not api_key:
             print("❌ No API key found! Set HAIMAKER_API_KEY environment variable or configure via dashboard.", file=sys.stderr)
             print("   You can get an API key from: https://haimaker.ai", file=sys.stderr)
@@ -290,7 +406,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="large-v3", help="Whisper model size (default: large-v3)")
     parser.add_argument("--force", action="store_true", help="Re-transcribe even if output exists")
     parser.add_argument("--api", action="store_true", help="Use Haimaker API instead of local model")
+    parser.add_argument("--groq", action="store_true", help="Use Groq API (whisper-large-v3) instead of local model")
     parser.add_argument("--output", help="Custom output path (default: episodes/{slug}/transcript.json)")
     args = parser.parse_args()
 
-    transcribe(args.video, slug=args.slug, model_name=args.model, force=args.force, use_api=args.api, output_file=args.output)
+    transcribe(args.video, slug=args.slug, model_name=args.model, force=args.force, use_api=args.api, use_groq=args.groq, output_file=args.output)
