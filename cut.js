@@ -47,8 +47,10 @@ async function cut(slug, videoPath, force = false, reelId = null) {
 
   const analysis = JSON.parse(fs.readFileSync(analysisPath, "utf8"));
   const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
-  // Use word-level timestamps if available, otherwise fall back to segments
-  const words = (transcript.words && transcript.words.length > 0) ? transcript.words : (transcript.segments || []);
+  // Use word-level timestamps if they have good coverage, otherwise fall back to segments.
+  // A valid word list should have more entries than segments (each segment contains multiple words).
+  const segments = transcript.segments || [];
+  const words = (transcript.words && transcript.words.length > segments.length) ? transcript.words : segments;
 
   fs.mkdirSync(reelsDir, { recursive: true });
 
@@ -85,6 +87,13 @@ async function cut(slug, videoPath, force = false, reelId = null) {
     if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0 && !force) {
       console.log(`⏭️  Reel ${reel.id} already cut: ${outFile}`);
       continue;
+    }
+
+    // Clean up stale downstream files from previous cuts
+    const reelPrefix = `reel-${String(reel.id).padStart(2, "0")}`;
+    for (const suffix of ["-cropped.mp4", "-subtitled.mp4", "-final.mp4", ".ass", "-transcript.json"]) {
+      const stale = path.join(reelsDir, reelPrefix + suffix);
+      try { if (fs.existsSync(stale)) { fs.unlinkSync(stale); console.log(`   🗑️  Removed stale ${reelPrefix}${suffix}`); } } catch {}
     }
 
     const startSec = snapToWord(words, toSeconds(reel.start), "start");
