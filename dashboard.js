@@ -21,13 +21,19 @@ const prompts = require("./prompts");
 
 const PORT = process.env.PORT || 7430;
 const WORKSPACE_DIR = __dirname;
-const EPISODES_DIR = path.join(WORKSPACE_DIR, "episodes");
+const SHARED_DIR = path.resolve(WORKSPACE_DIR, "..");
+const EPISODES_DIR = fs.existsSync(SHARED_DIR) && SHARED_DIR !== WORKSPACE_DIR
+  ? path.join(SHARED_DIR, "episodes")
+  : path.join(WORKSPACE_DIR, "episodes");
 const UPLOADS_DIR = path.join(WORKSPACE_DIR, "uploads");
 const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
 const { GLOBAL_CONFIG_DIR } = require("./server/global-config");
 const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 
-[EPISODES_DIR, UPLOADS_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
+[EPISODES_DIR, UPLOADS_DIR].forEach(d => {
+  try { if (fs.lstatSync(d).isSymbolicLink()) fs.unlinkSync(d); } catch (_) {}
+  fs.mkdirSync(d, { recursive: true });
+});
 
 process.on("uncaughtException", (err) => { console.error("[UNCAUGHT]", err.message, err.stack?.split("\n")[1]); });
 process.on("unhandledRejection", (err) => { console.error("[UNHANDLED REJECTION]", err?.message || err); });
