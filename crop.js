@@ -127,23 +127,26 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
   const PAN_EASE_STEPS = 10;
 
   // 1. Group keyframes into hold zones — break at scene cuts unconditionally
-  const zones = [{ sum: pixelKfs[0].offset, count: 1, startT: pixelKfs[0].t, endT: pixelKfs[0].t, cutT: null }];
+  //    Track anchor (first offset in zone) to catch gradual drift that the
+  //    running mean would absorb ("boiling frog" problem).
+  const zones = [{ sum: pixelKfs[0].offset, count: 1, anchor: pixelKfs[0].offset, startT: pixelKfs[0].t, endT: pixelKfs[0].t, cutT: null }];
   for (let i = 1; i < pixelKfs.length; i++) {
     const kf = pixelKfs[i];
     const preciseCutT = cutMap.get(kf.t);
 
     if (preciseCutT !== undefined) {
       // Scene cut — always start a new zone, store precise cut time
-      zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t, cutT: preciseCutT });
+      zones.push({ sum: kf.offset, count: 1, anchor: kf.offset, startT: kf.t, endT: kf.t, cutT: preciseCutT });
     } else {
       const zone = zones[zones.length - 1];
       const mean = zone.sum / zone.count;
-      if (Math.abs(kf.offset - mean) < HOLD_THRESHOLD_PX) {
+      const driftFromAnchor = Math.abs(kf.offset - zone.anchor);
+      if (Math.abs(kf.offset - mean) < HOLD_THRESHOLD_PX && driftFromAnchor < HOLD_THRESHOLD_PX) {
         zone.sum += kf.offset;
         zone.count++;
         zone.endT = kf.t;
       } else {
-        zones.push({ sum: kf.offset, count: 1, startT: kf.t, endT: kf.t, cutT: null });
+        zones.push({ sum: kf.offset, count: 1, anchor: kf.offset, startT: kf.t, endT: kf.t, cutT: null });
       }
     }
   }

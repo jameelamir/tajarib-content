@@ -43,7 +43,7 @@ from mediapipe.tasks.python import vision
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
-GAUSSIAN_SIGMA = 8.0  # smoothing width in samples (~4s look-ahead/behind at 0.5s intervals)
+GAUSSIAN_SIGMA = 4.0  # smoothing width in samples (~2s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -173,7 +173,7 @@ def detect_faces(video_path):
     if cuts:
         print(f"Detected {len(cuts)} scene cuts at: {cuts}")
 
-    return keyframes, cuts
+    return keyframes, cuts, fps
 
 
 def _split_at_cuts(keyframes, cuts):
@@ -358,7 +358,7 @@ def main():
         sys.exit(1)
 
     print(f"Detecting faces in: {os.path.basename(video_path)}")
-    keyframes, cuts = detect_faces(video_path)
+    keyframes, cuts, fps = detect_faces(video_path)
     print(f"Sampled {len(keyframes)} frames, {sum(1 for kf in keyframes if kf['x'] is not None)} with faces")
 
     keyframes = fill_gaps(keyframes, cuts)
