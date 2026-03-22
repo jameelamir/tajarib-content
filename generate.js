@@ -44,6 +44,22 @@ async function chat(systemPrompt, userMessage, maxTokens = 1024, slug = null, st
   const isResume = CLI_ARGS.includes("--resume");
   const resumeRound = parseInt(CLI_ARGS[CLI_ARGS.indexOf("--resume-round") + 1] || "0", 10);
 
+  if (isResume && manualRound < resumeRound) {
+    // Already completed in a previous resume — read saved caption from content.json
+    const contentPath = path.join(EPISODES_DIR, slug, "content.json");
+    if (fs.existsSync(contentPath)) {
+      const content = JSON.parse(fs.readFileSync(contentPath, "utf8"));
+      const reelMatch = (content.reels || []).find(r => `reel-${r.id}` === stepLabel);
+      if (reelMatch) {
+        manualRound++;
+        log(`📋 Skipping round ${manualRound - 1} — already saved`);
+        return { text: reelMatch.caption, tokens: 0 };
+      }
+    }
+    manualRound++;
+    return { text: "", tokens: 0 };
+  }
+
   if (isResume && manualRound === resumeRound) {
     // Resume mode: read response from file
     const epDir = path.join(EPISODES_DIR, slug);
@@ -244,12 +260,24 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
     const episodeContext = analysis.general_notes || "";
     const result = await generateReelCaption(reel, guest, role, reelText, reelFormat, slug, episodeContext);
-    reelCaptions.push({
+    const caption = {
       id: reel.id, start: reel.start, end: reel.end,
       hook: reel.hook, reel_text: reelText, caption: result.text,
-    });
+    };
+    reelCaptions.push(caption);
     totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
+
+    // Save incrementally so partial progress survives interruptions
+    const existing = fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, "utf8")) : { slug, guest, role, reels: [] };
+    const existingReels = existing.reels || [];
+    const idx = existingReels.findIndex(r => r.id === caption.id);
+    if (idx >= 0) existingReels[idx] = caption;
+    else existingReels.push(caption);
+    existing.reels = existingReels;
+    existing.generated_at = new Date().toISOString();
+    existing.total_tokens_used = totalTokens;
+    fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
   }
 
   // YouTube + announcement
