@@ -123,39 +123,50 @@ function renderReelDetail(ep, reelId) {
     // Caption editor — show generated caption if available
     var captionEl = document.getElementById('reel-caption-editor');
     if (captionEl) {
-        var reelContent = null;
-        if (ep.content && ep.content.reels) {
-            var reelNum = parseInt(reelId, 10);
-            reelContent = ep.content.reels.find(function(rc) { return rc.id === reelNum || String(rc.id).padStart(2, '0') === reelId; });
-        }
-        captionEl.style.display = '';
-        var captionBtn = '<button class="' + (r.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')" style="font-size:0.7rem;">' +
-            (r.generated ? '↻ Generate' : '▶ Generate') + '</button>';
-        if (reelContent) {
-            captionEl.innerHTML =
-                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
-                    captionBtn +
-                '</div>' +
-                '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
-                '<div style="display:flex; gap:6px; margin-top:6px;">' +
-                    '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
-                    '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
-                '</div>';
+        // Skip rebuild if the user has an active caption textarea (preserves unsaved edits)
+        var existingCaptionTextarea = document.getElementById('reel-caption-text');
+        if (existingCaptionTextarea && document.activeElement === existingCaptionTextarea) {
+            captionEl.style.display = '';
         } else {
-            captionEl.innerHTML =
-                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
-                    captionBtn +
-                '</div>';
+            var reelContent = null;
+            if (ep.content && ep.content.reels) {
+                var reelNum = parseInt(reelId, 10);
+                reelContent = ep.content.reels.find(function(rc) { return rc.id === reelNum || String(rc.id).padStart(2, '0') === reelId; });
+            }
+            captionEl.style.display = '';
+            var captionBtn = '<button class="' + (r.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')" style="font-size:0.7rem;">' +
+                (r.generated ? '↻ Generate' : '▶ Generate') + '</button>';
+            if (reelContent) {
+                captionEl.innerHTML =
+                    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        captionBtn +
+                    '</div>' +
+                    '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
+                    '<div style="display:flex; gap:6px; margin-top:6px;">' +
+                        '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
+                        '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
+                    '</div>';
+            } else {
+                captionEl.innerHTML =
+                    '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        captionBtn +
+                    '</div>';
+            }
         }
     }
 
     // Reel transcript editor — show if reel transcript exists
     var transcriptEditorEl = document.getElementById('reel-transcript-editor');
     if (transcriptEditorEl) {
-        // Always show for subtitled reels (they have a reel transcript from Groq/Whisper)
-        if (r.subtitled || r.cut || r.cropped) {
+        // Skip rebuild if the editor already has loaded content (preserves unsaved edits)
+        var existingContent = document.getElementById('reel-transcript-content');
+        var hasLoadedEditor = existingContent && existingContent.style.display !== 'none' && existingContent.querySelector('.seg-word');
+        if (hasLoadedEditor) {
+            // Editor is active — don't touch it
+            transcriptEditorEl.style.display = '';
+        } else if (r.subtitled || r.cut || r.cropped) {
             transcriptEditorEl.style.display = '';
             transcriptEditorEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
@@ -172,7 +183,12 @@ function renderReelDetail(ep, reelId) {
     // Subtitle editor — show if ASS/SRT file exists
     var subEditorEl = document.getElementById('reel-subtitle-editor');
     if (subEditorEl) {
-        if (r.subtitled) {
+        // Skip rebuild if the editor already has loaded content (preserves unsaved edits)
+        var existingSubContent = document.getElementById('reel-subtitle-content');
+        var hasLoadedSubEditor = existingSubContent && existingSubContent.style.display !== 'none';
+        if (hasLoadedSubEditor) {
+            subEditorEl.style.display = '';
+        } else if (r.subtitled) {
             subEditorEl.style.display = '';
             subEditorEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +

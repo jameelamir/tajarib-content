@@ -162,7 +162,7 @@ async function generateYouTubeContent(transcript, analysis, guest, role, formatS
  *                             In reel-only mode the transcript + analysis may not exist;
  *                             we generate a single caption from whatever info we have.
  */
-async function generate(slug, guest, role, force = false, reelOnly = false, reelId = null) {
+async function generate(slug, guest, role, force = false, reelOnly = false, reelId = null, youtubeOnly = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "content.json");
 
   if (fs.existsSync(outputPath) && !force) {
@@ -254,6 +254,9 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     log(`📋 Per-reel mode: generating only reel ${targetId}`);
   }
 
+  // YouTube-only mode: skip reel processing entirely
+  if (youtubeOnly) reelsToProcess = [];
+
   const reelCaptions = [];
   for (const reel of reelsToProcess) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
@@ -282,14 +285,22 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
 
   // YouTube + announcement
   let ytResult = { tokens: 0, content: {} };
-  if (!reelId) {
+  if (!reelId || youtubeOnly) {
     log("   📺 Generating YouTube description + titles + announcement...");
     ytResult = await generateYouTubeContent(transcript, analysis, guest, role, ytFormat, slug);
     totalTokens += ytResult.tokens;
     log(`   ✅ YouTube content done (${ytResult.tokens} tokens)`);
   }
 
-  if (reelId && fs.existsSync(outputPath)) {
+  if (youtubeOnly && fs.existsSync(outputPath)) {
+    // YouTube-only mode: merge YouTube content into existing content.json
+    const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+    Object.assign(existing, ytResult.content);
+    existing.generated_at = new Date().toISOString();
+    fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+    log(`\n✅ Done! Merged YouTube content into content.json`);
+    log(`📄 Saved: ${outputPath}`);
+  } else if (reelId && fs.existsSync(outputPath)) {
     // Per-reel mode: merge into existing content.json
     const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
     const existingReels = existing.reels || [];
@@ -329,6 +340,7 @@ const role     = get("--role");
 const force    = CLI_ARGS.includes("--force");
 const reelOnly = CLI_ARGS.includes("--reel-only");
 const reelIdFilter = get("--reel-id");
+const youtubeOnlyFlag = CLI_ARGS.includes("--youtube-only");
 const modelArg = get("--model");
 
 if (modelArg) {
@@ -340,7 +352,7 @@ if (!slug || !guest || !role) {
   process.exit(1);
 }
 
-generate(slug, guest, role, force, reelOnly, reelIdFilter).catch(err => {
+generate(slug, guest, role, force, reelOnly, reelIdFilter, youtubeOnlyFlag).catch(err => {
   process.stderr.write("❌ " + err.message + "\n");
   process.exit(1);
 });
