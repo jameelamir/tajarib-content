@@ -295,11 +295,12 @@ function renderEpisodePipelineBar(ep) {
     const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
 
     const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
-    const episodeLevelSteps = ['transcribe', 'analyze', 'cut', 'compose'];
+    const episodeLevelSteps = ['compose'];
     const stepsToShow = steps.filter(function(s) {
         return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
     });
 
+    bar.style.display = stepsToShow.length > 0 ? '' : 'none';
     var nextFound = false;
     bar.innerHTML = stepsToShow.map(function(s, i) {
         var done = ep.steps[stepKeyMap[s.id] || s.id];
