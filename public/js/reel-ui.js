@@ -190,31 +190,11 @@ function renderReelDetail(ep, reelId) {
         }
     }
 
-    // Subtitle editor — show if ASS/SRT file exists
+    // Subtitle editor — hidden (duplicate of Reel Transcript section above)
     var subEditorEl = document.getElementById('reel-subtitle-editor');
     if (subEditorEl) {
-        // Skip rebuild if the editor already has loaded content (preserves unsaved edits)
-        var existingSubContent = document.getElementById('reel-subtitle-content');
-        var hasLoadedSubEditor = existingSubContent && existingSubContent.style.display !== 'none';
-        if (hasLoadedSubEditor) {
-            subEditorEl.style.display = '';
-        } else if (r.subtitled) {
-            subEditorEl.style.display = '';
-            subEditorEl.innerHTML =
-                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Subtitles</div>' +
-                    '<button onclick="loadReelSubtitles(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
-                '</div>' +
-                '<div id="reel-subtitle-content" style="display:none;">' +
-                    '<textarea id="reel-subtitle-text" class="content-textarea" rows="8" style="font-family:monospace; font-size:0.72rem; direction:ltr;"></textarea>' +
-                    '<div style="display:flex; gap:6px; margin-top:6px;">' +
-                        '<button onclick="saveReelSubtitles(\'' + reelId + '\')" style="font-size:0.7rem;">Save & Re-burn</button>' +
-                    '</div>' +
-                '</div>';
-        } else {
-            subEditorEl.style.display = 'none';
-            subEditorEl.innerHTML = '';
-        }
+        subEditorEl.style.display = 'none';
+        subEditorEl.innerHTML = '';
     }
 
     // Update console drawer with reel context
