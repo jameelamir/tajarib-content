@@ -91,9 +91,9 @@ function getVideoDimensions(videoPath) {
 // the earlier chunk's end time to meet the next chunk's start time.
 const MAX_GAP_FILL = 3; // seconds
 
-// How many seconds the shadow (HighlightGlow) appears before the subtitle text.
-// This creates a subtle anticipation effect — the shadow fades in before the words.
-const SHADOW_LEAD = 0.3; // seconds
+// Shadow fade durations (ms) — smooth fade-in and fade-out
+const SHADOW_FADE_IN = 300;
+const SHADOW_FADE_OUT = 200;
 
 function closeSubtitleGaps(chunks) {
   for (let i = 0; i < chunks.length - 1; i++) {
@@ -104,24 +104,46 @@ function closeSubtitleGaps(chunks) {
   }
 }
 
-// Generate ASS format subtitles
-// style: "animated" — highlight sweeps right-to-left beneath text (two layers)
-//        "static"   — plain purple box behind text (single layer)
-function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null, style = "animated") {
+// Sentence-ending punctuation — break subtitle chunks at these boundaries
+const SENTENCE_END_RE = /[.!?؟…]+$/;
+
+// Silence gap threshold — a pause this long between words signals a natural break
+const PAUSE_BREAK_SEC = 0.4;
+
+// Group words into subtitle chunks, respecting natural speech boundaries.
+// Rules (in priority order):
+//   1. Always break after a word that ends a sentence (. ! ? ؟ …)
+//   2. Break before a word preceded by a silence gap >= PAUSE_BREAK_SEC
+//   3. Break when chunk reaches 6 words or 2 seconds
+function chunkWords(words, startOffset = 0) {
   const chunks = [];
   let current = { words: [], start: null, end: null };
 
-  for (const w of words) {
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
     const adjustedStart = w.start - startOffset;
     const adjustedEnd = w.end - startOffset;
 
     if (adjustedStart < 0) continue;
 
+    // Check for silence gap BEFORE this word — flush previous chunk first
+    if (current.words.length > 0) {
+      const gap = adjustedStart - current.end;
+      if (gap >= PAUSE_BREAK_SEC) {
+        chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
+        current = { words: [], start: null, end: null };
+      }
+    }
+
     if (current.start === null) current.start = adjustedStart;
-    current.words.push(w.word.trim());
+    const trimmed = w.word.trim();
+    current.words.push(trimmed);
     current.end = adjustedEnd;
 
-    if (current.words.length >= 6 || (current.end - current.start) >= 2) {
+    const isSentenceEnd = SENTENCE_END_RE.test(trimmed);
+    const hitLimit = current.words.length >= 6 || (current.end - current.start) >= 2;
+
+    if (isSentenceEnd || hitLimit) {
       chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
       current = { words: [], start: null, end: null };
     }
@@ -132,6 +154,14 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
   }
 
   closeSubtitleGaps(chunks);
+  return chunks;
+}
+
+// Generate ASS format subtitles
+// style: "animated" — highlight sweeps right-to-left beneath text (two layers)
+//        "static"   — plain purple box behind text (single layer)
+function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null, style = "animated") {
+  const chunks = chunkWords(words, startOffset);
 
   // Scale font sizes and margins relative to actual video dimensions
   const vd = videoDimensions || { width: 1080, height: 1920 };
@@ -153,8 +183,8 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     //   Layer 2 — Text: clean white text on top
     const W = vd.width;
     const H = vd.height;
-    const glowBlur = Math.max(10, Math.round(25 * scale));
-    const glowPad = Math.max(10, Math.round(25 * scale));
+    const glowBlur = Math.max(50, Math.round(90 * scale));
+    const glowPad = Math.max(15, Math.round(35 * scale));
 
     // Clip Y range: only show the bottom ~50% of the text area (highlighter effect)
     // With Alignment=2 (bottom-center), text bottom ≈ H - marginV
@@ -166,22 +196,35 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     const titleClipTop = titleBottom - Math.round(titleSize * 0.55);
     const titleClipBot = titleBottom + Math.round(titleSize * 0.15);
 
+    // ── Shadow: one persistent glow per continuous subtitle run ──
+    // Merge consecutive chunks into runs (chunks are already gap-filled),
+    // then emit a single drawn rectangle per run instead of per-chunk text shadows.
+    const runs = [];
+    if (titleCard) runs.push({ start: 0, end: TITLE_DURATION });
+    for (const chunk of chunks) {
+      const last = runs[runs.length - 1];
+      if (last && chunk.start <= last.end + 0.05) {
+        last.end = Math.max(last.end, chunk.end);
+      } else {
+        runs.push({ start: chunk.start, end: chunk.end });
+      }
+    }
+    // Shadow is handled via ffmpeg gradient overlay, not ASS
+
+    // ── Title card ──
     if (titleCard) {
       const animMs = Math.round(Math.min(5, TITLE_DURATION) * 1000);
       dialogueLines.push(
-        `Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlightGlow,,0,0,0,,{\\blur${glowBlur}}${titleCard}`,
         `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${titleCard}`,
         `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${titleCard}`
       );
     }
 
+    // ── Subtitle chunks: highlight + text only (no per-chunk shadow) ──
     for (const chunk of chunks) {
       const chunkDur = chunk.end - chunk.start;
       const animMs = Math.round(Math.min(5, chunkDur) * 1000);
-      // Shadow starts SHADOW_LEAD seconds before the text (clamped to 0)
-      const shadowStart = Math.max(0, chunk.start - SHADOW_LEAD);
       dialogueLines.push(
-        `Dialogue: 0,${formatASSTime(shadowStart)},${formatASSTime(chunk.end)},HighlightGlow,,0,0,0,,{\\blur${glowBlur}}${chunk.text}`,
         `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${chunk.text}`,
         `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${chunk.text}`
       );
@@ -195,10 +238,8 @@ PlayResY: ${vd.height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: TitleHighlightGlow,SomarSans-Bold,${titleSize},&HFF000000,&H000000FF,&H80000000,&H80000000,1,0,0,0,100,100,0,0,3,${glowPad},0,2,${marginLR},${marginLR},${titleMarginV},1
 Style: TitleText,SomarSans-Bold,${titleSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,2,${marginLR},${marginLR},${titleMarginV},1
 Style: TitleHighlight,SomarSans-Bold,${titleSize},&HFF000000,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,3,${highlightPad},0,2,${marginLR},${marginLR},${titleMarginV},1
-Style: HighlightGlow,SomarSans-Bold,${defaultSize},&HFF000000,&H000000FF,&H80000000,&H80000000,1,0,0,0,100,100,0,0,3,${glowPad},0,2,${marginLR},${marginLR},${defaultMarginV},1
 Style: Text,SomarSans-Bold,${defaultSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,2,${marginLR},${marginLR},${defaultMarginV},1
 Style: Highlight,SomarSans-Bold,${defaultSize},&HFF000000,&H000000FF,&H00BE2F7B,&H00BE2F7B,1,0,0,0,100,100,0,0,3,${highlightPad},0,2,${marginLR},${marginLR},${defaultMarginV},1
 
@@ -235,32 +276,7 @@ ${dialogueLines.join("\n")}`;
 // Group words into subtitle chunks (max ~6 words or 2 seconds per subtitle)
 // If titleCard is provided, adds a title card at the beginning
 function generateSRT(words, startOffset = 0, titleCard = null) {
-  const chunks = [];
-  let current = { words: [], start: null, end: null };
-
-  for (const w of words) {
-    const adjustedStart = w.start - startOffset;
-    const adjustedEnd = w.end - startOffset;
-
-    if (adjustedStart < 0) continue; // skip words before reel start
-
-    if (current.start === null) current.start = adjustedStart;
-    current.words.push(w.word.trim());
-    current.end = adjustedEnd;
-
-    // Break chunk after ~6 words or 2 seconds
-    if (current.words.length >= 6 || (current.end - current.start) >= 2) {
-      chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
-      current = { words: [], start: null, end: null };
-    }
-  }
-
-  // Push remaining
-  if (current.words.length > 0) {
-    chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
-  }
-
-  closeSubtitleGaps(chunks);
+  const chunks = chunkWords(words, startOffset);
 
   // Build SRT entries
   const entries = [];
@@ -555,11 +571,25 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     // Escape temp subtitle path for FFmpeg (only : and \ need escaping)
     const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
-    // ASS has embedded styles — no force_style needed, avoids FFmpeg filter parsing issues
+    // Generate a bottom gradient overlay (transparent top → semi-dark bottom)
+    // This gives a smooth gaussian vignette behind subtitles that ASS blur can't achieve.
+    const videoDimsForGrad = getVideoDimensions(videoPath);
+    const gradW = videoDimsForGrad.width;
+    const gradH = videoDimsForGrad.height;
+    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-${reelId}.png`);
+    // Alpha ramps from 0 at 40% height to ~130 (out of 255) at bottom = ~50% darken
+    execFileSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i",
+      `color=black:size=${gradW}x${gradH}:d=1,format=rgba,geq=r=0:g=0:b=0:a='if(gt(Y,H*0.4),min(166,(Y-H*0.4)/(H*0.6)*166),0)'`,
+      "-frames:v", "1", tmpGrad
+    ], { stdio: "pipe" });
+
+    // Overlay gradient then burn ASS subtitles
     const ffmpegArgs = [
       "-y",
       "-i", videoPath,
-      "-vf", `ass='${escapedSubtitle}'`,
+      "-i", tmpGrad,
+      "-filter_complex", `[0:v][1:v]overlay=format=auto,ass='${escapedSubtitle}'`,
       "-c:a", "copy",
       tmpOut
     ];
@@ -571,6 +601,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       fs.copyFileSync(tmpOut, subtitledPath);
       fs.unlinkSync(tmpOut);
       fs.unlinkSync(tmpSub);
+      if (fs.existsSync(tmpGrad)) fs.unlinkSync(tmpGrad);
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ Done in ${duration}s (${size} MB)`);
