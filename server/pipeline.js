@@ -80,7 +80,7 @@ module.exports = function init(ctx) {
     io.emit("status-update", {});
   }
 
-  function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe }) {
+  function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly }) {
     const procKey = reelId ? `${slug}:${reelId}` : slug;
     if (activeProcesses[procKey]) { io.emit("toast", { type: "error", message: `${slug}${reelId ? ' reel ' + reelId : ''} is already running` }); return; }
     const dir = path.join(EPISODES_DIR, slug);
@@ -105,7 +105,7 @@ module.exports = function init(ctx) {
         break;
       case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;
-      case "generate": cmd = NODE_BIN; { const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : []; const modelArgs = model ? ["--model", model] : []; args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); if (resume) { args.push("--resume", "--resume-round", String(resumeRound || 0)); } } break;
+      case "generate": cmd = NODE_BIN; { const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : []; const modelArgs = model ? ["--model", model] : []; args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs]; if (reelId) args.push("--reel-id", reelId); if (youtubeOnly) args.push("--youtube-only"); if (force) args.push("--force"); if (resume) { args.push("--resume", "--resume-round", String(resumeRound || 0)); } } break;
       case "cut":
         if (!found) { io.emit("toast", { type: "error", message: `No video in ${slug}/` }); return; }
         cmd = NODE_BIN; args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break;

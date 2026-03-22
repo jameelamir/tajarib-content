@@ -72,7 +72,20 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       const meta = loadMeta(slug);
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
       const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : step;
-      runStep({ slug, step: actualStep, force: true, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound: round || 0 });
+      // When resuming a per-reel manual LLM response, scope to just that reel
+      // so it doesn't cascade to the next reel and trigger another popup.
+      // With --reel-id, there's only one LLM call, so resumeRound is always 0.
+      let reelId = null;
+      let youtubeOnly = false;
+      let resumeRound = round || 0;
+      if (step.startsWith("reel-")) {
+        const id = step.replace("reel-", "");
+        if (id && !isNaN(id)) { reelId = parseInt(id, 10); resumeRound = 0; }
+      } else if (step === "youtube") {
+        youtubeOnly = true;
+        resumeRound = 0;
+      }
+      runStep({ slug, step: actualStep, force: true, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound, reelId, youtubeOnly });
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }

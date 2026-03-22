@@ -154,8 +154,6 @@ function openLlmModal(data) {
         analyze: 'Analyze',
         generate: 'Generate',
         compose: 'Camera Switching',
-        'reel-01': 'Reel Caption',
-        'reel-1': 'Reel Caption',
         youtube: 'YouTube Content',
         feedback: 'Revision',
         'generate-title': 'Title Generation',
@@ -164,7 +162,10 @@ function openLlmModal(data) {
         'analyze-clips': 'Reel Suggestions',
         dashboard: 'AI Request',
     };
-    const stepName = stepNames[data.step] || data.step;
+    // Map reel-N / reel-0N steps to "Reel N Caption"
+    let stepName = stepNames[data.step] || data.step;
+    const reelMatch = data.step && data.step.match(/^reel-0*(\d+)$/);
+    if (reelMatch) stepName = 'Reel ' + reelMatch[1] + ' Caption';
     document.getElementById('llm-modal-title').textContent = `📋 Manual LLM — ${stepName}`;
     document.getElementById('llm-system').textContent = data.system || '';
     document.getElementById('llm-user').textContent = data.user || '';
