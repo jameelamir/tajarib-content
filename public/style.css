@@ -90,7 +90,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .reel-list-item { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: all 0.2s ease; border-left: 3px solid transparent; }
 .reel-list-item:hover { background: rgba(255,255,255,0.03); }
 .reel-list-item.active { background: linear-gradient(90deg, rgba(168,85,247,0.1) 0%, rgba(168,85,247,0.02) 100%); border-left-color: var(--accent); }
-.reel-list-item-title { font-weight: 700; font-size: 0.82rem; margin-bottom: 2px; }
+.reel-list-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.reel-list-item-title { font-weight: 700; font-size: 0.82rem; }
+.reel-list-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
+.reel-list-item:hover .reel-list-item-actions { opacity: 1; }
+.reel-item-btn { background: none; border: none; cursor: pointer; padding: 1px 4px; font-size: 0.7rem; color: #888; border-radius: 3px; }
+.reel-item-btn:hover { background: rgba(255,255,255,0.08); color: #ccc; }
+.reel-item-btn-del:hover { color: #f87171; }
 .reel-list-item-hook { font-size: 0.68rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; margin-bottom: 4px; }
 .reel-list-item-chips { display: flex; gap: 3px; flex-wrap: wrap; }
 .reel-list-item-chips .reel-chip { font-size: 0.55rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
