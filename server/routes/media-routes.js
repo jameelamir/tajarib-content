@@ -69,10 +69,10 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10), end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4" });
+      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4", "Cache-Control": "no-store" });
       fs.createReadStream(videoPath, { start, end }).pipe(res);
     } else {
-      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4" });
+      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4", "Cache-Control": "no-store" });
       fs.createReadStream(videoPath).pipe(res);
     }
     return true;
