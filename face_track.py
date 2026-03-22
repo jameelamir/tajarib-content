@@ -43,7 +43,7 @@ from mediapipe.tasks.python import vision
 
 SAMPLE_INTERVAL = 0.5  # seconds between frame samples
 DEAD_ZONE = 0.025  # moves smaller than this are completely ignored (higher = less jitter)
-GAUSSIAN_SIGMA = 4.0  # smoothing width in samples (~2s look-ahead/behind at 0.5s intervals)
+GAUSSIAN_SIGMA = 5.0  # smoothing width in samples (~2.5s look-ahead/behind at 0.5s intervals)
 
 # Model path — look next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

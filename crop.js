@@ -69,10 +69,11 @@ function runFaceTracking(inputFile, reelsDir, id) {
 }
 
 /**
- * Smoothstep easing — cubic ease-in-ease-out for smooth camera pans.
+ * Smootherstep easing — quintic ease-in-ease-out with zero 1st and 2nd
+ * derivatives at endpoints for buttery-smooth camera pans.
  */
 function smoothstep(t) {
-  return t * t * (3 - 2 * t);
+  return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
 /**
@@ -121,10 +122,10 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
 
   // --- Hold-and-pan with scene cut awareness ---
   const HOLD_THRESHOLD_PX = 80;
-  const PAN_SPEED = 200;
-  const MIN_PAN_SEC = 0.8;
-  const MAX_PAN_SEC = 2.0;
-  const PAN_EASE_STEPS = 10;
+  const PAN_SPEED = 120;
+  const MIN_PAN_SEC = 1.2;
+  const MAX_PAN_SEC = 3.0;
+  const PAN_EASE_STEPS = 20;
 
   // 1. Group keyframes into hold zones — break at scene cuts unconditionally
   //    Track anchor (first offset in zone) to catch gradual drift that the
@@ -159,47 +160,73 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     cutT: z.cutT, // precise cut time (null = same shot, number = scene cut)
   }));
 
+  // 2b. Merge adjacent non-cut holds that are close in offset — avoids
+  //     unnecessary micro-pans between nearly identical positions.
+  const MERGE_THRESHOLD_PX = 60;
+  for (let i = holds.length - 1; i > 0; i--) {
+    const curr = holds[i], prev = holds[i - 1];
+    if (curr.cutT === null && prev.cutT === null &&
+        Math.abs(curr.offset - prev.offset) < MERGE_THRESHOLD_PX) {
+      // Merge: extend prev to cover curr, use weighted-average offset
+      const prevWeight = prev.endT - prev.startT || 0.5;
+      const currWeight = curr.endT - curr.startT || 0.5;
+      prev.offset = Math.round((prev.offset * prevWeight + curr.offset * currWeight) / (prevWeight + currWeight));
+      prev.endT = curr.endT;
+      holds.splice(i, 1);
+    }
+  }
+
   const cutCount = holds.filter(h => h.cutT !== null).length;
   console.log(`   📊 ${holds.length} hold positions (${cutCount} scene cuts, from ${pixelKfs.length} raw keyframes)`);
 
-  // 3. Build output keyframes: instant snap at cuts, smoothstep pan within shots
+  // 3. Pre-compute pan start times so holds can be truncated cleanly
+  const panStarts = new Array(holds.length).fill(null);
+  for (let i = 1; i < holds.length; i++) {
+    const hold = holds[i], prev = holds[i - 1];
+    if (hold.cutT !== null) continue; // cuts snap, no pan
+    const dist = Math.abs(hold.offset - prev.offset);
+    const panDur = Math.max(MIN_PAN_SEC, Math.min(MAX_PAN_SEC, dist / PAN_SPEED));
+    panStarts[i] = Math.max(prev.startT, hold.startT - panDur);
+  }
+
+  // 4. Build output keyframes: instant snap at cuts, smoothstep pan within shots
   const output = [];
   for (let i = 0; i < holds.length; i++) {
     const hold = holds[i];
 
-    if (i > 0) {
-      const prev = holds[i - 1];
+    // Hold start
+    const holdStart = (hold.cutT !== null) ? Math.round(hold.cutT * fps) / fps : hold.startT;
+    output.push({ t: holdStart, offset: hold.offset });
 
-      if (hold.cutT !== null) {
-        // Scene cut — end previous hold at frame before cut, snap at cut frame
-        const cutFrame = Math.round(hold.cutT * fps);
+    // Hold end — truncate at the next pan's start so hold and pan don't overlap
+    const nextPanStart = panStarts[i + 1];
+    const holdEnd = nextPanStart != null ? Math.min(hold.endT, nextPanStart) : hold.endT;
+    if (holdEnd > holdStart) {
+      output.push({ t: holdEnd, offset: hold.offset });
+    }
+
+    // Pan to next hold
+    if (i < holds.length - 1) {
+      const next = holds[i + 1];
+
+      if (next.cutT !== null) {
+        // Scene cut — end hold at frame before cut, snap at cut frame
+        const cutFrame = Math.round(next.cutT * fps);
         const preCutT = Math.round(((cutFrame - 1) / fps) * 1000) / 1000;
-        output.push({ t: preCutT, offset: prev.offset });
-      } else {
-        // Same shot — smooth pan
-        const dist = Math.abs(hold.offset - prev.offset);
-        const panDur = Math.max(MIN_PAN_SEC, Math.min(MAX_PAN_SEC, dist / PAN_SPEED));
-        const panStart = Math.max(prev.startT, hold.startT - panDur);
-        const panEnd = hold.startT;
-
-        output.push({ t: panStart, offset: prev.offset });
+        output.push({ t: preCutT, offset: hold.offset });
+      } else if (panStarts[i + 1] != null) {
+        // Same shot — smooth pan from this hold to next
+        const panStart = panStarts[i + 1];
+        const panEnd = next.startT;
 
         for (let s = 1; s <= PAN_EASE_STEPS; s++) {
           const frac = s / (PAN_EASE_STEPS + 1);
           output.push({
             t: Math.round((panStart + (panEnd - panStart) * frac) * 1000) / 1000,
-            offset: Math.round(prev.offset + (hold.offset - prev.offset) * smoothstep(frac)),
+            offset: Math.round(hold.offset + (next.offset - hold.offset) * smoothstep(frac)),
           });
         }
       }
-    }
-
-    // Hold start and end (flat line)
-    // For cuts, start at frame-accurate cut time, not the rounded cut time
-    const holdStart = (hold.cutT !== null) ? Math.round(hold.cutT * fps) / fps : hold.startT;
-    output.push({ t: holdStart, offset: hold.offset });
-    if (hold.endT > hold.startT) {
-      output.push({ t: hold.endT, offset: hold.offset });
     }
   }
 
