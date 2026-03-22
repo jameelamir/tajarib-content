@@ -33,7 +33,17 @@ function renderReelList(ep) {
         }).join('');
 
         return '<div class="reel-list-item ' + (isActive ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
-            '<div class="reel-list-item-title">Reel ' + r.id + (r.hidden ? ' (hidden)' : '') + '</div>' +
+            '<div class="reel-list-item-header">' +
+                '<div class="reel-list-item-title">Reel ' + r.id + (r.hidden ? ' (hidden)' : '') + '</div>' +
+                '<div class="reel-list-item-actions" onclick="event.stopPropagation()">' +
+                    '<button class="reel-item-btn" onclick="toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show reel' : 'Hide reel') + '">' +
+                        (r.hidden ? '&#128065;' : '&#128064;') +
+                    '</button>' +
+                    '<button class="reel-item-btn reel-item-btn-del" onclick="deleteReel(\'' + r.id + '\')" title="Delete reel">' +
+                        '&#128465;' +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
             (r.hook ? '<div class="reel-list-item-hook">' + r.hook + '</div>' : '') +
             '<div class="reel-list-item-chips">' + chips + '</div>' +
         '</div>';
