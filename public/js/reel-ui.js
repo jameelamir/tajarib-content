@@ -1987,7 +1987,8 @@ async function saveReelTranscript(reelId) {
                 step: 'subtitle',
                 reelId: reelId,
                 force: true,
-                noTranscribe: true
+                noTranscribe: true,
+                subtitleStyle: (document.getElementById('reel-subtitle-style') || {}).value || 'animated'
             })
         });
     } catch (err) {
