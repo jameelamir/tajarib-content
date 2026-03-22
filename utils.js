@@ -59,7 +59,11 @@ function loadTranscript(slug) {
 
 /**
  * Compress transcript segments into timestamped paragraphs for LLM prompts.
+ * Skips the first TEASER_SKIP_SECONDS since episode openings are compiled
+ * teaser clips from different parts — not usable as standalone content.
  */
+const TEASER_SKIP_SECONDS = 60;
+
 function formatTranscriptForPrompt(transcript) {
   const PARAGRAPH_INTERVAL = 30;
   const paragraphs = [];
@@ -67,6 +71,7 @@ function formatTranscriptForPrompt(transcript) {
   let paragraphStart = 0;
 
   for (const seg of transcript.segments) {
+    if (seg.start < TEASER_SKIP_SECONDS) continue;
     if (currentTexts.length === 0) paragraphStart = seg.start;
     if (seg.start - paragraphStart >= PARAGRAPH_INTERVAL && currentTexts.length > 0) {
       paragraphs.push(`[${formatTimestamp(paragraphStart)}] ${currentTexts.join(" ")}`);
