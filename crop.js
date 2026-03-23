@@ -356,6 +356,14 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
       execSync(cmd, { stdio: "pipe", maxBuffer: 50 * 1024 * 1024 });
       const size = (fs.statSync(outputFile).size / 1024 / 1024).toFixed(1);
       console.log(`   ✅ ${size} MB → reel-${id}-cropped.mp4`);
+      // Delete stale downstream files — they were built from uncropped source
+      for (const suffix of ["-subtitled.mp4", "-final.mp4"]) {
+        const stale = path.join(reelsDir, `reel-${id}${suffix}`);
+        if (fs.existsSync(stale)) {
+          fs.unlinkSync(stale);
+          console.log(`   🗑️  Deleted stale reel-${id}${suffix}`);
+        }
+      }
     } catch (e) {
       console.error(`   ❌ Crop failed for reel-${id}:`, e.stderr?.toString().slice(-500) || e.message);
     }

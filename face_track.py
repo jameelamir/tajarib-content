@@ -339,7 +339,8 @@ def _detect_implicit_cuts(keyframes, existing_cuts, jump_threshold=0.2, min_gap=
             continue
         jump = abs(keyframes[i]["x"] - keyframes[i - 1]["x"])
         if jump >= jump_threshold:
-            t = keyframes[i]["t"]
+            # Use midpoint between samples — the actual switch is between them
+            t = round((keyframes[i - 1]["t"] + keyframes[i]["t"]) / 2, 3)
             if not any(abs(t - c) < min_gap for c in existing_cuts):
                 implicit.append(t)
     return implicit
