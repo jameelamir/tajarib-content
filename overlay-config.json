@@ -1,0 +1,36 @@
+{
+  "sponsor": {
+    "enabled": true,
+    "x": 3.6972602739726024,
+    "y": 3.5,
+    "scale": 180
+  },
+  "logo": {
+    "enabled": true,
+    "x": 73.1927302319273,
+    "y": 7.5,
+    "scale": 140
+  },
+  "lowerThird": {
+    "enabled": true,
+    "startTime": 8.5,
+    "endTime": 8,
+    "mode": "custom",
+    "customFile": "lower-third.mov",
+    "x": 43.6986301369863,
+    "y": 58
+  },
+  "cta": {
+    "enabled": false,
+    "mode": "text",
+    "text": "www.tajarib.show",
+    "fontSize": 28,
+    "fontColor": "#ffffff",
+    "imagePath": "",
+    "x": 50,
+    "y": 85,
+    "scale": 200,
+    "startTime": 50,
+    "endTime": 58
+  }
+}

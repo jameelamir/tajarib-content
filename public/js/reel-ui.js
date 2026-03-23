@@ -126,9 +126,6 @@ function renderReelDetail(ep, reelId) {
     var actionsEl = document.getElementById('reel-actions');
     actionsEl.innerHTML = buildReelActions(ep, r);
 
-    // Transcript editor button — show if episode has transcript
-    var transcriptBtn = document.getElementById('reel-transcript-btn');
-    if (transcriptBtn) transcriptBtn.style.display = ep.steps.transcribed ? '' : 'none';
 
     // Caption editor — show generated caption if available
     var captionEl = document.getElementById('reel-caption-editor');
@@ -172,7 +169,7 @@ function renderReelDetail(ep, reelId) {
     if (transcriptEditorEl) {
         // Skip rebuild if the editor already has loaded content (preserves unsaved edits)
         var existingContent = document.getElementById('reel-transcript-content');
-        var hasLoadedEditor = existingContent && existingContent.style.display !== 'none' && existingContent.querySelector('.seg-word');
+        var hasLoadedEditor = existingContent && existingContent.style.display !== 'none' && existingContent.querySelector('#rt-seg-list');
         if (hasLoadedEditor) {
             // Editor is active — don't touch it
             transcriptEditorEl.style.display = '';
@@ -202,8 +199,6 @@ function renderReelDetail(ep, reelId) {
 }
 
 // ─── Reel-Full View ───────────────────────────────────────────────────────────
-
-var reelFullTranscriptData = null;
 
 function renderReelFullView(ep) {
     // Video preview — only recreate if slug changed
@@ -251,25 +246,8 @@ function renderReelFullView(ep) {
         captionActions.style.display = 'none';
     }
 
-    // Transcript tab
-    renderReelFullTranscript(ep);
 }
 
-async function renderReelFullTranscript(ep) {
-    // Pre-load transcript data so modal can open instantly
-    if (!ep.steps.transcribed) {
-        reelFullTranscriptData = null;
-        return;
-    }
-    if (reelFullTranscriptData) return; // already loaded
-    try {
-        var res = await fetch('/api/file?slug=' + encodeURIComponent(ep.slug) + '&file=transcript.json');
-        if (!res.ok) throw new Error('Not found');
-        reelFullTranscriptData = JSON.parse(await res.text());
-    } catch (e) {
-        reelFullTranscriptData = null;
-    }
-}
 
 function switchReelFullTab(tab) {
     document.querySelectorAll('.reel-full-tab').forEach(function(el) {
@@ -318,405 +296,6 @@ function copyReelFullCaption() {
     var textEl = document.getElementById('reel-full-caption-textarea');
     if (textEl) copyToClipboard(textEl.value);
 }
-
-// ─── Transcript Editor Modal ─────────────────────────────────────────────────
-
-var tmReelStart = 0, tmReelEnd = Infinity;
-
-async function openTranscriptModal() {
-    if (!currentSlug) return;
-    var segList = document.getElementById('transcript-modal-seg-list');
-    var videoContainer = document.getElementById('transcript-modal-video');
-
-    document.getElementById('transcript-modal').classList.add('open');
-
-    // Load transcript
-    if (!reelFullTranscriptData) {
-        segList.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Loading transcript...</div>';
-        try {
-            var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=transcript.json');
-            if (!res.ok) throw new Error('Not found');
-            reelFullTranscriptData = JSON.parse(await res.text());
-        } catch (e) {
-            segList.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Transcript not available. Run Transcribe first.</div>';
-            return;
-        }
-    }
-
-    // Load full episode video (only once)
-    if (!document.getElementById('tm-video')) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw&t=' + Date.now();
-        videoContainer.innerHTML = '<video id="tm-video" controls preload="metadata" src="' + videoUrl + '" style="width:100%; display:block;"></video>';
-    }
-
-    // Get current reel range
-    tmReelStart = 0; tmReelEnd = Infinity;
-    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
-    if (selectedReelId && ep && ep.reelStatuses) {
-        var reel = ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
-        if (reel) {
-            tmReelStart = reel.start ? parseTrimTime(reel.start) : 0;
-            tmReelEnd = reel.end ? parseTrimTime(reel.end) : Infinity;
-        }
-    }
-
-    tmRenderSegments();
-
-    // Seek video to reel start
-    var video = document.getElementById('tm-video');
-    if (video && tmReelStart > 0) {
-        if (video.readyState >= 1) { video.currentTime = tmReelStart; }
-        else { video.addEventListener('loadedmetadata', function() { video.currentTime = tmReelStart; }, { once: true }); }
-    }
-
-    // Highlight playing segment on timeupdate
-    if (video && !video._tmBound) {
-        video._tmBound = true;
-        video.addEventListener('timeupdate', function() {
-            var t = video.currentTime;
-            var segs = reelFullTranscriptData ? reelFullTranscriptData.segments : [];
-            segList.querySelectorAll('.tm-seg').forEach(function(el, idx) {
-                var segStart = segs[idx] ? segs[idx].start : 0;
-                var segEnd = segs[idx] ? (segs[idx].end || (segs[idx + 1] ? segs[idx + 1].start : segStart + 5)) : 0;
-                var isPlaying = t >= segStart && t < segEnd;
-                el.classList.toggle('playing', isPlaying);
-                // Auto-scroll to playing segment
-                if (isPlaying && !el._scrolled) {
-                    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                    el._scrolled = true;
-                } else if (!isPlaying) {
-                    el._scrolled = false;
-                }
-            });
-        });
-    }
-}
-
-function tmRenderSegments() {
-    var segList = document.getElementById('transcript-modal-seg-list');
-    var segs = reelFullTranscriptData.segments;
-    var html = [];
-
-    for (var i = 0; i < segs.length; i++) {
-        var seg = segs[i];
-        var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
-        var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
-        var inRange = seg.start >= tmReelStart && seg.start < tmReelEnd;
-        var prevInRange = i > 0 && segs[i - 1].start >= tmReelStart && segs[i - 1].start < tmReelEnd;
-        var nextInRange = i < segs.length - 1 && segs[i + 1].start >= tmReelStart && segs[i + 1].start < tmReelEnd;
-
-        // Insert purple divider at start of range
-        if (inRange && !prevInRange) {
-            html.push('<div class="tm-divider" data-edge="start" onmousedown="tmStartDrag(event, \'start\')"></div>');
-        }
-
-        // In-range segments: editable text block (CapCut style)
-        if (inRange) {
-            html.push(
-                '<div class="tm-seg in-range" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
-                    '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(seg.text) + '" spellcheck="false">' + escHtml(seg.text) + '</span>' +
-                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
-                '</div>'
-            );
-        } else {
-            html.push(
-                '<div class="tm-seg" data-idx="' + i + '" onclick="tmSeekTo(' + seg.start + ')">' +
-                    '<span class="tm-text">' + escHtml(seg.text) + '</span>' +
-                    '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
-                '</div>'
-            );
-        }
-
-        // Insert purple divider at end of range
-        if (inRange && !nextInRange) {
-            html.push('<div class="tm-divider" data-edge="end" onmousedown="tmStartDrag(event, \'end\')"></div>');
-        }
-    }
-
-    segList.innerHTML = html.join('');
-
-    // Wire up inline text editing for in-range segments
-    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
-        el.addEventListener('click', function(e) { e.stopPropagation(); });
-        el.addEventListener('focus', function(e) { e.stopPropagation(); });
-        el.addEventListener('input', function() {
-            this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
-        });
-        el.addEventListener('keydown', function(e) {
-            var segIdx = parseInt(this.dataset.seg);
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                tmSplitSegment(segIdx, this);
-            } else if (e.key === 'Backspace') {
-                var sel = window.getSelection();
-                if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
-                    var offset = sel.getRangeAt(0).startOffset;
-                    if (offset === 0) {
-                        e.preventDefault();
-                        tmMergeWithPrev(segIdx);
-                    }
-                }
-            }
-        });
-    });
-
-    // Scroll to first in-range segment
-    var first = segList.querySelector('.tm-seg.in-range');
-    if (first) setTimeout(function() { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 100);
-}
-
-function tmSplitSegment(segIdx, el) {
-    var segs = reelFullTranscriptData.segments;
-    var seg = segs[segIdx];
-    if (!seg) return;
-
-    // Get cursor position in text
-    var sel = window.getSelection();
-    if (!sel.rangeCount) return;
-    var range = sel.getRangeAt(0);
-    var offset = range.startOffset;
-    var fullText = el.textContent;
-
-    // Don't split at start or end
-    if (offset === 0 || offset >= fullText.length) return;
-
-    var textBefore = fullText.substring(0, offset).trim();
-    var textAfter = fullText.substring(offset).trim();
-    if (!textBefore || !textAfter) return;
-
-    // Calculate split time proportionally
-    var segDur = (seg.end || seg.start) - seg.start;
-    var ratio = offset / fullText.length;
-    var splitTime = seg.start + segDur * ratio;
-
-    // Build two new segments
-    var seg1 = { start: seg.start, end: splitTime, text: textBefore };
-    var seg2 = { start: splitTime, end: seg.end || splitTime, text: textAfter };
-
-    // Rebuild word arrays for each
-    var wordsBefore = textBefore.split(/\s+/).filter(function(t) { return t; });
-    var wordsAfter = textAfter.split(/\s+/).filter(function(t) { return t; });
-    var dur1 = splitTime - seg.start;
-    var dur2 = (seg.end || splitTime) - splitTime;
-    seg1.words = wordsBefore.map(function(w, i) {
-        var wd = wordsBefore.length > 0 ? dur1 / wordsBefore.length : dur1;
-        return { word: w, start: seg.start + i * wd, end: seg.start + (i + 1) * wd, probability: 0.5 };
-    });
-    seg2.words = wordsAfter.map(function(w, i) {
-        var wd = wordsAfter.length > 0 ? dur2 / wordsAfter.length : dur2;
-        return { word: w, start: splitTime + i * wd, end: splitTime + (i + 1) * wd, probability: 0.5 };
-    });
-
-    // Splice into segments array
-    segs.splice(segIdx, 1, seg1, seg2);
-
-    // Re-render and focus the second segment
-    tmRenderSegments();
-    var newEl = document.querySelector('.tm-text[data-seg="' + (segIdx + 1) + '"]');
-    if (newEl) {
-        newEl.focus();
-        // Place cursor at start
-        var r = document.createRange();
-        r.setStart(newEl.firstChild || newEl, 0);
-        r.collapse(true);
-        var s = window.getSelection();
-        s.removeAllRanges();
-        s.addRange(r);
-    }
-}
-
-function tmMergeWithPrev(segIdx) {
-    var segs = reelFullTranscriptData.segments;
-    if (segIdx <= 0) return;
-    var prev = segs[segIdx - 1];
-    var curr = segs[segIdx];
-
-    // Only merge if both are in range
-    if (!(prev.start >= tmReelStart && prev.start < tmReelEnd)) return;
-
-    var mergedText = prev.text + ' ' + curr.text;
-    var prevLen = prev.text.length;
-
-    // Merge into previous segment
-    prev.text = mergedText;
-    prev.end = curr.end || curr.start;
-    prev.words = (prev.words || []).concat(curr.words || []);
-
-    // Remove current segment
-    segs.splice(segIdx, 1);
-
-    // Re-render and place cursor at the join point
-    tmRenderSegments();
-    var el = document.querySelector('.tm-text[data-seg="' + (segIdx - 1) + '"]');
-    if (el && el.firstChild) {
-        el.focus();
-        var r = document.createRange();
-        // Place cursor where the two texts joined (+1 for the space)
-        var pos = Math.min(prevLen + 1, el.firstChild.textContent.length);
-        r.setStart(el.firstChild, pos);
-        r.collapse(true);
-        var s = window.getSelection();
-        s.removeAllRanges();
-        s.addRange(r);
-    }
-}
-
-function tmSeekTo(timeSec) {
-    var video = document.getElementById('tm-video');
-    if (video) { video.currentTime = timeSec; video.play(); }
-}
-
-function tmStartDrag(e, edge) {
-    e.preventDefault();
-    var divider = e.target;
-    divider.classList.add('dragging');
-    var segList = document.getElementById('transcript-modal-seg-list');
-    var segs = reelFullTranscriptData.segments;
-
-    function onMove(ev) {
-        // Find which segment the mouse is nearest to
-        var allSegs = segList.querySelectorAll('.tm-seg');
-        var closest = null, closestDist = Infinity;
-        for (var i = 0; i < allSegs.length; i++) {
-            var rect = allSegs[i].getBoundingClientRect();
-            var mid = rect.top + rect.height / 2;
-            var dist = Math.abs(ev.clientY - mid);
-            if (dist < closestDist) { closestDist = dist; closest = i; }
-        }
-        if (closest === null) return;
-
-        var seg = segs[closest];
-        if (edge === 'start') {
-            tmReelStart = seg.start;
-        } else {
-            var endSec = seg.end || (segs[closest + 1] ? segs[closest + 1].start : seg.start + 10);
-            tmReelEnd = endSec;
-        }
-        tmRenderSegments();
-    }
-
-    function onUp() {
-        document.querySelectorAll('.tm-divider.dragging').forEach(function(d) { d.classList.remove('dragging'); });
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-
-        // Sync back to trim editor inputs
-        var ep = episodes.find(function(e) { return e.slug === currentSlug; });
-        var reel = ep && selectedReelId && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
-        if (reel) {
-            reel.start = formatTrimTime(tmReelStart);
-            reel.end = formatTrimTime(tmReelEnd);
-            var startInput = document.getElementById('reel-trim-start');
-            var endInput = document.getElementById('reel-trim-end');
-            if (startInput) startInput.value = reel.start;
-            if (endInput) endInput.value = reel.end;
-        }
-    }
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-}
-
-function closeTranscriptModal() {
-    document.getElementById('transcript-modal').classList.remove('open');
-    var video = document.getElementById('tm-video');
-    if (video) video.pause();
-}
-
-async function saveTranscriptModal() {
-    if (!currentSlug || !selectedReelId) { closeTranscriptModal(); return; }
-    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
-    var reel = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
-    if (!reel) { closeTranscriptModal(); return; }
-
-    try {
-        var res = await fetch('/api/save-reel-trim', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ slug: currentSlug, reelId: selectedReelId, start: reel.start, end: reel.end, cuts: reel.cuts || [] })
-        });
-        var data = await res.json();
-        if (!data.success) { showToast(data.error || 'Save failed', 'error'); return; }
-        showToast('Trim saved — re-cutting reel...', 'success');
-        closeTranscriptModal();
-        await fetch('/api/run-step', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ slug: currentSlug, step: 'cut', reelId: selectedReelId, force: true })
-        });
-    } catch (err) {
-        showToast('Failed: ' + err.message, 'error');
-    }
-}
-
-async function saveTranscriptWords() {
-    if (!currentSlug || !reelFullTranscriptData) return;
-    var segList = document.getElementById('transcript-modal-seg-list');
-    var segs = reelFullTranscriptData.segments;
-    var changed = false;
-
-    // Collect edits from contenteditable text blocks
-    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
-        var segIdx = parseInt(el.dataset.seg);
-        var seg = segs[segIdx];
-        if (!seg) return;
-        var newText = el.textContent.trim();
-        if (newText !== (seg.text || '').trim()) {
-            changed = true;
-            seg.text = newText;
-
-            // Rebuild word-level data from edited text, preserving timing spread
-            var tokens = newText.split(/\s+/).filter(function(t) { return t.length > 0; });
-            var segDur = (seg.end || seg.start || 0) - (seg.start || 0);
-
-            if (seg.words && seg.words.length > 0) {
-                // Redistribute existing timing across new word count
-                var totalDur = segDur;
-                var wordDur = tokens.length > 0 ? totalDur / tokens.length : totalDur;
-                seg.words = tokens.map(function(tok, ti) {
-                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
-                });
-            } else {
-                // Synthesize word data
-                var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
-                seg.words = tokens.map(function(tok, ti) {
-                    return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
-                });
-            }
-        }
-    });
-
-    if (!changed) { showToast('No changes to save', 'success'); return; }
-
-    // Rebuild flattened words array
-    reelFullTranscriptData.words = [];
-    segs.forEach(function(seg) {
-        if (seg.words) seg.words.forEach(function(w) { reelFullTranscriptData.words.push(w); });
-    });
-    reelFullTranscriptData.full_text = segs.map(function(s) { return s.text; }).join(' ');
-
-    try {
-        await fetch('/api/file', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                slug: currentSlug,
-                file: 'transcript.json',
-                content: JSON.stringify(reelFullTranscriptData, null, 2)
-            })
-        });
-        showToast('Transcript saved!', 'success');
-        // Reset edited markers
-        segList.querySelectorAll('.tm-text.edited').forEach(function(el) {
-            el.dataset.original = el.textContent.trim();
-            el.classList.remove('edited');
-        });
-    } catch (e) {
-        showToast('Save failed: ' + e.message, 'error');
-    }
-}
-
-// ─── End Reel-Full View ──────────────────────────────────────────────────────
 
 function buildReelActions(ep, reel) {
     var reelId = reel.id;
@@ -1771,9 +1350,79 @@ async function saveReelTrim(reelId) {
 }
 
 // ─── Reel Transcript Editor ──────────────────────────────────────────────────
+// Shows the exact subtitle chunks that will appear on screen (same chunking
+// logic as subtitle.js), not raw Whisper segments. User can edit text and
+// split/merge chunks. Saves to reel-XX-chunks.json which subtitle.js uses
+// directly, bypassing re-chunking.
 
 var reelTranscriptData = null;
 var reelTranscriptReelId = null;
+var reelChunksData = null; // computed/saved subtitle chunks
+
+// Mirrors subtitle.js reelWordsFromTranscript — fills in words missing from
+// Whisper word-level timing using segment text as the source of truth.
+function rtReelWordsFromTranscript(t) {
+    if (!t.segments || !t.segments.length) return t.words || [];
+    var result = [];
+    for (var i = 0; i < t.segments.length; i++) {
+        var seg = t.segments[i];
+        var textWords = seg.text.trim().split(/\s+/).filter(Boolean);
+        if (!textWords.length) continue;
+        var segWords = seg.words || [];
+        if (segWords.length === textWords.length) {
+            for (var j = 0; j < segWords.length; j++) result.push(segWords[j]);
+        } else {
+            var dur = seg.end - seg.start;
+            var wordDur = textWords.length > 0 ? dur / textWords.length : dur;
+            var swIdx = 0;
+            textWords.forEach(function(w, wi) {
+                if (swIdx < segWords.length && segWords[swIdx].word === w) {
+                    result.push(segWords[swIdx++]);
+                } else {
+                    result.push({ word: w, start: seg.start + wi * wordDur, end: seg.start + (wi + 1) * wordDur, probability: 0.5 });
+                }
+            });
+        }
+    }
+    return result;
+}
+
+// Mirrors subtitle.js chunkWords — groups words into subtitle chunks using
+// the same pause/sentence/length rules.
+var RT_PAUSE_BREAK_SEC = 0.4;
+var RT_SENTENCE_END_RE = /[.!?؟…]+$/;
+function rtChunkWords(words) {
+    var chunks = [];
+    var current = { words: [], start: null, end: null };
+    for (var i = 0; i < words.length; i++) {
+        var w = words[i];
+        if (w.start < 0) continue;
+        if (current.words.length > 0) {
+            var gap = w.start - current.end;
+            if (gap >= RT_PAUSE_BREAK_SEC) {
+                chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
+                current = { words: [], start: null, end: null };
+            }
+        }
+        if (current.start === null) current.start = w.start;
+        var trimmed = w.word.trim();
+        current.words.push(trimmed);
+        current.end = w.end;
+        var isSentenceEnd = RT_SENTENCE_END_RE.test(trimmed);
+        var hitLimit = current.words.length >= 6 || (current.end - current.start) >= 2;
+        if (isSentenceEnd || hitLimit) {
+            chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
+            current = { words: [], start: null, end: null };
+        }
+    }
+    if (current.words.length > 0) chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
+    // Close gaps (MAX_GAP_FILL = 3s, same as subtitle.js)
+    for (var j = 0; j < chunks.length - 1; j++) {
+        var g = chunks[j + 1].start - chunks[j].end;
+        if (g > 0 && g <= 3) chunks[j].end = chunks[j + 1].start;
+    }
+    return chunks;
+}
 
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
@@ -1783,42 +1432,55 @@ async function loadReelTranscript(reelId) {
 
     var padded = String(reelId).padStart(2, '0');
     reelTranscriptReelId = reelId;
+    reelChunksData = null;
+
+    // Try loading previously saved chunks first
+    try {
+        var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
+        if (chunksRes.ok) {
+            reelChunksData = JSON.parse(await chunksRes.text());
+            rtRenderChunks(contentEl);
+            return;
+        }
+    } catch (_) {}
+
+    // Fall back to computing chunks from the reel transcript
     try {
         var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
         if (!res.ok) throw new Error('No reel transcript found');
         reelTranscriptData = JSON.parse(await res.text());
-
-        rtRenderSegments(contentEl);
+        var words = rtReelWordsFromTranscript(reelTranscriptData);
+        reelChunksData = rtChunkWords(words);
+        rtRenderChunks(contentEl);
     } catch (err) {
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
     }
 }
 
-function rtRenderSegments(containerEl) {
+function rtRenderChunks(containerEl) {
     if (!containerEl) containerEl = document.getElementById('reel-transcript-content');
-    if (!containerEl || !reelTranscriptData) return;
-    var segs = reelTranscriptData.segments || [];
+    if (!containerEl || !reelChunksData) return;
 
     var html = '<div id="rt-seg-list" style="max-height:350px; overflow-y:auto; padding:4px 0; margin-bottom:8px;">';
-    for (var i = 0; i < segs.length; i++) {
-        var seg = segs[i];
-        var mins = String(Math.floor(seg.start / 60)).padStart(2, '0');
-        var secs = String(Math.floor(seg.start % 60)).padStart(2, '0');
-
-        html += '<div class="tm-seg in-range" data-idx="' + i + '" onclick="seekReelVideo(' + seg.start + ')">' +
-            '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(seg.text) + '" spellcheck="false">' + escHtml(seg.text) + '</span>' +
-            '<span class="tm-ts">' + mins + ':' + secs + '</span>' +
+    for (var i = 0; i < reelChunksData.length; i++) {
+        var chunk = reelChunksData[i];
+        var sm = String(Math.floor(chunk.start / 60)).padStart(2, '0');
+        var ss = String(Math.floor(chunk.start % 60)).padStart(2, '0');
+        var em = String(Math.floor(chunk.end / 60)).padStart(2, '0');
+        var es = String(Math.floor(chunk.end % 60)).padStart(2, '0');
+        html += '<div class="tm-seg in-range" data-idx="' + i + '" onclick="seekReelVideo(' + chunk.start + ')">' +
+            '<span class="tm-text" contenteditable="true" data-seg="' + i + '" data-original="' + escHtml(chunk.text) + '" spellcheck="false">' + escHtml(chunk.text) + '</span>' +
+            '<span class="tm-ts">' + sm + ':' + ss + '–' + em + ':' + es + '</span>' +
         '</div>';
     }
     html += '</div>';
     html += '<div style="display:flex; gap:6px;">' +
-        '<button onclick="saveReelTranscript(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-burn Subs</button>' +
+        '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-sub</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 
     containerEl.innerHTML = html;
 
-    // Wire up CapCut-style editing: Enter=split, Backspace@start=merge, input=mark edited
     containerEl.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
         el.addEventListener('click', function(e) { e.stopPropagation(); });
         el.addEventListener('focus', function(e) { e.stopPropagation(); });
@@ -1826,95 +1488,60 @@ function rtRenderSegments(containerEl) {
             this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
         });
         el.addEventListener('keydown', function(e) {
-            var segIdx = parseInt(this.dataset.seg);
+            var idx = parseInt(this.dataset.seg);
             if (e.key === 'Enter') {
                 e.preventDefault();
-                rtSplitSegment(segIdx, this);
+                rtSplitChunk(idx, this);
             } else if (e.key === 'Backspace') {
                 var sel = window.getSelection();
-                if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
-                    if (sel.getRangeAt(0).startOffset === 0) {
-                        e.preventDefault();
-                        rtMergeWithPrev(segIdx);
-                    }
+                if (sel.rangeCount && sel.getRangeAt(0).collapsed && sel.getRangeAt(0).startOffset === 0) {
+                    e.preventDefault();
+                    rtMergeChunkWithPrev(idx);
                 }
             }
         });
     });
 }
 
-function rtSplitSegment(segIdx, el) {
-    var segs = reelTranscriptData.segments;
-    var seg = segs[segIdx];
-    if (!seg) return;
-
+function rtSplitChunk(chunkIdx, el) {
+    var chunk = reelChunksData[chunkIdx];
+    if (!chunk) return;
     var sel = window.getSelection();
     if (!sel.rangeCount) return;
     var offset = sel.getRangeAt(0).startOffset;
     var fullText = el.textContent;
     if (offset === 0 || offset >= fullText.length) return;
-
     var textBefore = fullText.substring(0, offset).trim();
     var textAfter = fullText.substring(offset).trim();
     if (!textBefore || !textAfter) return;
-
-    var segDur = (seg.end || seg.start) - seg.start;
-    var ratio = offset / fullText.length;
-    var splitTime = seg.start + segDur * ratio;
-
-    var wordsBefore = textBefore.split(/\s+/).filter(function(t) { return t; });
-    var wordsAfter = textAfter.split(/\s+/).filter(function(t) { return t; });
-    var dur1 = splitTime - seg.start;
-    var dur2 = (seg.end || splitTime) - splitTime;
-
-    var seg1 = { start: seg.start, end: splitTime, text: textBefore,
-        words: wordsBefore.map(function(w, i) { var wd = dur1 / wordsBefore.length; return { word: w, start: seg.start + i * wd, end: seg.start + (i + 1) * wd, probability: 0.5 }; })
-    };
-    var seg2 = { start: splitTime, end: seg.end || splitTime, text: textAfter,
-        words: wordsAfter.map(function(w, i) { var wd = dur2 / wordsAfter.length; return { word: w, start: splitTime + i * wd, end: splitTime + (i + 1) * wd, probability: 0.5 }; })
-    };
-
-    segs.splice(segIdx, 1, seg1, seg2);
-    rtRenderSegments();
-
-    // Focus the second segment at the start
-    var newEl = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (segIdx + 1) + '"]');
+    var splitTime = chunk.start + (chunk.end - chunk.start) * (offset / fullText.length);
+    reelChunksData.splice(chunkIdx, 1,
+        { text: textBefore, start: chunk.start, end: splitTime },
+        { text: textAfter, start: splitTime, end: chunk.end }
+    );
+    rtRenderChunks();
+    var newEl = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (chunkIdx + 1) + '"]');
     if (newEl) {
         newEl.focus();
-        var r = document.createRange();
-        r.setStart(newEl.firstChild || newEl, 0);
-        r.collapse(true);
-        var s = window.getSelection();
-        s.removeAllRanges();
-        s.addRange(r);
+        var r = document.createRange(); r.setStart(newEl.firstChild || newEl, 0); r.collapse(true);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
     }
 }
 
-function rtMergeWithPrev(segIdx) {
-    var segs = reelTranscriptData.segments;
-    if (segIdx <= 0) return;
-    var prev = segs[segIdx - 1];
-    var curr = segs[segIdx];
+function rtMergeChunkWithPrev(chunkIdx) {
+    if (chunkIdx <= 0) return;
+    var prev = reelChunksData[chunkIdx - 1];
+    var curr = reelChunksData[chunkIdx];
     var prevLen = prev.text.length;
-
     prev.text = prev.text + ' ' + curr.text;
-    prev.end = curr.end || curr.start;
-    prev.words = (prev.words || []).concat(curr.words || []);
-    segs.splice(segIdx, 1);
-
-    rtRenderSegments();
-
-    // Place cursor at the join point
-    var el = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (segIdx - 1) + '"]');
+    prev.end = curr.end;
+    reelChunksData.splice(chunkIdx, 1);
+    rtRenderChunks();
+    var el = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (chunkIdx - 1) + '"]');
     if (el && el.firstChild) {
         el.focus();
-        var r = document.createRange();
-        var pos = Math.min(prevLen + 1, el.firstChild.textContent.length);
-        r.setStart(el.firstChild, pos);
-        r.collapse(true);
-        var s = window.getSelection();
-        s.removeAllRanges();
-        s.addRange(r);
+        var r = document.createRange(); r.setStart(el.firstChild, Math.min(prevLen + 1, el.firstChild.textContent.length)); r.collapse(true);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
     }
 }
 
@@ -1926,68 +1553,39 @@ function seekReelVideo(time) {
     }
 }
 
-async function saveReelTranscript(reelId) {
+async function saveReelChunks(reelId) {
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
-
-    if (!reelTranscriptData) return;
+    if (!reelChunksData) return;
     var padded = String(reelId).padStart(2, '0');
-    var transcript = reelTranscriptData;
-    var segs = transcript.segments;
-
     try {
-        // Collect edits from CapCut-style contenteditable text blocks
+        // Collect any in-progress text edits
         var segList = document.getElementById('rt-seg-list');
         if (segList) {
             segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
-                var segIdx = parseInt(el.dataset.seg);
-                var seg = segs[segIdx];
-                if (!seg) return;
-                var newText = el.textContent.trim();
-                if (newText !== (seg.text || '').trim()) {
-                    seg.text = newText;
-                    // Rebuild word-level data from edited text
-                    var tokens = newText.split(/\s+/).filter(function(t) { return t; });
-                    var segDur = (seg.end || seg.start) - seg.start;
-                    var wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
-                    seg.words = tokens.map(function(tok, ti) {
-                        return { word: tok, start: seg.start + ti * wordDur, end: seg.start + (ti + 1) * wordDur, probability: 0.5 };
-                    });
-                }
+                var idx = parseInt(el.dataset.seg);
+                if (reelChunksData[idx]) reelChunksData[idx].text = el.textContent.trim();
             });
         }
 
-        // Rebuild top-level words and full_text
-        transcript.words = [];
-        transcript.full_text = '';
-        segs.forEach(function(seg) {
-            if (seg.words) transcript.words.push.apply(transcript.words, seg.words);
-            transcript.full_text += (transcript.full_text ? ' ' : '') + seg.text;
-        });
-        transcript.word_count = transcript.words.length;
-
-        // Save transcript
         await fetch('/api/file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 slug: currentSlug,
-                file: 'reels/reel-' + padded + '-transcript.json',
-                content: JSON.stringify(transcript, null, 2)
+                file: 'reels/reel-' + padded + '-chunks.json',
+                content: JSON.stringify(reelChunksData, null, 2)
             })
         });
 
-        // Reset edited markers
         if (segList) {
             segList.querySelectorAll('.tm-text.edited').forEach(function(el) {
                 el.dataset.original = el.textContent.trim();
                 el.classList.remove('edited');
             });
         }
-
         if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
 
-        // Trigger subtitle re-burn using the edited transcript (no re-transcription)
         await fetch('/api/run-step', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

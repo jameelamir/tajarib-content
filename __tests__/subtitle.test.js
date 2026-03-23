@@ -4,6 +4,7 @@ const {
   closeSubtitleGaps,
   generateSRT,
   generateASS,
+  reelWordsFromTranscript,
   MAX_GAP_FILL,
   TITLE_DURATION,
 } = require("../subtitle");
@@ -222,12 +223,11 @@ describe("generateASS", () => {
     expect(ass).toContain("[Events]");
   });
 
-  test("animated style produces three layers per subtitle", () => {
+  test("animated style produces two layers per subtitle", () => {
     const ass = generateASS(sampleWords, 0, null, { width: 1080, height: 1920 }, "animated");
     const dialogueLines = ass.split("\n").filter(l => l.startsWith("Dialogue:"));
-    // Each subtitle chunk gets 3 layers (HighlightGlow, Highlight, Text)
-    expect(dialogueLines.length % 3).toBe(0);
-    expect(dialogueLines.some(l => l.includes("HighlightGlow"))).toBe(true);
+    // Each subtitle chunk gets 2 layers (Highlight, Text) — shadow is handled by ffmpeg gradient
+    expect(dialogueLines.length % 2).toBe(0);
     expect(dialogueLines.some(l => l.includes("Highlight,"))).toBe(true);
     expect(dialogueLines.some(l => l.includes("Text,"))).toBe(true);
   });
@@ -280,5 +280,67 @@ describe("constants", () => {
 
   test("TITLE_DURATION is defined", () => {
     expect(TITLE_DURATION).toBe(5);
+  });
+});
+
+describe("reelWordsFromTranscript", () => {
+  test("returns words array directly when segment word count matches", () => {
+    const transcript = {
+      segments: [
+        {
+          start: 0, end: 2,
+          text: "hello world",
+          words: [
+            { word: "hello", start: 0, end: 1 },
+            { word: "world", start: 1, end: 2 },
+          ],
+        },
+      ],
+    };
+    const result = reelWordsFromTranscript(transcript);
+    expect(result).toHaveLength(2);
+    expect(result[0].word).toBe("hello");
+    expect(result[1].word).toBe("world");
+  });
+
+  test("synthesizes timing for missing first word in segment", () => {
+    // Whisper sometimes omits word-level timestamps for the first word of a segment
+    const transcript = {
+      segments: [
+        {
+          start: 0, end: 2,
+          text: "first second",
+          words: [
+            // "first" is missing — only "second" has a timestamp
+            { word: "second", start: 1.0, end: 2.0 },
+          ],
+        },
+      ],
+    };
+    const result = reelWordsFromTranscript(transcript);
+    expect(result).toHaveLength(2);
+    expect(result[0].word).toBe("first");
+    expect(result[0].start).toBeCloseTo(0, 1);
+    expect(result[1].word).toBe("second");
+    expect(result[1].start).toBe(1.0);
+  });
+
+  test("handles transcript with no segments by returning words array", () => {
+    const transcript = {
+      words: [{ word: "test", start: 0, end: 1 }],
+    };
+    const result = reelWordsFromTranscript(transcript);
+    expect(result).toHaveLength(1);
+    expect(result[0].word).toBe("test");
+  });
+
+  test("handles empty segments array by returning words array", () => {
+    const transcript = {
+      segments: [],
+      words: [{ word: "fallback", start: 0, end: 1 }],
+    };
+    const result = reelWordsFromTranscript(transcript);
+    expect(result).toHaveLength(1);
+    expect(result[0].word).toBe("fallback");
   });
 });

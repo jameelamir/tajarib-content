@@ -13,6 +13,7 @@ const segments = [
   { start: 50.0, end: 58.7, text: "التحديات كانت كثيرة بصراحة" },
   { start: 58.7, end: 65.0, text: "أول شي واجهته هو التمويل" },
   { start: 65.0, end: 72.4, text: "ما كان عندي أي خبرة في هذا المجال" },
+  { start: 72.4, end: 80.0, text: "لكن تعلمت من التجربة" },
 ];
 
 describe("findSegmentByText", () => {
@@ -92,16 +93,17 @@ describe("resolveTimestamps", () => {
   });
 
   test("resolves reels the same way as cuts", () => {
+    // Reels skip the first 60s teaser, so text_start must be in a segment after 60s
     const analysis = {
       reels: [
-        { id: 1, text_start: "خلونا نبدأ بالسؤال الأول", text_end: "أول شي واجهته هو التمويل" },
+        { id: 1, text_start: "ما كان عندي أي خبرة في هذا المجال", text_end: "لكن تعلمت من التجربة" },
       ],
     };
 
     resolveTimestamps(analysis, segments);
 
-    expect(analysis.reels[0].start).toBe("00:35");
-    expect(analysis.reels[0].end).toBe("00:58");
+    expect(analysis.reels[0].start).toBe("01:05");
+    expect(analysis.reels[0].end).toBe("01:12");
   });
 
   test("resolves chapters (only text_start)", () => {
