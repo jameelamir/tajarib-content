@@ -219,9 +219,11 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
   if (overlayConfigMatch) {
     const slug = decodeURIComponent(overlayConfigMatch[1]);
     const dir = path.join(EPISODES_DIR, slug), configPath = path.join(dir, "overlay-config.json");
+    const workspaceConfigPath = path.join(WORKSPACE_DIR, "overlay-config.json");
     if (req.method === "GET") {
       const defaults = { sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 }, logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 }, lowerThird: { enabled: false, startTime: 2, endTime: 8 }, cta: { enabled: false, mode: "text", text: "www.tajarib.show", fontSize: 28, fontColor: "#ffffff", imagePath: "", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 } };
-      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(loadJSON(configPath) || defaults));
+      // Fallback: episode-specific → workspace default → hardcoded defaults
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(loadJSON(configPath) || loadJSON(workspaceConfigPath) || defaults));
       return true;
     }
     if (req.method === "POST") {
@@ -230,6 +232,8 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
         const config = JSON.parse(body);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        // Also write as workspace default so new episodes inherit this config
+        fs.writeFileSync(workspaceConfigPath, JSON.stringify(config, null, 2));
         res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
         io.emit("toast", { type: "success", message: "Overlay config saved" });
       } catch (e) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: e.message })); }
