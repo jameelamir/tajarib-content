@@ -5,7 +5,10 @@
 const fs = require("fs");
 const path = require("path");
 
-const EPISODES_DIR = path.join(__dirname, "episodes");
+const SHARED_DIR = path.resolve(__dirname, "..");
+const EPISODES_DIR = fs.existsSync(SHARED_DIR) && SHARED_DIR !== __dirname
+  ? path.join(SHARED_DIR, "episodes")
+  : path.join(__dirname, "episodes");
 
 /**
  * Parse a timestamp string (MM:SS or HH:MM:SS) into seconds.
@@ -87,17 +90,28 @@ function formatTranscriptForPrompt(transcript) {
 }
 
 /**
+ * Normalize Eastern Arabic numerals (٠١٢٣٤٥٦٧٨٩) to Western (0123456789).
+ */
+function normalizeNumerals(text) {
+  return text.replace(/[٠-٩]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x0660 + 48));
+}
+
+/**
  * Fuzzy-match a text excerpt against transcript segments.
  * Returns the timestamp (in seconds) of the best-matching segment, or null.
+ * Options:
+ *   afterTime: skip segments before this timestamp (seconds)
  */
-function findSegmentByText(segments, excerpt) {
+function findSegmentByText(segments, excerpt, opts) {
   if (!excerpt || !segments.length) return null;
-  const needle = excerpt.trim().replace(/\s+/g, " ");
+  const afterTime = (opts && opts.afterTime) || 0;
+  const needle = normalizeNumerals(excerpt.trim().replace(/\s+/g, " "));
 
   // Try sliding windows of 1-4 consecutive segments
   for (let winSize = 1; winSize <= Math.min(4, segments.length); winSize++) {
     for (let i = 0; i <= segments.length - winSize; i++) {
-      const combined = segments.slice(i, i + winSize).map(s => s.text.trim()).join(" ").replace(/\s+/g, " ");
+      if (segments[i].start < afterTime) continue;
+      const combined = normalizeNumerals(segments.slice(i, i + winSize).map(s => s.text.trim()).join(" ").replace(/\s+/g, " "));
       if (combined.includes(needle)) return segments[i].start;
       if (needle.includes(combined) && winSize > 1) return segments[i].start;
     }
@@ -108,7 +122,8 @@ function findSegmentByText(segments, excerpt) {
   let bestIdx = -1;
   let bestScore = 0;
   for (let i = 0; i < segments.length; i++) {
-    const haystackWords = segments[i].text.trim().replace(/\s+/g, " ").split(" ");
+    if (segments[i].start < afterTime) continue;
+    const haystackWords = normalizeNumerals(segments[i].text.trim().replace(/\s+/g, " ")).split(" ");
     const overlap = needleWords.filter(w => haystackWords.includes(w)).length;
     const score = overlap / Math.max(needleWords.length, 1);
     if (score > bestScore) { bestScore = score; bestIdx = i; }
