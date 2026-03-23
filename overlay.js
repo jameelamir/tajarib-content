@@ -176,7 +176,8 @@ async function overlay(slug, options) {
   // Load config if --config mode
   let config = null;
   if (options.useConfig) {
-    config = loadJSON(path.join(dir, "overlay-config.json"));
+    config = loadJSON(path.join(dir, "overlay-config.json"))
+          || loadJSON(path.join(__dirname, "overlay-config.json")); // workspace default
     if (!config) {
       console.log("⚠️  No overlay-config.json found, falling back to defaults.");
       config = {
@@ -355,7 +356,8 @@ async function overlay(slug, options) {
         movChain += `[${idx}:v]scale=${ltScale}:-1[lt];{LAST}[lt]overlay=${ltX}:${ltY}:enable='between(t,${ltStart},${ltEnd})'[after_lt]`;
       } else {
         // Shift MOV timeline so its first frame aligns with ltStart (preserves reveal animations)
-        movChain += `[${idx}:v]setpts=PTS-STARTPTS+${ltStart}/TB,scale=${ltScale}:-1,format=rgba[lt];{LAST}[lt]overlay=${ltX}:${ltY}:eof_action=pass:enable='between(t,${ltStart},${ltEnd})'[after_lt]`;
+        // Use eof_action=pass (not enable end bound) so the animation plays through its natural end
+        movChain += `[${idx}:v]setpts=PTS-STARTPTS+${ltStart}/TB,scale=${ltScale}:-1,format=rgba[lt];{LAST}[lt]overlay=${ltX}:${ltY}:eof_action=pass:enable='gte(t,${ltStart})'[after_lt]`;
       }
       movLastLabel = "[after_lt]";
       console.log(`   📝 Lower-third: custom file "${config.lowerThird.customFile}" (${ltStart}s-${ltEnd}s)`);
@@ -371,7 +373,9 @@ async function overlay(slug, options) {
     if (shadowInput) {
       shadowInputs = [shadowInput];
       inputOffset = 1;
-      shadowPrefix = `[1:v]scale=${dims.width}:${dims.height},format=rgba[shadow];[0:v][shadow]overlay=0:0[shadowed];`;
+      // Crop shadow to top half only — prevents darkening the subtitle area at the bottom
+      const shadowH = Math.floor(dims.height / 2);
+      shadowPrefix = `[1:v]scale=${dims.width}:${dims.height},format=rgba,crop=${dims.width}:${shadowH}:0:0,pad=${dims.width}:${dims.height}:0:0:color=0x00000000[shadow];[0:v][shadow]overlay=0:0[shadowed];`;
       // Reindex all overlay input references (they assumed input 1,2,3... but shadow took slot 1)
       if (movChain) {
         movChain = movChain.replace(/\[(\d+):v\]/g, (match, idx) => `[${parseInt(idx) + inputOffset}:v]`);

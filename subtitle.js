@@ -86,6 +86,42 @@ function getVideoDimensions(videoPath) {
   return { width: 1080, height: 1920 };
 }
 
+// Reconstruct a complete word list from a reel transcript, filling in any words
+// that appear in segment text but are missing from segment word-level timing data
+// (a known Whisper limitation: first words of segments sometimes lack timestamps).
+function reelWordsFromTranscript(clipT) {
+  if (!clipT.segments || !clipT.segments.length) return clipT.words || [];
+  const result = [];
+  for (const seg of clipT.segments) {
+    const textWords = seg.text.trim().split(/\s+/).filter(Boolean);
+    if (!textWords.length) continue;
+    const segWords = seg.words || [];
+    if (segWords.length === textWords.length) {
+      result.push(...segWords);
+    } else {
+      // Some words in segment text are missing from seg.words — synthesize timing
+      // for the missing ones using proportional distribution within the segment.
+      const dur = seg.end - seg.start;
+      const wordDur = textWords.length > 0 ? dur / textWords.length : dur;
+      // Build a lookup for existing word timings (by position in seg.words)
+      let swIdx = 0;
+      textWords.forEach((w, i) => {
+        if (swIdx < segWords.length && segWords[swIdx].word === w) {
+          result.push(segWords[swIdx++]);
+        } else {
+          result.push({
+            word: w,
+            start: seg.start + i * wordDur,
+            end: seg.start + (i + 1) * wordDur,
+            probability: 0.5
+          });
+        }
+      });
+    }
+  }
+  return result;
+}
+
 // Close small gaps between consecutive subtitle chunks so there is no visual
 // emptiness.  If the gap between two chunks is <= MAX_GAP_FILL seconds, extend
 // the earlier chunk's end time to meet the next chunk's start time.
@@ -160,8 +196,8 @@ function chunkWords(words, startOffset = 0) {
 // Generate ASS format subtitles
 // style: "animated" — highlight sweeps right-to-left beneath text (two layers)
 //        "static"   — plain purple box behind text (single layer)
-function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null, style = "animated") {
-  const chunks = chunkWords(words, startOffset);
+function generateASS(words, startOffset = 0, titleCard = null, videoDimensions = null, style = "animated", precomputedChunks = null) {
+  const chunks = precomputedChunks || chunkWords(words, startOffset);
 
   // Scale font sizes and margins relative to actual video dimensions
   const vd = videoDimensions || { width: 1080, height: 1920 };
@@ -500,33 +536,22 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       // when force is set (re-clicking Sub) or when transcript is from YouTube
       let reelWords;
       let wordStartOffset = startSec;
+      let savedChunks = null;
 
       if (noTranscribe) {
-        // Use existing reel transcript (edited) — skip re-transcription
+        // Use saved subtitle chunks if the user edited them in the transcript editor
+        const clipChunksPath = path.join(reelsDir, `reel-${reelId}-chunks.json`);
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
-        if (fs.existsSync(clipTranscriptPath)) {
+        if (fs.existsSync(clipChunksPath)) {
+          savedChunks = JSON.parse(fs.readFileSync(clipChunksPath, "utf8"));
+          reelWords = [];
+          wordStartOffset = 0;
+          console.log(`   📝 Using ${savedChunks.length} saved subtitle chunks`);
+        } else if (fs.existsSync(clipTranscriptPath)) {
           const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
-          reelWords = clipT.words || [];
-          // If words array is empty, synthesize from segments
-          if (!reelWords.length && clipT.segments) {
-            for (const seg of clipT.segments) {
-              if (seg.words && seg.words.length) {
-                reelWords.push(...seg.words);
-              } else {
-                // synthesize from text
-                const words = seg.text.trim().split(/\s+/);
-                const dur = seg.end - seg.start;
-                words.forEach((w, i) => {
-                  reelWords.push({
-                    word: w,
-                    start: seg.start + (dur * i / words.length),
-                    end: seg.start + (dur * (i + 1) / words.length),
-                    probability: 1.0
-                  });
-                });
-              }
-            }
-          }
+          // Reconstruct from segments so words missing from Whisper word-level
+          // timing (e.g. first word of a segment) are filled in from segment text.
+          reelWords = reelWordsFromTranscript(clipT);
           wordStartOffset = 0;
           console.log(`   📝 Using edited reel transcript: ${reelWords.length} words`);
         } else {
@@ -541,7 +566,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
         const txMtime = fs.existsSync(clipTranscriptPath) ? fs.statSync(clipTranscriptPath).mtimeMs : 0;
         if (txMtime > cutMtime && fs.existsSync(clipTranscriptPath)) {
           const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
-          const cachedWords = clipT.words || [];
+          const cachedWords = reelWordsFromTranscript(clipT);
           if (cachedWords.length > 0) {
             console.log(`   ♻️  Reusing reel transcript (cut unchanged): ${cachedWords.length} words`);
             reelWords = cachedWords;
@@ -568,7 +593,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
 
       // Always use ASS format — embedded styles avoid force_style FFmpeg parsing issues
-      const subtitleContent = generateASS(reelWords, wordStartOffset, titleCard ? reelTitle : null, videoDims, subtitleStyle);
+      const subtitleContent = generateASS(reelWords, wordStartOffset, titleCard ? reelTitle : null, videoDims, subtitleStyle, savedChunks);
 
       fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
       const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
@@ -637,7 +662,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   console.log(`\n✅ All done! Subtitled reels saved to: ${reelsDir}`);
 }
 
-module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, generateSRT, generateASS, MAX_GAP_FILL, TITLE_DURATION };
+module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, generateSRT, generateASS, reelWordsFromTranscript, MAX_GAP_FILL, TITLE_DURATION };
 
 // CLI
 if (require.main === module) {
