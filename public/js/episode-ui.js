@@ -30,10 +30,19 @@ function renderSidebar() {
         const typeLabel = ep.mediaType === 'episode' ? 'EP' : ep.mediaType === 'reel_full' ? 'RF' : 'RC';
         const mtLabel = ep.multiTrack ? ' MT' : '';
 
+        var analyzeBtn = '';
+        if (ep.mediaType === 'episode' && ep.steps.transcribed) {
+            var analyzing = isStepRunning(ep.slug, 'analyze');
+            var label = analyzing ? '⏳' : ep.steps.analyzed ? 'Analyze ✓' : 'Analyze';
+            var cls = 'ep-analyze-btn' + (ep.steps.analyzed ? ' done' : '') + (analyzing ? ' running' : '');
+            analyzeBtn = '<button class="' + cls + '" onclick="event.stopPropagation(); currentSlug=\'' + ep.slug + '\'; runStep(\'analyze\')">' + label + '</button>';
+        }
+
         var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
                 '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + ep.slug + '</span>' +
+                analyzeBtn +
             '</div>' +
             (sizeMb ? '<div class="ep-info"><span>' + sizeMb + '</span></div>' : '') +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
@@ -47,6 +56,7 @@ function renderSidebar() {
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
                 '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
+                '<button onclick="event.stopPropagation(); runStep(\'cut\')">Cut All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'overlay\')">Ovr All</button>' +
@@ -71,6 +81,10 @@ function renderSidebar() {
                     '<span class="sidebar-reel-title">' + r.id + '</span>' +
                     (r.hook ? '<span class="sidebar-reel-hook">' + r.hook + '</span>' : '') +
                     '<span class="sidebar-reel-dots">' + dots + '</span>' +
+                    '<span class="sidebar-reel-actions">' +
+                        '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show' : 'Hide') + '">' + (r.hidden ? '👁' : '−') + '</button>' +
+                        '<button class="sidebar-reel-btn sidebar-reel-btn-del" onclick="event.stopPropagation(); deleteReel(\'' + r.id + '\')" title="Delete">×</button>' +
+                    '</span>' +
                 '</div>';
             }).join('');
 

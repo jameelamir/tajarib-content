@@ -71,7 +71,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       io.emit("log", { slug, text: `\n📋 Manual LLM response received — resuming ${step}...\n` });
       const meta = loadMeta(slug);
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
-      const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : step;
+      const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : step === "analyze-more" ? "analyze" : step;
       // When resuming a per-reel manual LLM response, scope to just that reel
       // so it doesn't cascade to the next reel and trigger another popup.
       // With --reel-id, there's only one LLM call, so resumeRound is always 0.
@@ -85,7 +85,8 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
         youtubeOnly = true;
         resumeRound = 0;
       }
-      runStep({ slug, step: actualStep, force: true, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound, reelId, youtubeOnly });
+      const more = step === "analyze-more";
+      runStep({ slug, step: actualStep, force: true, more, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound, reelId, youtubeOnly });
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }

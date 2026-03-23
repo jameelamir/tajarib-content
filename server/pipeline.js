@@ -80,9 +80,25 @@ module.exports = function init(ctx) {
     io.emit("status-update", {});
   }
 
-  function runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly }) {
+  const stepQueue = {}; // per-procKey queue of pending steps
+
+  function runStep(params) {
+    const { slug, step, reelId } = params;
     const procKey = reelId ? `${slug}:${reelId}` : slug;
-    if (activeProcesses[procKey]) { io.emit("toast", { type: "error", message: `${slug}${reelId ? ' reel ' + reelId : ''} is already running` }); return; }
+    if (activeProcesses[procKey]) {
+      // Queue instead of rejecting
+      if (!stepQueue[procKey]) stepQueue[procKey] = [];
+      stepQueue[procKey].push(params);
+      const pos = stepQueue[procKey].length;
+      io.emit("log", { slug, reelId: reelId || null, text: `\n⏳ Queued: ${step} (#${pos} in queue)\n` });
+      io.emit("toast", { type: "info", message: `${step} queued — will run after current step` });
+      return;
+    }
+    _runStep(params);
+  }
+
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly }) {
+    const procKey = reelId ? `${slug}:${reelId}` : slug;
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
     let videoFile = "raw.mp4";
@@ -170,6 +186,14 @@ module.exports = function init(ctx) {
       io.emit("process-end", { slug, step, code, reelId: _rid });
       io.emit("status-update", {});
       if (step === "transcribe" && code === 0) await handlePostTranscription(slug);
+
+      // Drain queue — run next queued step for this procKey
+      if (stepQueue[procKey] && stepQueue[procKey].length > 0) {
+        const next = stepQueue[procKey].shift();
+        if (stepQueue[procKey].length === 0) delete stepQueue[procKey];
+        io.emit("log", { slug, reelId: _rid, text: `\n▶ Running queued step: ${next.step}\n` });
+        _runStep(next);
+      }
     });
   }
 
