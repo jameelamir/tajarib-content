@@ -973,6 +973,9 @@ async function renderTranscriptContext(ep, reel) {
                 '<div class="ctx-handle" id="ctx-handle-start"></div>' +
                 '<div class="ctx-handle" id="ctx-handle-end"></div>' +
             '</div>' +
+            '<div style="display:flex; justify-content:flex-end; margin-top:8px;">' +
+                '<button class="primary" onclick="saveReelTrim(\'' + reel.id + '\')" style="font-size:0.7rem;">Save & Re-cut</button>' +
+            '</div>' +
         '</div>';
 
     // Store video src for the popup

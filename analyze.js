@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const llm = require("./llm");
 const prompts = require("./prompts");
-const { formatTimestamp, loadTranscript, formatTranscriptForPrompt, findSegmentByText, EPISODES_DIR } = require("./utils");
+const { formatTimestamp, toSeconds, loadTranscript, formatTranscriptForPrompt, findSegmentByText, EPISODES_DIR } = require("./utils");
 
 const CLI_ARGS = process.argv.slice(2);
 
@@ -40,18 +40,31 @@ function resolveTimestamps(analysis, segments) {
     analysis.cuts = analysis.cuts.filter(c => c.start && c.end);
   }
 
-  // Resolve reels
+  // Resolve reels — skip teaser (first 60s), validate start < end
+  const TEASER_SECONDS = 60;
   if (analysis.reels) {
     for (const reel of analysis.reels) {
       if (reel.text_start) {
-        const t = findSegmentByText(segments, reel.text_start);
+        const t = findSegmentByText(segments, reel.text_start, { afterTime: TEASER_SECONDS });
         if (t !== null) reel.start = formatTimestamp(t);
         delete reel.text_start;
       }
       if (reel.text_end) {
-        const t = findSegmentByText(segments, reel.text_end);
+        // End must be after start
+        const startSec = reel.start ? toSeconds(reel.start) : 0;
+        const t = findSegmentByText(segments, reel.text_end, { afterTime: startSec });
         if (t !== null) reel.end = formatTimestamp(t);
         delete reel.text_end;
+      }
+      // Validate: end must be after start, and duration should be reasonable
+      if (reel.start && reel.end) {
+        const startSec = toSeconds(reel.start);
+        const endSec = toSeconds(reel.end);
+        if (endSec <= startSec && reel.duration_seconds) {
+          reel.end = formatTimestamp(startSec + reel.duration_seconds);
+        }
+      } else if (reel.start && !reel.end && reel.duration_seconds) {
+        reel.end = formatTimestamp(toSeconds(reel.start) + reel.duration_seconds);
       }
     }
     analysis.reels = analysis.reels.filter(r => r.start && r.end);
@@ -220,12 +233,21 @@ async function analyzeMore(slug) {
   });
 
   const epDir = path.join(EPISODES_DIR, slug);
+  const isResume = CLI_ARGS.includes("--resume");
   let rawContent;
   let elapsed = "0";
   let tokenInfo = { input: 0, output: 0, total: 0 };
   let modelName = "manual";
 
-  if (!llm.hasKey()) {
+  if (isResume) {
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      console.error("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    rawContent = fs.readFileSync(responsePath, "utf8");
+    console.log("📋 Using manually provided LLM response");
+  } else if (!llm.hasKey()) {
     console.log("📋 No API key found — entering manual LLM mode");
     const promptData = {
       step: "analyze-more",
@@ -236,22 +258,22 @@ async function analyzeMore(slug) {
     fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
     console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
     process.exit(42);
+  } else {
+    const config = llm.getConfig();
+    console.log(`🤖 Sending to ${config.model || 'default model'} for more reels...`);
+    const startTime = Date.now();
+
+    const response = await llm.chat({
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      maxTokens: 4096,
+    });
+
+    elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    rawContent = response.text;
+    modelName = response.model;
+    tokenInfo = response.usage;
   }
-
-  const config = llm.getConfig();
-  console.log(`🤖 Sending to ${config.model || 'default model'} for more reels...`);
-  const startTime = Date.now();
-
-  const response = await llm.chat({
-    system: SYSTEM_PROMPT,
-    user: userMessage,
-    maxTokens: 4096,
-  });
-
-  elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  rawContent = response.text;
-  modelName = response.model;
-  tokenInfo = response.usage;
 
   // Parse JSON response
   let result;

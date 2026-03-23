@@ -534,15 +534,30 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
           reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
         }
       } else if (force || isYouTubeTranscript) {
-        console.log(`   🎙️  Re-transcribing reel clip (force=${force})...`);
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
-        const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
-        if (whisperWords && whisperWords.length > 0) {
-          reelWords = whisperWords;
-          wordStartOffset = 0; // clip timestamps are already 0-indexed
-        } else {
-          console.log(`   ⚠️  Falling back to episode transcript words`);
-          reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+        // Skip retranscription if the cut file hasn't changed since last transcription
+        // (e.g., only a crop happened — same audio, different visuals)
+        const cutMtime = fs.existsSync(rawReelPath) ? fs.statSync(rawReelPath).mtimeMs : 0;
+        const txMtime = fs.existsSync(clipTranscriptPath) ? fs.statSync(clipTranscriptPath).mtimeMs : 0;
+        if (txMtime > cutMtime && fs.existsSync(clipTranscriptPath)) {
+          const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
+          const cachedWords = clipT.words || [];
+          if (cachedWords.length > 0) {
+            console.log(`   ♻️  Reusing reel transcript (cut unchanged): ${cachedWords.length} words`);
+            reelWords = cachedWords;
+            wordStartOffset = 0;
+          }
+        }
+        if (!reelWords) {
+          console.log(`   🎙️  Re-transcribing reel clip (force=${force})...`);
+          const whisperWords = whisperTranscribeClip(videoPath, clipTranscriptPath);
+          if (whisperWords && whisperWords.length > 0) {
+            reelWords = whisperWords;
+            wordStartOffset = 0; // clip timestamps are already 0-indexed
+          } else {
+            console.log(`   ⚠️  Falling back to episode transcript words`);
+            reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+          }
         }
       } else {
         reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
