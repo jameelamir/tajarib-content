@@ -7,6 +7,7 @@ const path = require("path");
 module.exports = async function mediaRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, loadMeta, readBody, formidable, getStorageConfig } = ctx;
   const ASSETS_DIR = path.join(WORKSPACE_DIR, "assets");
+  const SHARED_ASSETS_DIR = path.join(path.resolve(WORKSPACE_DIR, ".."), "assets");
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
   if (req.method === "GET" && url.pathname === "/api/reel-versions") {
@@ -135,13 +136,15 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     }
     const files = scanDir(ASSETS_DIR, "local");
     const storageConf = getStorageConfig();
-    if (storageConf.sharedAssetsDir && fs.existsSync(storageConf.sharedAssetsDir)) {
-      const sharedFiles = scanDir(storageConf.sharedAssetsDir, "shared");
+    const sharedDir = storageConf.sharedAssetsDir || (fs.existsSync(SHARED_ASSETS_DIR) ? SHARED_ASSETS_DIR : null);
+    if (sharedDir && fs.existsSync(sharedDir)) {
+      const sharedFiles = scanDir(sharedDir, "shared");
       const localTargets = new Set(files.filter(f => f.isSymlink && f.symlinkTarget).map(f => f.symlinkTarget));
-      for (const sf of sharedFiles) { if (!localTargets.has(sf.path)) files.push(sf); }
+      const localNames = new Set(files.map(f => f.name));
+      for (const sf of sharedFiles) { if (!localTargets.has(sf.path) && !localNames.has(sf.name)) files.push(sf); }
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ files, sharedAssetsDir: storageConf.sharedAssetsDir || null }));
+    res.end(JSON.stringify({ files, sharedAssetsDir: sharedDir }));
     return true;
   }
 
@@ -150,7 +153,8 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
   if (req.method === "GET" && assetFileMatch) {
     const fileName = decodeURIComponent(assetFileMatch[1]);
     if (fileName.includes("..") || fileName.includes("/")) { res.writeHead(400); res.end("Invalid filename"); return true; }
-    const filePath = path.join(ASSETS_DIR, fileName);
+    let filePath = path.join(ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath) && fs.existsSync(path.join(SHARED_ASSETS_DIR, fileName))) filePath = path.join(SHARED_ASSETS_DIR, fileName);
     if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
     const ext = path.extname(fileName).toLowerCase();
     if ([".mov", ".mp4", ".avi", ".mkv"].includes(ext)) {
@@ -204,8 +208,16 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
         const file = files.file?.[0] || files.file;
         if (!assetType || !file) throw new Error("type and file required");
         if (!["sponsor", "logo", "cta", "lower-third"].includes(assetType)) throw new Error("type must be 'sponsor', 'logo', 'cta', or 'lower-third'");
-        const ext = (assetType === "cta" || assetType === "lower-third") ? path.extname(file.originalFilename || ".png") : ".mov";
-        const destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);
+        let destPath;
+        if (assetType === "lower-third") {
+          // Save lower-third files to shared assets dir with original filename
+          fs.mkdirSync(SHARED_ASSETS_DIR, { recursive: true });
+          const originalName = file.originalFilename || "lower-third.mov";
+          destPath = path.join(SHARED_ASSETS_DIR, originalName);
+        } else {
+          const ext = assetType === "cta" ? path.extname(file.originalFilename || ".png") : ".mov";
+          destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);
+        }
         fs.renameSync(file.filepath, destPath);
         const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
         res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, file: path.basename(destPath), sizeMb }));
