@@ -153,6 +153,7 @@ function renderReelDetail(ep, reelId) {
                     '<div style="display:flex; gap:6px; margin-top:6px;">' +
                         '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
                         '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
+                        '<button class="publish-btn" onclick="publishNow()" style="font-size:0.7rem;">Publish</button>' +
                     '</div>';
             } else {
                 captionEl.innerHTML =
