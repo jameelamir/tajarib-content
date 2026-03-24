@@ -189,6 +189,17 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
     panStarts[i] = Math.max(prev.startT, hold.startT - panDur);
   }
 
+  // 3b. Adaptively reduce pan ease steps if the expression would exceed
+  //     FFmpeg's nested if() depth limit (~98 on FFmpeg 8.x).
+  const MAX_EXPR_DEPTH = 90;
+  const panCount = holds.filter((h, i) => i > 0 && h.cutT === null).length;
+  // Overhead: 2 keyframes per hold (start+end) + 1 pre-cut per cut transition
+  const overhead = holds.length * 2 + cutCount;
+  const budgetForPans = Math.max(0, MAX_EXPR_DEPTH - overhead);
+  const effectivePanSteps = panCount > 0
+    ? Math.min(PAN_EASE_STEPS, Math.max(4, Math.floor(budgetForPans / panCount)))
+    : PAN_EASE_STEPS;
+
   // 4. Build output keyframes: instant snap at cuts, smoothstep pan within shots
   const output = [];
   for (let i = 0; i < holds.length; i++) {
@@ -219,8 +230,8 @@ function buildFaceTrackCropFilter(keyframes, videoWidth, videoHeight, targetW, t
         const panStart = panStarts[i + 1];
         const panEnd = next.startT;
 
-        for (let s = 1; s <= PAN_EASE_STEPS; s++) {
-          const frac = s / (PAN_EASE_STEPS + 1);
+        for (let s = 1; s <= effectivePanSteps; s++) {
+          const frac = s / (effectivePanSteps + 1);
           output.push({
             t: Math.round((panStart + (panEnd - panStart) * frac) * 1000) / 1000,
             offset: Math.round(hold.offset + (next.offset - hold.offset) * smoothstep(frac)),
