@@ -2,6 +2,7 @@ const {
   formatSRTTime,
   formatASSTime,
   closeSubtitleGaps,
+  chunkWords,
   generateSRT,
   generateASS,
   reelWordsFromTranscript,
@@ -342,5 +343,97 @@ describe("reelWordsFromTranscript", () => {
     const result = reelWordsFromTranscript(transcript);
     expect(result).toHaveLength(1);
     expect(result[0].word).toBe("fallback");
+  });
+});
+
+describe("chunkWords", () => {
+  test("groups words into chunks respecting 6-word limit", () => {
+    const words = Array.from({ length: 10 }, (_, i) => ({
+      word: `w${i}`, start: i * 0.3, end: (i + 1) * 0.3,
+    }));
+    const chunks = chunkWords(words, 0);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(c.text.split(" ").length).toBeLessThanOrEqual(6);
+    }
+  });
+
+  test("breaks at sentence-ending punctuation", () => {
+    const words = [
+      { word: "hello.", start: 0, end: 0.5 },
+      { word: "world", start: 0.5, end: 1.0 },
+    ];
+    const chunks = chunkWords(words, 0);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].text).toBe("hello.");
+    expect(chunks[1].text).toBe("world");
+  });
+
+  test("applies startOffset to adjust timestamps", () => {
+    const words = [
+      { word: "test", start: 10, end: 10.5 },
+      { word: "word", start: 10.5, end: 11 },
+    ];
+    const chunks = chunkWords(words, 10);
+    expect(chunks[0].start).toBeCloseTo(0);
+  });
+
+  test("skips words before startOffset", () => {
+    const words = [
+      { word: "skip", start: 5, end: 5.5 },
+      { word: "keep", start: 10, end: 10.5 },
+    ];
+    const chunks = chunkWords(words, 10);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toBe("keep");
+  });
+});
+
+describe("saved chunks merging with extended boundaries", () => {
+  test("proofread chunks can be combined with new chunks for extended end", () => {
+    // Simulate: proofread chunks cover 0-5s, reel extended to 8s
+    const proofreadChunks = [
+      { text: "proofread first", start: 0, end: 2 },
+      { text: "proofread second", start: 2, end: 5 },
+    ];
+    // New words from episode transcript for the extended portion
+    const newWords = [
+      { word: "new", start: 65, end: 65.5 },
+      { word: "content", start: 65.5, end: 66.0 },
+    ];
+    // chunkWords with offset 60 (simulating startSec=60, chunksEnd=5, so words at 60+5=65)
+    const newChunks = chunkWords(newWords, 60);
+    const merged = [...proofreadChunks, ...newChunks];
+    closeSubtitleGaps(merged);
+
+    expect(merged).toHaveLength(3);
+    expect(merged[0].text).toBe("proofread first");
+    expect(merged[1].text).toBe("proofread second");
+    expect(merged[2].text).toBe("new content");
+    // Gap between proofread and new should be closed
+    expect(merged[1].end).toBe(merged[2].start);
+  });
+
+  test("proofread chunks can be combined with new chunks for extended start", () => {
+    // Simulate: proofread chunks cover 3-8s, reel extended to start earlier at 0s
+    const newWords = [
+      { word: "earlier", start: 50, end: 50.5 },
+      { word: "words", start: 50.5, end: 51.0 },
+    ];
+    const proofreadChunks = [
+      { text: "proofread content", start: 3, end: 6 },
+    ];
+    const prependChunks = chunkWords(newWords, 50);
+    // Ensure prepended chunks end before proofread start
+    if (prependChunks.length) {
+      const last = prependChunks[prependChunks.length - 1];
+      if (last.end > 3) last.end = 3;
+    }
+    const merged = [...prependChunks, ...proofreadChunks];
+    closeSubtitleGaps(merged);
+
+    expect(merged).toHaveLength(2);
+    expect(merged[0].text).toBe("earlier words");
+    expect(merged[1].text).toBe("proofread content");
   });
 });
