@@ -642,6 +642,8 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
           savedChunks = [...prependChunks, ...savedChunks, ...appendChunks];
           closeSubtitleGaps(savedChunks);
           reelWords = []; // proofread + new are all in savedChunks now
+          // Persist merged chunks so the transcript editor sees them too
+          fs.writeFileSync(clipChunksPath, JSON.stringify(savedChunks, null, 2));
           console.log(`   📝 Merged: ${savedChunks.length} total chunks (proofread + new)`);
         }
       }
