@@ -40,8 +40,13 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
       reel.start = start; reel.end = end;
       reel.cuts = Array.isArray(cuts) ? cuts.filter(c => c.from && c.to) : [];
       saveJSON(analysisPath, analysis);
-      const reelFile = path.join(EPISODES_DIR, slug, "reels", `reel-${padded}.mp4`);
-      try { if (fs.existsSync(reelFile)) fs.unlinkSync(reelFile); } catch (_) {}
+      const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+      try {
+        if (fs.existsSync(reelsDir)) {
+          const stale = fs.readdirSync(reelsDir).filter(f => f.startsWith(`reel-${padded}`) && f.endsWith('.mp4'));
+          for (const f of stale) fs.unlinkSync(path.join(reelsDir, f));
+        }
+      } catch (_) {}
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
       io.emit("status-update", {});
     } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
