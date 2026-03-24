@@ -20,7 +20,7 @@ async function toggleOverlayConfig() {
         overlayConfig = await res.json();
     } catch (e) {
         overlayConfig = {
-            sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
+            sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180, startTime: 0, freezeAt: 1, freezeDuration: 0 },
             logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
             lowerThird: { enabled: false, startTime: 2, endTime: 8 },
             cta: { enabled: false, mode: 'text', text: 'www.tajarib.show', fontSize: 28, fontColor: '#ffffff', imagePath: '', x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
@@ -44,6 +44,13 @@ async function toggleOverlayConfig() {
     renderOverlayConfig();
 }
 
+function fmtTime(s) {
+    s = +s;
+    var m = Math.floor(s / 60);
+    var sec = s - m * 60;
+    return m + ':' + (sec < 10 ? '0' : '') + (sec % 1 === 0 ? sec.toFixed(0) : sec.toFixed(1));
+}
+
 function renderOverlayConfig() {
     const section = document.getElementById('overlay-config-section');
     const c = overlayConfig;
@@ -57,6 +64,10 @@ function renderOverlayConfig() {
     } else {
         canvasW = overlayCanvasRatio === '9:16' ? 270 : overlayCanvasRatio === '1:1' ? 300 : 640;
         canvasH = overlayCanvasRatio === '9:16' ? 480 : overlayCanvasRatio === '1:1' ? 300 : 360;
+    }
+    var reelMaxDur = 90;
+    if (overlayPreviewVideo && overlayPreviewVideo.duration && isFinite(overlayPreviewVideo.duration)) {
+        reelMaxDur = Math.ceil(overlayPreviewVideo.duration);
     }
     section.innerHTML =
         '<div class="overlay-config">' +
@@ -87,6 +98,9 @@ function renderOverlayConfig() {
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="80" max="300" value="' + c.sponsor.scale + '" oninput="overlayConfig.sponsor.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.sponsor.scale + 'px</span></div>' +
+                            '<div class="overlay-row"><label>Start</label><input type="range" min="0" max="' + reelMaxDur + '" step="0.5" value="' + (c.sponsor.startTime || 0) + '" oninput="overlayConfig.sponsor.startTime=+this.value; this.nextSibling.textContent=fmtTime(this.value); drawOverlayCanvas();"><span>' + fmtTime(c.sponsor.startTime || 0) + '</span></div>' +
+                            '<div class="overlay-row"><label>Freeze At</label><input type="range" min="0" max="5" step="0.1" value="' + (c.sponsor.freezeAt || 1) + '" oninput="overlayConfig.sponsor.freezeAt=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + (c.sponsor.freezeAt || 1) + 's</span></div>' +
+                            '<div class="overlay-row"><label>Freeze Hold</label><input type="range" min="0" max="30" step="0.5" value="' + (c.sponsor.freezeDuration || 0) + '" oninput="overlayConfig.sponsor.freezeDuration=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + (c.sponsor.freezeDuration || 0) + 's</span></div>' +
                         '</div>' +
                     '</div>' +
                     // Logo

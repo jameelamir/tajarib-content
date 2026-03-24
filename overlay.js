@@ -34,6 +34,21 @@ function probeVideoDimensions(videoPath) {
 }
 
 /**
+ * Probe media duration via ffprobe.
+ */
+function probeDuration(filePath) {
+  try {
+    const out = execFileSync("ffprobe", [
+      "-v", "error", "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1", filePath
+    ], { stdio: "pipe" }).toString().trim();
+    return parseFloat(out) || 5;
+  } catch (_) {
+    return 5;
+  }
+}
+
+/**
  * Build the FFmpeg drawtext filter for a lower-third CG.
  */
 function buildLowerThirdFilter(guestName, guestRole, startTime, endTime, videoHeight) {
@@ -98,10 +113,37 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
       const scale = config.sponsor.scale || 180;
       const x = Math.round((config.sponsor.x / 100) * videoWidth);
       const y = Math.round((config.sponsor.y / 100) * videoHeight);
-      const fadeOut = 0.5; // fade out duration in seconds
-      const sponsorEnd = 5;
+      const startTime = config.sponsor.startTime || 0;
+      const freezeAt = config.sponsor.freezeAt || 0;
+      const freezeDur = config.sponsor.freezeDuration || 0;
+      const fadeOut = 0.5;
+      const sponsorDur = probeDuration(sponsorFile);
+      const totalDur = sponsorDur + freezeDur;
+
       if (chain) chain += ";";
-      chain += `[${inputIdx}:v]scale=${scale}:-1,format=rgba,fade=t=out:st=${sponsorEnd - fadeOut}:d=${fadeOut}:alpha=1[sponsor];{LAST}[sponsor]overlay=${x}:${y}:eof_action=pass[after_sponsor]`;
+
+      if (freezeDur > 0 && freezeAt > 0) {
+        // Split → trim → freeze frame (tpad clone) → concat → scale → fade → time-shift
+        const fa = Math.min(freezeAt, Math.max(0.1, sponsorDur - 0.1));
+        chain += `[${inputIdx}:v]split[sp_a][sp_b];` +
+          `[sp_a]trim=0:${fa},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${freezeDur}[sp_p1];` +
+          `[sp_b]trim=${fa},setpts=PTS-STARTPTS[sp_p2];` +
+          `[sp_p1][sp_p2]concat=n=2:v=1:a=0,scale=${scale}:-1,format=rgba,` +
+          `fade=t=out:st=${totalDur - fadeOut}:d=${fadeOut}:alpha=1` +
+          (startTime > 0 ? `,setpts=PTS-STARTPTS+${startTime}/TB` : '') +
+          `[sponsor];{LAST}[sponsor]overlay=${x}:${y}:eof_action=pass` +
+          (startTime > 0 ? `:enable='gte(t,${startTime})'` : '') +
+          `[after_sponsor]`;
+      } else {
+        // No freeze — simple scale + fade + optional time-shift
+        chain += `[${inputIdx}:v]scale=${scale}:-1,format=rgba,` +
+          `fade=t=out:st=${totalDur - fadeOut}:d=${fadeOut}:alpha=1` +
+          (startTime > 0 ? `,setpts=PTS-STARTPTS+${startTime}/TB` : '') +
+          `[sponsor];{LAST}[sponsor]overlay=${x}:${y}:eof_action=pass` +
+          (startTime > 0 ? `:enable='gte(t,${startTime})'` : '') +
+          `[after_sponsor]`;
+      }
+
       lastLabel = "[after_sponsor]";
       inputIdx++;
     }
@@ -182,14 +224,20 @@ async function overlay(slug, options) {
     if (!config) {
       console.log("⚠️  No overlay-config.json found, falling back to defaults.");
       config = {
-        sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180 },
+        sponsor: { enabled: true, x: 1.3, y: 1.2, scale: 180, startTime: 0, freezeAt: 1, freezeDuration: 0 },
         logo: { enabled: true, x: 92.3, y: 1.2, scale: 140 },
         lowerThird: { enabled: false, startTime: 2, endTime: 8 },
         cta: { enabled: false, mode: "text", text: "", fontSize: 28, fontColor: "#ffffff", x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
       };
     }
     console.log("📋 Using overlay config:");
-    if (config.sponsor?.enabled) console.log(`   Sponsor: ${config.sponsor.scale}px at (${config.sponsor.x.toFixed(1)}%, ${config.sponsor.y.toFixed(1)}%)`);
+    if (config.sponsor?.enabled) {
+      const sp = config.sponsor;
+      let info = `   Sponsor: ${sp.scale}px at (${sp.x.toFixed(1)}%, ${sp.y.toFixed(1)}%)`;
+      if (sp.startTime) info += `, starts at ${sp.startTime}s`;
+      if (sp.freezeDuration) info += `, freeze at ${sp.freezeAt || 1}s for ${sp.freezeDuration}s`;
+      console.log(info);
+    }
     if (config.logo?.enabled) console.log(`   Logo: ${config.logo.scale}px at (${config.logo.x.toFixed(1)}%, ${config.logo.y.toFixed(1)}%)`);
     if (config.lowerThird?.enabled) console.log(`   Lower-third: mode=${config.lowerThird.mode || "auto"}, file=${config.lowerThird.customFile || "none"}, ${config.lowerThird.startTime}s-${config.lowerThird.endTime}s`);
     if (config.cta?.enabled) console.log(`   CTA (${config.cta.mode}): ${config.cta.startTime}s-${config.cta.endTime}s`);
