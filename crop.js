@@ -26,6 +26,13 @@ const RATIOS = {
   "4:5":  { w: 4, h: 5 },
 };
 
+// Target output pixel dimensions per ratio (standard social media HD)
+const TARGET_SIZES = {
+  "9:16": { w: 1080, h: 1920 },
+  "1:1":  { w: 1080, h: 1080 },
+  "4:5":  { w: 1080, h: 1350 },
+};
+
 /**
  * Get video dimensions via ffprobe.
  */
@@ -351,6 +358,15 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
       // Standard center crop
       cropFilter = `crop='if(gt(iw/ih\\,${w}/${h})\\,ih*${w}/${h}\\,iw)':'if(gt(iw/ih\\,${w}/${h})\\,ih\\,iw*${h}/${w})',scale=trunc(iw/2)*2:trunc(ih/2)*2`;
       console.log(`   📐 reel-${id}: cropping to ${ratio}...`);
+    }
+
+    // Scale to target HD resolution (ensures consistent output regardless of source dimensions)
+    const tgt = TARGET_SIZES[ratio];
+    if (tgt) {
+      cropFilter = cropFilter.replace(
+        /scale=trunc\(iw\/2\)\*2:trunc\(ih\/2\)\*2/,
+        `scale=${tgt.w}:${tgt.h}:flags=lanczos`
+      );
     }
 
     const cmd = [
