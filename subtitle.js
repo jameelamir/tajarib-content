@@ -543,14 +543,26 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       let wordStartOffset = startSec;
       let savedChunks = null;
 
+      // Check for saved (proofread) subtitle chunks up front — used for merging below
+      const clipChunksPath = path.join(reelsDir, `reel-${reelId}-chunks.json`);
+      if (fs.existsSync(clipChunksPath)) {
+        savedChunks = JSON.parse(fs.readFileSync(clipChunksPath, "utf8"));
+      }
+
       if (noTranscribe) {
-        // Use saved subtitle chunks if the user edited them in the transcript editor
-        const clipChunksPath = path.join(reelsDir, `reel-${reelId}-chunks.json`);
+        // Use saved subtitle chunks if the user edited them in the transcript editor.
+        // Also load words for the merge step below (clip transcript → episode fallback)
+        // so that extended boundaries get fresh subtitles stitched in.
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
-        if (fs.existsSync(clipChunksPath)) {
-          savedChunks = JSON.parse(fs.readFileSync(clipChunksPath, "utf8"));
-          reelWords = [];
-          wordStartOffset = 0;
+        if (savedChunks) {
+          // Get words for potential merge — prefer clip transcript, fall back to episode
+          if (fs.existsSync(clipTranscriptPath)) {
+            const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
+            reelWords = reelWordsFromTranscript(clipT);
+            wordStartOffset = 0;
+          } else {
+            reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+          }
           console.log(`   📝 Using ${savedChunks.length} saved subtitle chunks`);
         } else if (fs.existsSync(clipTranscriptPath)) {
           const clipT = JSON.parse(fs.readFileSync(clipTranscriptPath, "utf8"));
@@ -591,6 +603,47 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
         }
       } else {
         reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+      }
+
+      // Merge: if proofread chunks exist AND we have fresh words (from any source),
+      // keep the proofread chunks and only generate new chunks for uncovered portions.
+      // This handles the case where a user proofreads subtitles, then extends the reel.
+      if (savedChunks && savedChunks.length && reelWords && reelWords.length) {
+        const reelDuration = endSec - startSec;
+        const chunksEnd = Math.max(...savedChunks.map(c => c.end));
+        const chunksStart = Math.min(...savedChunks.map(c => c.start));
+
+        let prependChunks = [];
+        let appendChunks = [];
+
+        // Fresh words before proofread chunks (user extended start earlier)
+        if (chunksStart > 0.5) {
+          const earlyWords = reelWords.filter(w => (w.start - wordStartOffset) >= 0 && (w.end - wordStartOffset) < chunksStart);
+          if (earlyWords.length) {
+            prependChunks = chunkWords(earlyWords, wordStartOffset);
+            if (prependChunks.length) {
+              const last = prependChunks[prependChunks.length - 1];
+              if (last.end > chunksStart) last.end = chunksStart;
+            }
+            console.log(`   📝 Prepending ${prependChunks.length} chunks for extended start`);
+          }
+        }
+
+        // Fresh words after proofread chunks (user extended end later)
+        if (reelDuration - chunksEnd > 0.5) {
+          const lateWords = reelWords.filter(w => (w.start - wordStartOffset) >= chunksEnd);
+          if (lateWords.length) {
+            appendChunks = chunkWords(lateWords, wordStartOffset);
+            console.log(`   📝 Appending ${appendChunks.length} chunks for extended end`);
+          }
+        }
+
+        if (prependChunks.length || appendChunks.length) {
+          savedChunks = [...prependChunks, ...savedChunks, ...appendChunks];
+          closeSubtitleGaps(savedChunks);
+          reelWords = []; // proofread + new are all in savedChunks now
+          console.log(`   📝 Merged: ${savedChunks.length} total chunks (proofread + new)`);
+        }
       }
 
       // Detect actual video dimensions so ASS PlayRes matches
@@ -667,7 +720,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   console.log(`\n✅ All done! Subtitled reels saved to: ${reelsDir}`);
 }
 
-module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, generateSRT, generateASS, reelWordsFromTranscript, MAX_GAP_FILL, TITLE_DURATION };
+module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, chunkWords, generateSRT, generateASS, reelWordsFromTranscript, MAX_GAP_FILL, TITLE_DURATION };
 
 // CLI
 if (require.main === module) {
