@@ -491,26 +491,11 @@ async function populateLTAssetPicker() {
 async function selectLowerThirdAsset(value) {
     if (!value) return;
     if (value.startsWith('shared:')) {
+        // Shared files are accessible directly — just reference by original name
         var sourcePath = value.substring(7);
         var fileName = sourcePath.split('/').pop();
-        var ext = fileName.substring(fileName.lastIndexOf('.'));
-        var assetName = 'lower-third' + ext;
-        try {
-            var res = await fetch('/api/link-asset', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ sourcePath: sourcePath, assetName: assetName })
-            });
-            var data = await res.json();
-            if (data.success) {
-                overlayConfig.lowerThird.customFile = data.file;
-                renderOverlayConfig();
-            } else {
-                showToast(data.error || 'Link failed', 'error');
-            }
-        } catch (e) {
-            showToast('Link failed: ' + e.message, 'error');
-        }
+        overlayConfig.lowerThird.customFile = fileName;
+        renderOverlayConfig();
     } else {
         overlayConfig.lowerThird.customFile = value;
         renderOverlayConfig();

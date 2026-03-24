@@ -17,6 +17,7 @@ const { execFileSync } = require("child_process");
 const { loadJSON, EPISODES_DIR } = require("./utils");
 
 const ASSETS_DIR = path.join(__dirname, "assets");
+const SHARED_ASSETS_DIR = path.join(path.resolve(__dirname, ".."), "assets");
 const FONTS_DIR = path.join(__dirname, "fonts");
 
 /**
@@ -281,20 +282,27 @@ async function overlay(slug, options) {
 
     // Lower-third: auto-generated drawtext (custom file handled below after movInputs init)
     let customLTFile = null;
+    // Resolve a lower-third filename in local assets first, then shared assets
+    function findLTFile(name) {
+      const local = path.join(ASSETS_DIR, name);
+      if (fs.existsSync(local)) return local;
+      const shared = path.join(SHARED_ASSETS_DIR, name);
+      if (fs.existsSync(shared)) return shared;
+      return null;
+    }
     if (doLowerThird && config) {
       // Try explicit customFile from config first
       if (config.lowerThird.customFile) {
-        const candidate = path.join(ASSETS_DIR, config.lowerThird.customFile);
-        if (fs.existsSync(candidate)) customLTFile = candidate;
+        customLTFile = findLTFile(config.lowerThird.customFile);
       }
       // Auto-detect lower-third.* in assets if mode is "custom" or a file exists
       if (!customLTFile && config.lowerThird.mode === "custom") {
-        const detected = [".mov", ".mp4", ".png", ".gif"].map(ext => path.join(ASSETS_DIR, "lower-third" + ext)).find(f => fs.existsSync(f));
+        const detected = [".mov", ".mp4", ".png", ".gif"].map(name => findLTFile("lower-third" + name)).find(Boolean);
         if (detected) customLTFile = detected;
       }
       // If mode isn't explicitly set but a lower-third file exists in assets, use it
       if (!customLTFile && !config.lowerThird.mode) {
-        const detected = [".mov", ".mp4"].map(ext => path.join(ASSETS_DIR, "lower-third" + ext)).find(f => fs.existsSync(f));
+        const detected = [".mov", ".mp4"].map(name => findLTFile("lower-third" + name)).find(Boolean);
         if (detected) {
           customLTFile = detected;
           console.log(`   ℹ️  Auto-detected custom lower-third: ${path.basename(detected)}`);
