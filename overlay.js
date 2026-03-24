@@ -27,9 +27,9 @@ function probeVideoDimensions(videoPath) {
   try {
     const out = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", videoPath], { stdio: "pipe" }).toString().trim();
     const [w, h] = out.split("x").map(Number);
-    return { width: w || 1920, height: h || 1080 };
+    return { width: w || 1080, height: h || 1920 };
   } catch (_) {
-    return { width: 1920, height: 1080 };
+    return { width: 1080, height: 1920 };
   }
 }
 
