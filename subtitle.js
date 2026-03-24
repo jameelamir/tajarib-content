@@ -136,6 +136,11 @@ function closeSubtitleGaps(chunks) {
     const gap = chunks[i + 1].start - chunks[i].end;
     if (gap > 0 && gap <= MAX_GAP_FILL) {
       chunks[i].end = chunks[i + 1].start;
+    } else if (gap < 0) {
+      // Overlapping chunks — trim current chunk to end when the next starts,
+      // otherwise libass collision detection pushes the later subtitle up
+      // and the fixed \clip coordinates no longer align with the text.
+      chunks[i].end = chunks[i + 1].start;
     }
   }
 }
