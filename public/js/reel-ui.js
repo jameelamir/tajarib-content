@@ -1457,6 +1457,59 @@ async function loadReelTranscript(reelId) {
     }
 }
 
+// Sync all contenteditable DOM text back to reelChunksData so no edits are lost
+// when the editor re-renders (e.g. after split/merge).
+function rtSyncDomToData() {
+    var segList = document.getElementById('rt-seg-list');
+    if (!segList || !reelChunksData) return;
+    segList.querySelectorAll('.tm-text[contenteditable]').forEach(function(el) {
+        var idx = parseInt(el.dataset.seg);
+        if (reelChunksData[idx]) reelChunksData[idx].text = el.textContent.trim();
+    });
+}
+
+// Get cursor offset within a contenteditable, handling text nodes
+function rtGetCursorOffset(el) {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return 0;
+    var range = sel.getRangeAt(0);
+    var preRange = document.createRange();
+    preRange.selectNodeContents(el);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    return preRange.toString().length;
+}
+
+// Set cursor at a character offset within a contenteditable
+function rtSetCursor(el, offset) {
+    el.focus();
+    var node = el.firstChild;
+    if (!node) { // empty element
+        var r = document.createRange(); r.selectNodeContents(el); r.collapse(true);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        return;
+    }
+    // Walk text nodes to find the right position
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+    var remaining = offset;
+    var textNode;
+    while ((textNode = walker.nextNode())) {
+        if (remaining <= textNode.length) {
+            var r = document.createRange(); r.setStart(textNode, remaining); r.collapse(true);
+            var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+            return;
+        }
+        remaining -= textNode.length;
+    }
+    // Offset past end — place at very end
+    var r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
+// Get the .tm-text element for a given chunk index
+function rtGetSegEl(idx) {
+    return document.querySelector('#rt-seg-list .tm-text[data-seg="' + idx + '"]');
+}
+
 function rtRenderChunks(containerEl) {
     if (!containerEl) containerEl = document.getElementById('reel-transcript-content');
     if (!containerEl || !reelChunksData) return;
@@ -1485,6 +1538,8 @@ function rtRenderChunks(containerEl) {
         el.addEventListener('click', function(e) { e.stopPropagation(); });
         el.addEventListener('focus', function(e) { e.stopPropagation(); });
         el.addEventListener('input', function() {
+            var idx = parseInt(this.dataset.seg);
+            if (reelChunksData[idx]) reelChunksData[idx].text = this.textContent.trim();
             this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
         });
         el.addEventListener('keydown', function(e) {
@@ -1493,10 +1548,46 @@ function rtRenderChunks(containerEl) {
                 e.preventDefault();
                 rtSplitChunk(idx, this);
             } else if (e.key === 'Backspace') {
+                var cursorPos = rtGetCursorOffset(this);
                 var sel = window.getSelection();
-                if (sel.rangeCount && sel.getRangeAt(0).collapsed && sel.getRangeAt(0).startOffset === 0) {
+                if (sel.rangeCount && sel.getRangeAt(0).collapsed && cursorPos === 0) {
                     e.preventDefault();
                     rtMergeChunkWithPrev(idx);
+                }
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                // Navigate between segments
+                var targetIdx = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+                if (targetIdx >= 0 && targetIdx < reelChunksData.length) {
+                    e.preventDefault();
+                    var target = rtGetSegEl(targetIdx);
+                    if (target) {
+                        var cursorPos = rtGetCursorOffset(this);
+                        var targetLen = target.textContent.length;
+                        rtSetCursor(target, Math.min(cursorPos, targetLen));
+                        target.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                // RTL: ArrowRight visually moves left (toward start), ArrowLeft visually moves right (toward end)
+                var cursorPos = rtGetCursorOffset(this);
+                var textLen = this.textContent.length;
+                // ArrowRight at start of text → jump to end of previous segment
+                if (e.key === 'ArrowRight' && cursorPos === 0 && idx > 0 && !e.shiftKey) {
+                    e.preventDefault();
+                    var prev = rtGetSegEl(idx - 1);
+                    if (prev) {
+                        rtSetCursor(prev, prev.textContent.length);
+                        prev.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                    }
+                }
+                // ArrowLeft at end of text → jump to start of next segment
+                else if (e.key === 'ArrowLeft' && cursorPos === textLen && idx < reelChunksData.length - 1 && !e.shiftKey) {
+                    e.preventDefault();
+                    var next = rtGetSegEl(idx + 1);
+                    if (next) {
+                        rtSetCursor(next, 0);
+                        next.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                    }
                 }
             }
         });
@@ -1506,30 +1597,26 @@ function rtRenderChunks(containerEl) {
 function rtSplitChunk(chunkIdx, el) {
     var chunk = reelChunksData[chunkIdx];
     if (!chunk) return;
-    var sel = window.getSelection();
-    if (!sel.rangeCount) return;
-    var offset = sel.getRangeAt(0).startOffset;
+    var offset = rtGetCursorOffset(el);
     var fullText = el.textContent;
     if (offset === 0 || offset >= fullText.length) return;
     var textBefore = fullText.substring(0, offset).trim();
     var textAfter = fullText.substring(offset).trim();
     if (!textBefore || !textAfter) return;
+    rtSyncDomToData();
     var splitTime = chunk.start + (chunk.end - chunk.start) * (offset / fullText.length);
     reelChunksData.splice(chunkIdx, 1,
         { text: textBefore, start: chunk.start, end: splitTime },
         { text: textAfter, start: splitTime, end: chunk.end }
     );
     rtRenderChunks();
-    var newEl = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (chunkIdx + 1) + '"]');
-    if (newEl) {
-        newEl.focus();
-        var r = document.createRange(); r.setStart(newEl.firstChild || newEl, 0); r.collapse(true);
-        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    }
+    var newEl = rtGetSegEl(chunkIdx + 1);
+    if (newEl) rtSetCursor(newEl, 0);
 }
 
 function rtMergeChunkWithPrev(chunkIdx) {
     if (chunkIdx <= 0) return;
+    rtSyncDomToData();
     var prev = reelChunksData[chunkIdx - 1];
     var curr = reelChunksData[chunkIdx];
     var prevLen = prev.text.length;
@@ -1537,12 +1624,8 @@ function rtMergeChunkWithPrev(chunkIdx) {
     prev.end = curr.end;
     reelChunksData.splice(chunkIdx, 1);
     rtRenderChunks();
-    var el = document.querySelector('#rt-seg-list .tm-text[data-seg="' + (chunkIdx - 1) + '"]');
-    if (el && el.firstChild) {
-        el.focus();
-        var r = document.createRange(); r.setStart(el.firstChild, Math.min(prevLen + 1, el.firstChild.textContent.length)); r.collapse(true);
-        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    }
+    var el = rtGetSegEl(chunkIdx - 1);
+    if (el) rtSetCursor(el, prevLen + 1);
 }
 
 function seekReelVideo(time) {
