@@ -206,12 +206,14 @@ function renderReelDetail(ep, reelId) {
 function renderReelFullView(ep) {
     var isReelCut = ep.mediaType === 'reel_cut';
 
-    // Video preview — only recreate if slug changed
+    // Video preview — show best available: final > subtitled > raw
     var previewEl = document.getElementById('rf-preview');
-    if (previewEl.dataset.slug !== ep.slug) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now();
+    var videoType = ep.steps.overlaid ? 'final' : ep.steps.subtitled ? 'subtitled' : 'raw';
+    var cacheKey = ep.slug + ':' + videoType;
+    if (previewEl.dataset.cacheKey !== cacheKey) {
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=' + videoType + '&t=' + Date.now();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:400px; border-radius:8px; background:#000;"></video>';
-        previewEl.dataset.slug = ep.slug;
+        previewEl.dataset.cacheKey = cacheKey;
         var vid = previewEl.querySelector('video');
         if (vid) vid.addEventListener('loadedmetadata', function() {
             var modular = document.getElementById('rf-modular');
