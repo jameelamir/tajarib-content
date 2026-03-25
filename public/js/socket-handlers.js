@@ -132,11 +132,11 @@ function setupSocketHandlers() {
                 }, 600);
             }
         }
-        // Auto-switch to caption tab when generate completes for reel_full
+        // Refresh standalone reel caption when generate completes
         if (data.step === 'generate' && data.code === 0 && currentSlug === data.slug) {
             var epCheck = episodes.find(function(e) { return e.slug === data.slug; });
-            if (epCheck && epCheck.mediaType === 'reel_full') {
-                setTimeout(function() { switchReelFullTab('caption'); }, 700);
+            if (epCheck && (epCheck.mediaType === 'reel_full' || epCheck.mediaType === 'reel_cut')) {
+                setTimeout(function() { if (currentSlug) renderMain(currentSlug); }, 700);
             }
         }
         // Advance step queue if this step succeeded

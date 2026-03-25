@@ -108,25 +108,18 @@
             <!-- For episodes: empty area (console is in the drawer) -->
             <div id="precut-status" style="display:none; flex:1;"></div>
 
-            <!-- For reel_full: video + tabbed editor -->
+            <!-- For reel_full / reel_cut: modular view matching reel detail -->
             <div id="reel-full-layout" class="reel-full-layout" style="display:none;">
-                <div class="reel-full-video" id="reel-full-video"></div>
-                <div class="reel-full-main">
-                <div class="reel-full-tabs">
-                    <div class="reel-full-tab active" data-tab="caption" onclick="switchReelFullTab('caption')">Caption</div>
-                </div>
-                <!-- Caption tab -->
-                <div class="reel-full-tab-body active" id="rfTab-caption">
-                    <div class="reel-full-caption-wrap" id="reel-full-caption-body">
-                        <div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>
-                    </div>
-                    <div class="reel-full-actions" id="reel-full-caption-actions" style="display:none;">
-                        <button onclick="saveReelFullCaption()" style="font-size:0.75rem;">Save</button>
-                        <button onclick="copyReelFullCaption()" style="font-size:0.75rem;">Copy</button>
-                        <button class="publish-btn" onclick="publishNow()" style="font-size:0.75rem;">Publish</button>
+                <div class="reel-detail-scroll">
+                    <div class="reel-detail-modular" id="rf-modular">
+                        <div class="reel-preview" id="rf-preview"></div>
+                        <div class="reel-detail-content">
+                            <div class="reel-actions" id="rf-actions"></div>
+                            <div id="rf-caption-editor" style="background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div id="rf-transcript-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                        </div>
                     </div>
                 </div>
-                </div><!-- /.reel-full-main -->
             </div>
         </div>
 
