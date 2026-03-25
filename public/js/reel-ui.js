@@ -2190,7 +2190,13 @@ function rtGetSegEl(idx) {
 }
 
 function rtRenderChunks(containerEl) {
-    if (!containerEl) containerEl = document.getElementById('reel-transcript-content');
+    if (!containerEl) {
+        // Find the active container — check for existing seg list first (re-render),
+        // then fall back to the known container IDs
+        var existing = document.getElementById('rt-seg-list');
+        containerEl = existing ? existing.parentElement
+            : (document.getElementById('reel-transcript-content') || document.getElementById('rf-transcript-content'));
+    }
     if (!containerEl || !reelChunksData) return;
 
     var html = '<div id="rt-seg-list" style="max-height:350px; overflow-y:auto; padding:4px 0; margin-bottom:8px;">';
