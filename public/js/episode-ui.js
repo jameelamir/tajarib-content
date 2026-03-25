@@ -56,6 +56,7 @@ function renderSidebar() {
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
                 '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
+                '<button onclick="event.stopPropagation(); getTopicReel()" style="color:#34d399;">+ Topic</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'cut\')">Cut All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
