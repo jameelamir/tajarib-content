@@ -12,7 +12,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/run-step") {
     const body = await readBody(req);
     try {
-      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe } = JSON.parse(body);
+      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic } = JSON.parse(body);
       if (!slug || !step) throw new Error("slug + step required");
       const meta = loadMeta(slug);
       const mediaType = meta.mediaType || "episode";
@@ -23,7 +23,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       if (step === "generate" && (!meta.guest || !meta.role)) throw new Error("Guest name and role required for generation");
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
       if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack, subtitleStyle });
-      else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe });
+      else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic });
     } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }
@@ -71,7 +71,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       io.emit("log", { slug, text: `\n📋 Manual LLM response received — resuming ${step}...\n` });
       const meta = loadMeta(slug);
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
-      const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : step === "analyze-more" ? "analyze" : step;
+      const actualStep = (step === "youtube" || step.startsWith("reel")) ? "generate" : (step === "analyze-more" || step === "analyze-topic") ? "analyze" : step;
       // When resuming a per-reel manual LLM response, scope to just that reel
       // so it doesn't cascade to the next reel and trigger another popup.
       // With --reel-id, there's only one LLM call, so resumeRound is always 0.
@@ -86,7 +86,15 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
         resumeRound = 0;
       }
       const more = step === "analyze-more";
-      runStep({ slug, step: actualStep, force: true, more, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound, reelId, youtubeOnly });
+      // Recover topic from llm-prompt.json when resuming a topic analysis
+      let topic = undefined;
+      if (step === "analyze-topic") {
+        const promptPath = path.join(EPISODES_DIR, slug, "llm-prompt.json");
+        if (fs.existsSync(promptPath)) {
+          try { topic = JSON.parse(fs.readFileSync(promptPath, "utf8")).topic; } catch (_) {}
+        }
+      }
+      runStep({ slug, step: actualStep, force: true, more, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role, resume: true, resumeRound, reelId, youtubeOnly, topic });
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }
