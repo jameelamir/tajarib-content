@@ -345,14 +345,16 @@ function renderEpisodePipelineBar(ep) {
 
         var connector = (i > 0) ? '<div class="ep-step-connector' + (done ? ' done' : '') + '"></div>' : '';
 
-        // Add method selector for transcribe step
+        // Add method selector and SRT upload for transcribe step
         var methodSelector = '';
         if (s.id === 'transcribe') {
             methodSelector = '<select id="transcribe-method-select" onclick="event.stopPropagation()" style="background:#111; border:1px solid #333; color:#888; padding:2px 4px; border-radius:3px; font-size:0.6rem; margin-left:4px; cursor:pointer;">' +
                 '<option value="local">🏠 Local</option>' +
                 '<option value="groq">⚡ Groq</option>' +
                 '<option value="api">🌐 API</option>' +
-            '</select>';
+            '</select>' +
+            '<input type="file" id="pipeline-srt-input" accept=".srt,.vtt" style="display:none;" onchange="handleReplaceSrt(this)">' +
+            '<button onclick="event.stopPropagation(); document.getElementById(\'pipeline-srt-input\').click()" style="background:none; border:1px solid #444; color:#888; padding:2px 6px; border-radius:3px; font-size:0.6rem; margin-left:4px; cursor:pointer;" title="Upload SRT file">SRT</button>';
         }
 
         return connector +
