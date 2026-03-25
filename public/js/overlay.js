@@ -7,8 +7,19 @@ var overlayLiveCanvas = null; // canvas positioned over the video player for liv
 var overlayLiveCtx = null;
 var overlayAnimFrameId = null; // requestAnimationFrame ID for live rendering
 
+// Find the active overlay config section and preview element (episode reel vs standalone)
+function getOverlaySection() {
+    if (selectedReelId) return document.getElementById('overlay-config-section');
+    return document.getElementById('rf-overlay-config') || document.getElementById('overlay-config-section');
+}
+function getOverlayPreviewEl() {
+    if (selectedReelId) return document.getElementById('reel-preview');
+    return document.getElementById('rf-preview') || document.getElementById('reel-preview');
+}
+
 async function toggleOverlayConfig() {
-    const section = document.getElementById('overlay-config-section');
+    const section = getOverlaySection();
+    if (!section) return;
     if (section.style.display !== 'none' && section.innerHTML) {
         section.style.display = 'none';
         section.innerHTML = '';
@@ -32,8 +43,8 @@ async function toggleOverlayConfig() {
             cta: { enabled: false, mode: 'text', text: 'www.tajarib.show', fontSize: 28, fontColor: '#ffffff', imagePath: '', x: 50, y: 85, scale: 200, startTime: 50, endTime: 58 }
         };
     }
-    // Load pre-overlay video (subtitled or cropped, NOT final) for accurate canvas background
-    if (selectedReelId && currentSlug) {
+    // Load pre-overlay video for accurate canvas background
+    if (currentSlug) {
         overlayPreviewVideo = document.createElement('video');
         overlayPreviewVideo.crossOrigin = 'anonymous';
         overlayPreviewVideo.preload = 'auto';
@@ -45,7 +56,11 @@ async function toggleOverlayConfig() {
             else overlayCanvasRatio = '9:16';
             renderOverlayConfig();
         });
-        overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(selectedReelId) + '&stage=pre-overlay&t=' + Date.now();
+        if (selectedReelId) {
+            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(selectedReelId) + '&stage=pre-overlay&t=' + Date.now();
+        } else {
+            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=subtitled&t=' + Date.now();
+        }
     }
     renderOverlayConfig();
     // Init live overlay on top of the video player
@@ -60,7 +75,7 @@ function fmtTime(s) {
 }
 
 function renderOverlayConfig() {
-    const section = document.getElementById('overlay-config-section');
+    const section = getOverlaySection();
     const c = overlayConfig;
     // Compute canvas dimensions from actual video when available
     var canvasW, canvasH;
@@ -206,7 +221,7 @@ function initOverlayCanvas() {
     }
 
     // Redraw canvas when pre-overlay video loads so we get the real frame as background
-    var bgVideo = overlayPreviewVideo || document.querySelector('#reel-preview video');
+    var bgVideo = overlayPreviewVideo || (getOverlayPreviewEl() && getOverlayPreviewEl().querySelector('video'));
     if (bgVideo) {
         var onReady = function() { drawOverlayCanvas(); };
         bgVideo.addEventListener('loadeddata', onReady, { once: true });
@@ -410,7 +425,7 @@ function drawOverlayCanvas() {
     var W = canvas.width, H = canvas.height;
 
     // Background: use pre-overlay video (no baked-in overlays), fall back to reel video, then grid
-    var bgVideo = overlayPreviewVideo || document.querySelector('#reel-preview video');
+    var bgVideo = overlayPreviewVideo || (getOverlayPreviewEl() && getOverlayPreviewEl().querySelector('video'));
     var drewVideo = false;
     if (bgVideo && bgVideo.readyState >= 2 && bgVideo.videoWidth > 0) {
         try {
@@ -458,7 +473,7 @@ function drawOverlayCanvas() {
     ctx.setLineDash([]);
 
     // Sync overlay video elements to the background video's current time
-    var bgVideoForSync = overlayPreviewVideo || document.querySelector('#reel-preview video');
+    var bgVideoForSync = overlayPreviewVideo || (getOverlayPreviewEl() && getOverlayPreviewEl().querySelector('video'));
     if (bgVideoForSync && bgVideoForSync.readyState >= 2) {
         var t = bgVideoForSync.currentTime;
         Object.keys(overlayVideoCache).forEach(function(k) {
@@ -625,7 +640,7 @@ function loadOverlayVideo(name) {
 
 // Create the live overlay canvas positioned over the video player
 function initLiveOverlay() {
-    var previewEl = document.getElementById('reel-preview');
+    var previewEl = getOverlayPreviewEl();
     var vid = previewEl ? previewEl.querySelector('video') : null;
     if (!vid) return;
 
@@ -717,7 +732,8 @@ function drawLiveOverlay() {
     if (!c) return;
 
     // Get main video current time for time-based visibility
-    var mainVid = document.querySelector('#reel-preview video');
+    var _pe = getOverlayPreviewEl();
+    var mainVid = _pe ? _pe.querySelector('video') : null;
     var currentTime = mainVid ? mainVid.currentTime : 0;
 
     // Draw shadow gradient
@@ -999,6 +1015,6 @@ async function saveAndRunOverlay() {
     }
     // Collapse panel and clean up live overlay
     cleanupLiveOverlay();
-    document.getElementById('overlay-config-section').style.display = 'none';
-    document.getElementById('overlay-config-section').innerHTML = '';
+    var section = getOverlaySection();
+    if (section) { section.style.display = 'none'; section.innerHTML = ''; }
 }
