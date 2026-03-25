@@ -543,7 +543,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     const ffmpegArgs = [
       "-y",
       "-i", sourceVideo,
-      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00BE2F7B,BackColour=&H00BE2F7B,BorderStyle=3,Outline=12,Shadow=0,Bold=1,Alignment=2,MarginV=100'`,
+      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00BE2F7B,BackColour=&H00BE2F7B,BorderStyle=3,Outline=4,Shadow=0,Bold=1,Alignment=2,MarginV=30'`,
       "-c:a", "copy",
       tmpFullOut
     ];
