@@ -315,7 +315,7 @@ function renderEpisodePipelineBar(ep) {
     const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
 
     const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
-    const episodeLevelSteps = ['compose'];
+    const episodeLevelSteps = ['compose', 'transcribe'];
     const stepsToShow = steps.filter(function(s) {
         return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
     });
@@ -336,12 +336,31 @@ function renderEpisodePipelineBar(ep) {
         var onclick = 'runStep(\'' + s.id + '\')';
 
         var connector = (i > 0) ? '<div class="ep-step-connector' + (done ? ' done' : '') + '"></div>' : '';
+
+        // Add method selector for transcribe step
+        var methodSelector = '';
+        if (s.id === 'transcribe') {
+            methodSelector = '<select id="transcribe-method-select" onclick="event.stopPropagation()" style="background:#111; border:1px solid #333; color:#888; padding:2px 4px; border-radius:3px; font-size:0.6rem; margin-left:4px; cursor:pointer;">' +
+                '<option value="local">🏠 Local</option>' +
+                '<option value="groq">⚡ Groq</option>' +
+                '<option value="api">🌐 API</option>' +
+            '</select>';
+        }
+
         return connector +
             '<div class="' + cls + '" onclick="' + onclick + '" title="Click to run: ' + s.desc + '">' +
             '<span class="chip-icon">' + icon + '</span>' +
             '<span>' + label + '</span>' +
+            methodSelector +
         '</div>';
     }).join('');
+
+    // Set default transcription method from config
+    var methodSelect = document.getElementById('transcribe-method-select');
+    if (methodSelect) {
+        var defaultMethod = (typeof transcriptionConfig !== 'undefined' && transcriptionConfig.defaultMethod) || 'local';
+        if (defaultMethod !== 'skip') methodSelect.value = defaultMethod;
+    }
 }
 
 // Actions
@@ -366,8 +385,15 @@ async function runStep(step) {
         }
     }
 
+    // Get transcription method for transcribe step
+    let transcribeMethod = null;
+    if (step === 'transcribe') {
+        const methodSelect = document.getElementById('transcribe-method-select');
+        if (methodSelect) transcribeMethod = methodSelect.value;
+    }
+
     // Auto-enable face tracking for crop step
-    var body = {slug: currentSlug, step, force: true, model};
+    var body = {slug: currentSlug, step, force: true, model, transcribeMethod};
     if (step === 'crop') {
         body.faceTrack = true;
         body.ratio = '9:16';
