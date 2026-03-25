@@ -1930,6 +1930,38 @@ function rtChunkWords(words) {
     return chunks;
 }
 
+// Detect time-shift between saved chunks and a fresh transcript (mirrors subtitle.js).
+// Returns the amount to add to all chunk timestamps so they align with the new clip.
+function rtDetectChunkShift(savedChunks, reelWords) {
+    if (!savedChunks || !savedChunks.length || !reelWords || !reelWords.length) return 0;
+    var chunkTextWords = [];
+    for (var ci = 0; ci < Math.min(savedChunks.length, 5); ci++) {
+        var ws = savedChunks[ci].text.trim().split(/\s+/).filter(Boolean);
+        for (var wi = 0; wi < ws.length; wi++) { chunkTextWords.push(ws[wi]); if (chunkTextWords.length >= 12) break; }
+        if (chunkTextWords.length >= 12) break;
+    }
+    if (chunkTextWords.length < 2) return 0;
+    var norm = function(s) { return s.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim(); };
+    var matchStart = Math.min(1, chunkTextWords.length - 1);
+    var matchWords = chunkTextWords.slice(matchStart, matchStart + 8).map(norm);
+    if (!matchWords.length) return 0;
+    var maxSearch = Math.min(reelWords.length, 300);
+    var bestScore = 0, bestPos = -1;
+    for (var i = 0; i < maxSearch; i++) {
+        var score = 0;
+        for (var j = 0; j < matchWords.length && (i + j) < reelWords.length; j++) {
+            if (norm(reelWords[i + j].word) === matchWords[j]) score++;
+        }
+        if (score > bestScore) { bestScore = score; bestPos = i; }
+    }
+    if (bestScore < Math.max(1, Math.ceil(matchWords.length * 0.4)) || bestPos < 0) return 0;
+    var firstWordPos = Math.max(0, bestPos - matchStart);
+    var wordTime = reelWords[firstWordPos].start;
+    var chunkTime = savedChunks[0].start;
+    var shift = wordTime - chunkTime;
+    return Math.abs(shift) > 0.3 ? shift : 0;
+}
+
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
     if (!contentEl) return;
@@ -1945,6 +1977,61 @@ async function loadReelTranscript(reelId) {
         var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
         if (chunksRes.ok) {
             reelChunksData = JSON.parse(await chunksRes.text());
+
+            // Also load the transcript — if it has content outside the saved
+            // chunks' time range (e.g. reel start was extended), merge new
+            // auto-generated chunks with the proofread ones.
+            try {
+                var txRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+                if (txRes.ok) {
+                    var txData = JSON.parse(await txRes.text());
+                    var txWords = rtReelWordsFromTranscript(txData);
+                    if (txWords.length) {
+                        var shift = rtDetectChunkShift(reelChunksData, txWords);
+                        if (shift !== 0) {
+                            console.log('[Transcript] Shifting chunks by ' + shift.toFixed(1) + 's');
+                            var clipEnd = 0;
+                            for (var we = 0; we < txWords.length; we++) { if (txWords[we].end > clipEnd) clipEnd = txWords[we].end; }
+                            reelChunksData.forEach(function(c) { c.start += shift; c.end += shift; });
+                            reelChunksData = reelChunksData.filter(function(c) { return c.start < clipEnd && c.end > 0; });
+                            if (reelChunksData.length) {
+                                reelChunksData[0].start = Math.max(0, reelChunksData[0].start);
+                                reelChunksData[reelChunksData.length - 1].end = Math.min(reelChunksData[reelChunksData.length - 1].end, clipEnd);
+                            }
+                            // Prepend chunks for new content before proofread chunks
+                            var chunksStart = reelChunksData.length ? reelChunksData[0].start : 0;
+                            if (chunksStart > 0.5) {
+                                var earlyWords = txWords.filter(function(w) { return w.start >= 0 && w.end < chunksStart; });
+                                if (earlyWords.length) {
+                                    var prependChunks = rtChunkWords(earlyWords);
+                                    if (prependChunks.length) {
+                                        var last = prependChunks[prependChunks.length - 1];
+                                        if (last.end > chunksStart) last.end = chunksStart;
+                                    }
+                                    reelChunksData = prependChunks.concat(reelChunksData);
+                                    console.log('[Transcript] Prepended ' + prependChunks.length + ' chunks for extended start');
+                                }
+                            }
+                            // Append chunks for new content after proofread chunks
+                            var chunksEnd = reelChunksData.length ? reelChunksData[reelChunksData.length - 1].end : 0;
+                            if (clipEnd - chunksEnd > 0.5) {
+                                var lateWords = txWords.filter(function(w) { return w.start >= chunksEnd; });
+                                if (lateWords.length) {
+                                    var appendChunks = rtChunkWords(lateWords);
+                                    reelChunksData = reelChunksData.concat(appendChunks);
+                                    console.log('[Transcript] Appended ' + appendChunks.length + ' chunks for extended end');
+                                }
+                            }
+                            // Close gaps
+                            for (var gi = 0; gi < reelChunksData.length - 1; gi++) {
+                                var gap = reelChunksData[gi + 1].start - reelChunksData[gi].end;
+                                if (gap > 0 && gap <= 3) reelChunksData[gi].end = reelChunksData[gi + 1].start;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+
             rtRenderChunks(contentEl);
             return;
         }
