@@ -119,8 +119,9 @@ function renderReelDetail(ep, reelId) {
     // Trim editor
     renderTrimEditor(ep, r);
 
-    // Transcript context for extending reel boundaries
-    renderTranscriptContext(ep, r);
+    // Transcript context now integrated into trim editor
+    var ctxEl = document.getElementById('reel-transcript-ctx');
+    if (ctxEl) ctxEl.style.display = 'none';
 
     // Per-reel action buttons
     var actionsEl = document.getElementById('reel-actions');
@@ -361,76 +362,573 @@ function buildReelActions(ep, reel) {
     return html;
 }
 
-// ─── Trim Editor ─────────────────────────────────────────────────────────────
+// ─── Unified Reel Editor ─────────────────────────────────────────────────────
 
 var pendingCuts = [];
+var tlState = {
+    windowStart: 0, windowEnd: 0, reelStart: 0, reelEnd: 0,
+    cutsSec: [], segments: [], selStartIdx: -1, selEndIdx: -1,
+    dragging: null, reelId: null, slug: null, animFrame: null
+};
+var tlDragListeners = { move: null, up: null };
 
 function renderTrimEditor(ep, reel) {
     var trimEl = document.getElementById('reel-trim-editor');
     if (!trimEl) return;
-    // Only show for episodes (not pre-cut reels)
     if (ep.mediaType !== 'episode' || !reel.start || !reel.end) {
         trimEl.style.display = 'none';
         return;
     }
     trimEl.style.display = '';
 
-    // Initialize pendingCuts from reel data
-    pendingCuts = (reel.cuts || []).map(function(c) { return { from: c.from, to: c.to }; });
-
-    var cutsHtml = '';
-    if (pendingCuts.length > 0) {
-        cutsHtml = pendingCuts.map(function(c, i) {
-            return '<div class="reel-trim-row" style="margin-top:6px; padding:6px 8px; background:#1a0a0a; border:1px solid #3a1c1c; border-radius:6px;">' +
-                '<div class="reel-trim-field">' +
-                    '<label style="color:#f87171;">Cut from</label>' +
-                    '<input type="text" class="trim-cut-from" data-idx="' + i + '" value="' + escHtml(c.from) + '" placeholder="1:00">' +
-                '</div>' +
-                '<div class="reel-trim-field">' +
-                    '<label style="color:#f87171;">Cut to</label>' +
-                    '<input type="text" class="trim-cut-to" data-idx="' + i + '" value="' + escHtml(c.to) + '" placeholder="1:15">' +
-                '</div>' +
-                '<div class="reel-trim-field">' +
-                    '<label>Playhead</label>' +
-                    '<div style="display:flex; gap:4px;">' +
-                        '<button onclick="setCutFromPlayhead(' + i + ', \'from\')" style="font-size:0.6rem; padding:3px 6px;">From</button>' +
-                        '<button onclick="setCutFromPlayhead(' + i + ', \'to\')" style="font-size:0.6rem; padding:3px 6px;">To</button>' +
-                    '</div>' +
-                '</div>' +
-                '<button onclick="removeCut(' + i + ', \'' + reel.id + '\')" style="font-size:0.7rem; padding:3px 6px; color:#f87171; align-self:flex-end;" title="Remove this cut">&times;</button>' +
-            '</div>';
-        }).join('');
+    // Skip rebuild if same reel already shown
+    if (tlState.reelId === reel.id && document.getElementById('tl-track')) {
+        var si = document.getElementById('reel-trim-start');
+        var ei = document.getElementById('reel-trim-end');
+        if (si && si !== document.activeElement) si.value = reel.start;
+        if (ei && ei !== document.activeElement) ei.value = reel.end;
+        return;
     }
 
+    var reelStartSec = parseTrimTime(reel.start);
+    var reelEndSec = parseTrimTime(reel.end);
+    var duration = reelEndSec - reelStartSec;
+
+    pendingCuts = (reel.cuts || []).map(function(c) { return { from: c.from, to: c.to }; });
+    tlState.reelStart = reelStartSec;
+    tlState.reelEnd = reelEndSec;
+    tlState.windowStart = Math.max(0, reelStartSec - CONTEXT_SECONDS);
+    tlState.windowEnd = reelEndSec + CONTEXT_SECONDS;
+    tlState.cutsSec = pendingCuts.map(function(c) {
+        return { from: parseTrimTime(c.from), to: parseTrimTime(c.to) };
+    }).sort(function(a, b) { return a.from - b.from; });
+    tlState.reelId = reel.id;
+    tlState.slug = ep.slug;
+    tlState.segments = [];
+    tlState.selStartIdx = -1;
+    tlState.selEndIdx = -1;
+
     trimEl.innerHTML =
-        '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">' +
-            '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Trim</div>' +
-            '<div style="flex:1;"></div>' +
-            '<button onclick="seekToTrimStart()" style="font-size:0.6rem; padding:2px 6px; color:#666; background:transparent; border:1px solid #333; border-radius:4px;">Jump to start</button>' +
-        '</div>' +
-        '<div class="reel-trim-row">' +
-            '<div class="reel-trim-field">' +
-                '<label>In</label>' +
-                '<input type="text" id="reel-trim-start" value="' + escHtml(reel.start) + '" placeholder="0:00">' +
-            '</div>' +
-            '<div class="reel-trim-field">' +
-                '<label>Out</label>' +
-                '<input type="text" id="reel-trim-end" value="' + escHtml(reel.end) + '" placeholder="1:30">' +
-            '</div>' +
-            '<div class="reel-trim-field">' +
-                '<label>Set from playhead</label>' +
-                '<div style="display:flex; gap:4px;">' +
-                    '<button onclick="setTrimFromPlayhead(\'start\')" style="font-size:0.6rem; padding:3px 6px;" title="Set start to current video time">In</button>' +
-                    '<button onclick="setTrimFromPlayhead(\'end\')" style="font-size:0.6rem; padding:3px 6px;" title="Set end to current video time">Out</button>' +
-                '</div>' +
+        '<div class="tl-header">' +
+            '<span class="tl-label">Trim</span>' +
+            '<div class="tl-times">' +
+                '<input type="text" id="reel-trim-start" class="tl-time-input" value="' + escHtml(reel.start) + '" title="Reel start" onchange="tlTimeInputChanged()">' +
+                '<span class="tl-time-sep">&mdash;</span>' +
+                '<input type="text" id="reel-trim-end" class="tl-time-input" value="' + escHtml(reel.end) + '" title="Reel end" onchange="tlTimeInputChanged()">' +
+                '<span class="tl-duration" id="tl-duration">' + formatTrimTime(duration) + '</span>' +
             '</div>' +
         '</div>' +
-        '<div id="trim-cuts-list">' + cutsHtml + '</div>' +
-        '<div style="display:flex; gap:6px; margin-top:8px; align-items:center;">' +
-            '<button onclick="addCut(\'' + reel.id + '\')" style="font-size:0.65rem; padding:4px 8px; color:#f87171; border-color:#3a1c1c;">+ Cut from middle</button>' +
+        '<div class="tl-track-wrap">' +
+            '<div class="tl-track" id="tl-track">' +
+                '<div class="tl-segments" id="tl-segments"></div>' +
+                '<div class="tl-playhead" id="tl-playhead"><div class="tl-playhead-head"></div></div>' +
+            '</div>' +
+            '<div class="tl-ticks" id="tl-ticks"></div>' +
+        '</div>' +
+        '<div class="tl-toolbar">' +
+            '<button onclick="tlSplit()" class="tl-btn tl-split-btn" title="Add a cut at the playhead position">&#9986; Split</button>' +
+            '<span id="tl-playhead-time" class="tl-playhead-label">0:00</span>' +
             '<div style="flex:1;"></div>' +
+            '<button onclick="tlOpenPreview()" class="tl-btn tl-preview-btn" title="Preview in full episode video">&#9654; Preview</button>' +
             '<button class="primary" onclick="saveReelTrim(\'' + reel.id + '\')" style="font-size:0.7rem;">Save & Re-cut</button>' +
+        '</div>' +
+        '<div id="tl-transcript" class="tl-transcript">' +
+            '<div class="tl-transcript-header">' +
+                '<span class="tl-transcript-label">Transcript</span>' +
+                '<span class="tl-transcript-hint">loading...</span>' +
+            '</div>' +
         '</div>';
+
+    tlRenderSegments();
+    tlRenderTicks();
+    tlInitTrackEvents();
+    tlStartPlayheadSync();
+    tlLoadTranscript(ep);
+}
+
+async function tlLoadTranscript(ep) {
+    var transcript = await loadTranscriptForSlug(ep.slug);
+    if (tlState.slug !== ep.slug || !document.getElementById('tl-track')) return;
+
+    if (!transcript || !transcript.segments || !transcript.segments.length) {
+        var txEl = document.getElementById('tl-transcript');
+        if (txEl) txEl.innerHTML =
+            '<div class="tl-transcript-header"><span class="tl-transcript-label">Transcript</span></div>' +
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:12px;">No transcript available.</div>';
+        return;
+    }
+
+    var segs = transcript.segments;
+    tlState.segments = [];
+    var selStart = -1, selEnd = -1;
+    for (var i = 0; i < segs.length; i++) {
+        var s = segs[i];
+        if (s.end < tlState.windowStart) continue;
+        if (s.start > tlState.windowEnd) break;
+        var idx = tlState.segments.length;
+        tlState.segments.push({ start: s.start, end: s.end, text: s.text });
+        if (s.start >= tlState.reelStart - 0.5 && s.end <= tlState.reelEnd + 0.5) {
+            if (selStart === -1) selStart = idx;
+            selEnd = idx;
+        }
+    }
+    if (selStart === -1 && tlState.segments.length) {
+        var bestD = Infinity;
+        for (var j = 0; j < tlState.segments.length; j++) {
+            var d = Math.abs(tlState.segments[j].start - tlState.reelStart);
+            if (d < bestD) { bestD = d; selStart = j; }
+        }
+        selEnd = selStart;
+    }
+    tlState.selStartIdx = selStart;
+    tlState.selEndIdx = selEnd;
+    tlRenderTranscript();
+}
+
+// ─── Segment Computation & Rendering ─────────────────────────────────────────
+
+function tlComputeZones() {
+    var ws = tlState.windowStart, we = tlState.windowEnd;
+    var rs = tlState.reelStart, re = tlState.reelEnd;
+    var zones = [];
+    if (rs > ws) zones.push({ from: ws, to: rs, type: 'context' });
+    var cuts = tlState.cutsSec, pos = rs;
+    for (var i = 0; i < cuts.length; i++) {
+        if (cuts[i].from > pos) zones.push({ from: pos, to: cuts[i].from, type: 'kept' });
+        zones.push({ from: cuts[i].from, to: cuts[i].to, type: 'cut', cutIdx: i });
+        pos = cuts[i].to;
+    }
+    if (pos < re) zones.push({ from: pos, to: re, type: 'kept' });
+    if (re < we) zones.push({ from: re, to: we, type: 'context' });
+    return zones;
+}
+
+function tlRenderSegments() {
+    var container = document.getElementById('tl-segments');
+    if (!container) return;
+    var totalDur = tlState.windowEnd - tlState.windowStart;
+    if (totalDur <= 0) return;
+
+    var zones = tlComputeZones();
+    var html = '';
+    for (var i = 0; i < zones.length; i++) {
+        var z = zones[i];
+        var leftPct = ((z.from - tlState.windowStart) / totalDur) * 100;
+        var widthPct = ((z.to - z.from) / totalDur) * 100;
+        if (z.type === 'cut') {
+            html += '<div class="tl-segment cut" style="left:' + leftPct + '%; width:' + widthPct + '%;" data-cut-idx="' + z.cutIdx + '">' +
+                '<button class="tl-cut-remove" onclick="event.stopPropagation(); tlRemoveCut(' + z.cutIdx + ')" title="Remove this cut">&times;</button>' +
+            '</div>';
+        } else if (z.type === 'kept') {
+            html += '<div class="tl-segment kept" style="left:' + leftPct + '%; width:' + widthPct + '%;"></div>';
+        } else {
+            html += '<div class="tl-segment context" style="left:' + leftPct + '%; width:' + widthPct + '%;"></div>';
+        }
+    }
+    // Cut handles (red)
+    for (var j = 0; j < tlState.cutsSec.length; j++) {
+        var cut = tlState.cutsSec[j];
+        var fromPct = ((cut.from - tlState.windowStart) / totalDur) * 100;
+        var toPct = ((cut.to - tlState.windowStart) / totalDur) * 100;
+        html += '<div class="tl-handle tl-cut-handle" style="left:' + fromPct + '%;" data-handle="cut-start" data-cut-idx="' + j + '"></div>';
+        html += '<div class="tl-handle tl-cut-handle" style="left:' + toPct + '%;" data-handle="cut-end" data-cut-idx="' + j + '"></div>';
+    }
+    // Reel boundary handles (purple)
+    var rsP = ((tlState.reelStart - tlState.windowStart) / totalDur) * 100;
+    var reP = ((tlState.reelEnd - tlState.windowStart) / totalDur) * 100;
+    html += '<div class="tl-handle tl-bound-handle" style="left:' + rsP + '%;" data-handle="bound-start"></div>';
+    html += '<div class="tl-handle tl-bound-handle" style="left:' + reP + '%;" data-handle="bound-end"></div>';
+    container.innerHTML = html;
+}
+
+function tlRenderTicks() {
+    var container = document.getElementById('tl-ticks');
+    if (!container) return;
+    var duration = tlState.windowEnd - tlState.windowStart;
+    if (duration <= 0) return;
+    var intervals = [5, 10, 15, 30, 60, 120, 300];
+    var interval = intervals[intervals.length - 1];
+    for (var k = 0; k < intervals.length; k++) {
+        if (duration / intervals[k] <= 10) { interval = intervals[k]; break; }
+    }
+    var html = '';
+    var firstTick = Math.ceil(tlState.windowStart / interval) * interval;
+    for (var t = firstTick; t <= tlState.windowEnd; t += interval) {
+        var pct = ((t - tlState.windowStart) / duration) * 100;
+        html += '<span class="tl-tick" style="left:' + pct + '%;">' + formatTrimTime(t) + '</span>';
+    }
+    container.innerHTML = html;
+}
+
+// ─── Transcript Strip ────────────────────────────────────────────────────────
+
+function tlRenderTranscript() {
+    var txEl = document.getElementById('tl-transcript');
+    if (!txEl) return;
+    if (!tlState.segments.length) {
+        txEl.innerHTML =
+            '<div class="tl-transcript-header"><span class="tl-transcript-label">Transcript</span></div>' +
+            '<div style="color:#555; font-size:0.75rem; text-align:center; padding:12px;">No transcript available.</div>';
+        return;
+    }
+
+    var segHtml = tlState.segments.map(function(seg, i) {
+        var m = Math.floor(seg.start / 60);
+        var sc = Math.floor(seg.start % 60);
+        var ts = String(m).padStart(2, '0') + ':' + String(sc).padStart(2, '0');
+        var inReel = i >= tlState.selStartIdx && i <= tlState.selEndIdx;
+        var isCut = inReel && tlIsTimeCut(seg.start, seg.end);
+        var cls = 'tl-seg' + (inReel ? ' tl-seg-selected' : '') + (isCut ? ' tl-seg-cut' : '');
+        return '<div class="' + cls + '" data-idx="' + i + '">' +
+            '<span class="tl-seg-ts">' + ts + '</span>' +
+            '<span class="tl-seg-text">' + escHtml(seg.text) + '</span>' +
+        '</div>';
+    }).join('');
+
+    txEl.innerHTML =
+        '<div class="tl-transcript-header">' +
+            '<span class="tl-transcript-label">Transcript</span>' +
+            '<span class="tl-transcript-hint">click outside reel to extend</span>' +
+        '</div>' +
+        '<div class="tl-strip-doc" id="tl-strip-doc">' + segHtml + '</div>';
+
+    tlInitStripEvents();
+    tlScrollToSelection();
+}
+
+function tlIsTimeCut(segStart, segEnd) {
+    for (var i = 0; i < tlState.cutsSec.length; i++) {
+        var c = tlState.cutsSec[i];
+        if (segStart < c.to && segEnd > c.from) return true;
+    }
+    return false;
+}
+
+function tlUpdateTranscriptSelection() {
+    var selStart = -1, selEnd = -1;
+    for (var i = 0; i < tlState.segments.length; i++) {
+        var s = tlState.segments[i];
+        if (s.start >= tlState.reelStart - 0.5 && s.end <= tlState.reelEnd + 0.5) {
+            if (selStart === -1) selStart = i;
+            selEnd = i;
+        }
+    }
+    if (selStart === -1 && tlState.segments.length) {
+        var bestD = Infinity;
+        for (var j = 0; j < tlState.segments.length; j++) {
+            var d = Math.abs(tlState.segments[j].start - tlState.reelStart);
+            if (d < bestD) { bestD = d; selStart = j; }
+        }
+        selEnd = selStart;
+    }
+    tlState.selStartIdx = selStart;
+    tlState.selEndIdx = selEnd;
+    var doc = document.getElementById('tl-strip-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.tl-seg');
+    for (var k = 0; k < segEls.length; k++) {
+        var inReel = k >= selStart && k <= selEnd;
+        segEls[k].classList.toggle('tl-seg-selected', inReel);
+        var seg = tlState.segments[k];
+        segEls[k].classList.toggle('tl-seg-cut', inReel && tlIsTimeCut(seg.start, seg.end));
+    }
+}
+
+function tlInitStripEvents() {
+    var doc = document.getElementById('tl-strip-doc');
+    if (!doc) return;
+    var segEls = doc.querySelectorAll('.tl-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        (function(idx) {
+            segEls[idx].addEventListener('click', function() {
+                if (tlState.dragging) return;
+                var seg = tlState.segments[idx];
+                if (!seg) return;
+                var changed = false;
+                if (idx < tlState.selStartIdx) {
+                    tlState.reelStart = seg.start;
+                    changed = true;
+                } else if (idx > tlState.selEndIdx) {
+                    tlState.reelEnd = seg.end;
+                    changed = true;
+                } else {
+                    tlSeekVideo(seg.start);
+                    return;
+                }
+                if (changed) {
+                    tlState.cutsSec = tlState.cutsSec.filter(function(c) {
+                        return c.from >= tlState.reelStart && c.to <= tlState.reelEnd;
+                    });
+                    tlUpdateTimeInputs();
+                    tlRenderSegments();
+                    tlUpdateTranscriptSelection();
+                    tlSyncPendingCuts();
+                }
+            });
+        })(i);
+    }
+}
+
+function tlScrollToSelection() {
+    setTimeout(function() {
+        var doc = document.getElementById('tl-strip-doc');
+        if (!doc) return;
+        var segEls = doc.querySelectorAll('.tl-seg');
+        var el = segEls[tlState.selStartIdx];
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }, 50);
+}
+
+// ─── Timeline Interaction ────────────────────────────────────────────────────
+
+function tlPctToTime(pct) { return tlState.windowStart + pct * (tlState.windowEnd - tlState.windowStart); }
+function tlTimeToPct(sec) { var d = tlState.windowEnd - tlState.windowStart; return d > 0 ? (sec - tlState.windowStart) / d : 0; }
+
+function tlGetVideoOffset() {
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
+    return (r && r.cut && r.start) ? parseTrimTime(r.start) : 0;
+}
+
+function tlSeekVideo(timeSec) {
+    var video = getReelVideo();
+    if (!video) return;
+    var clamped = Math.max(tlState.reelStart, Math.min(tlState.reelEnd, timeSec));
+    video.currentTime = Math.max(0, clamped - tlGetVideoOffset());
+}
+
+function tlSyncPendingCuts() {
+    pendingCuts = tlState.cutsSec.map(function(c) {
+        return { from: formatTrimTime(c.from), to: formatTrimTime(c.to) };
+    });
+}
+
+function tlUpdateTimeInputs() {
+    var si = document.getElementById('reel-trim-start');
+    var ei = document.getElementById('reel-trim-end');
+    if (si) si.value = formatTrimTime(tlState.reelStart);
+    if (ei) ei.value = formatTrimTime(tlState.reelEnd);
+    var durEl = document.getElementById('tl-duration');
+    if (durEl) durEl.textContent = formatTrimTime(tlState.reelEnd - tlState.reelStart);
+}
+
+function tlSnapToSegBoundary(timeSec, which) {
+    if (!tlState.segments.length) return timeSec;
+    var best = timeSec, bestDist = Infinity;
+    for (var i = 0; i < tlState.segments.length; i++) {
+        var s = tlState.segments[i];
+        var candidate = which === 'start' ? s.start : s.end;
+        var d = Math.abs(candidate - timeSec);
+        if (d < bestDist) { bestDist = d; best = candidate; }
+    }
+    return bestDist < 2 ? best : timeSec;
+}
+
+function tlInitTrackEvents() {
+    var track = document.getElementById('tl-track');
+    if (!track) return;
+    if (tlDragListeners.move) document.removeEventListener('pointermove', tlDragListeners.move);
+    if (tlDragListeners.up) document.removeEventListener('pointerup', tlDragListeners.up);
+
+    track.addEventListener('pointerdown', function(e) {
+        var boundHandle = e.target.closest('.tl-bound-handle');
+        if (boundHandle) {
+            e.preventDefault();
+            tlState.dragging = { type: boundHandle.dataset.handle };
+            boundHandle.classList.add('dragging');
+            track.classList.add('scrubbing');
+            return;
+        }
+        var cutHandle = e.target.closest('.tl-cut-handle');
+        if (cutHandle) {
+            e.preventDefault();
+            tlState.dragging = { type: cutHandle.dataset.handle, cutIdx: parseInt(cutHandle.dataset.cutIdx) };
+            cutHandle.classList.add('dragging');
+            track.classList.add('scrubbing');
+            return;
+        }
+        if (e.target.closest('.tl-playhead-head')) {
+            e.preventDefault();
+            tlState.dragging = { type: 'scrub' };
+            track.classList.add('scrubbing');
+            return;
+        }
+        if (e.target.closest('.tl-cut-remove')) return;
+        e.preventDefault();
+        var rect = track.getBoundingClientRect();
+        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        var timeSec = tlPctToTime(pct);
+        if (timeSec >= tlState.reelStart && timeSec <= tlState.reelEnd) {
+            tlSeekVideo(timeSec);
+        }
+        tlState.dragging = { type: 'scrub' };
+        track.classList.add('scrubbing');
+    });
+
+    function onMove(e) {
+        if (!tlState.dragging) return;
+        e.preventDefault();
+        var tr = document.getElementById('tl-track');
+        if (!tr) return;
+        var rect = tr.getBoundingClientRect();
+        var pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        var timeSec = tlPctToTime(pct);
+        var drag = tlState.dragging;
+
+        if (drag.type === 'scrub') {
+            tlSeekVideo(timeSec);
+        } else if (drag.type === 'bound-start') {
+            var snapped = tlSnapToSegBoundary(timeSec, 'start');
+            tlState.reelStart = Math.max(tlState.windowStart, Math.min(tlState.reelEnd - 1, snapped));
+            tlState.cutsSec = tlState.cutsSec.filter(function(c) {
+                return c.from >= tlState.reelStart && c.to <= tlState.reelEnd;
+            });
+            tlUpdateTimeInputs();
+            tlRenderSegments();
+            tlUpdateTranscriptSelection();
+        } else if (drag.type === 'bound-end') {
+            var snapped = tlSnapToSegBoundary(timeSec, 'end');
+            tlState.reelEnd = Math.max(tlState.reelStart + 1, Math.min(tlState.windowEnd, snapped));
+            tlState.cutsSec = tlState.cutsSec.filter(function(c) {
+                return c.from >= tlState.reelStart && c.to <= tlState.reelEnd;
+            });
+            tlUpdateTimeInputs();
+            tlRenderSegments();
+            tlUpdateTranscriptSelection();
+        } else if (drag.type === 'cut-start' || drag.type === 'cut-end') {
+            var cut = tlState.cutsSec[drag.cutIdx];
+            if (!cut) return;
+            var cuts = tlState.cutsSec;
+            if (drag.type === 'cut-start') {
+                var lo = drag.cutIdx > 0 ? cuts[drag.cutIdx - 1].to + 0.1 : tlState.reelStart;
+                cut.from = Math.round(Math.max(lo, Math.min(cut.to - 0.3, timeSec)) * 10) / 10;
+            } else {
+                var hi = drag.cutIdx < cuts.length - 1 ? cuts[drag.cutIdx + 1].from - 0.1 : tlState.reelEnd;
+                cut.to = Math.round(Math.max(cut.from + 0.3, Math.min(hi, timeSec)) * 10) / 10;
+            }
+            tlRenderSegments();
+        }
+    }
+
+    function onUp() {
+        if (!tlState.dragging) return;
+        var tr = document.getElementById('tl-track');
+        if (tr) tr.classList.remove('scrubbing');
+        document.querySelectorAll('.tl-handle.dragging').forEach(function(el) { el.classList.remove('dragging'); });
+        tlSyncPendingCuts();
+        tlState.dragging = null;
+    }
+
+    tlDragListeners.move = onMove;
+    tlDragListeners.up = onUp;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+}
+
+// ─── Playhead Sync ───────────────────────────────────────────────────────────
+
+function tlStartPlayheadSync() {
+    tlStopPlayheadSync();
+    function update() {
+        var ph = document.getElementById('tl-playhead');
+        var lbl = document.getElementById('tl-playhead-time');
+        if (!ph) return;
+        var video = getReelVideo();
+        if (video) {
+            var curSec = video.currentTime + tlGetVideoOffset();
+            var pct = tlTimeToPct(curSec) * 100;
+            ph.style.left = Math.max(0, Math.min(100, pct)) + '%';
+            if (lbl) lbl.textContent = formatTrimTime(curSec);
+            tlHighlightActiveSegment(curSec);
+        }
+        tlState.animFrame = requestAnimationFrame(update);
+    }
+    update();
+}
+
+function tlStopPlayheadSync() {
+    if (tlState.animFrame) { cancelAnimationFrame(tlState.animFrame); tlState.animFrame = null; }
+}
+
+function tlHighlightActiveSegment(timeSec) {
+    var doc = document.getElementById('tl-strip-doc');
+    if (!doc) return;
+    var video = getReelVideo();
+    var isPlaying = video && !video.paused;
+    var segEls = doc.querySelectorAll('.tl-seg');
+    for (var i = 0; i < segEls.length; i++) {
+        var seg = tlState.segments[i];
+        var playing = seg && timeSec >= seg.start - 0.1 && timeSec < seg.end + 0.1;
+        segEls[i].classList.toggle('tl-seg-playing', playing);
+        if (playing && isPlaying && !tlState.dragging) {
+            var elRect = segEls[i].getBoundingClientRect();
+            var docRect = doc.getBoundingClientRect();
+            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
+                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
+    }
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
+
+function tlSplit() {
+    var video = getReelVideo();
+    if (!video) { showToast('No video loaded — cut the reel first', 'error'); return; }
+    var curSec = video.currentTime + tlGetVideoOffset();
+    var half = 1;
+    var cutFrom = Math.max(tlState.reelStart + 0.1, Math.round((curSec - half) * 10) / 10);
+    var cutTo = Math.min(tlState.reelEnd - 0.1, Math.round((cutFrom + half * 2) * 10) / 10);
+    for (var i = 0; i < tlState.cutsSec.length; i++) {
+        var ex = tlState.cutsSec[i];
+        if (cutFrom < ex.to && cutTo > ex.from) {
+            showToast('Overlaps an existing cut — move the playhead', 'error');
+            return;
+        }
+    }
+    tlState.cutsSec.push({ from: cutFrom, to: cutTo });
+    tlState.cutsSec.sort(function(a, b) { return a.from - b.from; });
+    tlSyncPendingCuts();
+    tlRenderSegments();
+    tlUpdateTranscriptSelection();
+}
+
+function tlRemoveCut(cutIdx) {
+    tlState.cutsSec.splice(cutIdx, 1);
+    tlSyncPendingCuts();
+    tlRenderSegments();
+    tlUpdateTranscriptSelection();
+}
+
+function tlTimeInputChanged() {
+    var startEl = document.getElementById('reel-trim-start');
+    var endEl = document.getElementById('reel-trim-end');
+    if (startEl) tlState.reelStart = parseTrimTime(startEl.value);
+    if (endEl) tlState.reelEnd = parseTrimTime(endEl.value);
+    tlState.windowStart = Math.max(0, tlState.reelStart - CONTEXT_SECONDS);
+    tlState.windowEnd = tlState.reelEnd + CONTEXT_SECONDS;
+    var durEl = document.getElementById('tl-duration');
+    if (durEl) durEl.textContent = formatTrimTime(tlState.reelEnd - tlState.reelStart);
+    tlState.cutsSec = tlState.cutsSec.filter(function(c) {
+        return c.from >= tlState.reelStart && c.to <= tlState.reelEnd;
+    });
+    tlSyncPendingCuts();
+    tlRenderSegments();
+    tlRenderTicks();
+    if (tlState.slug) {
+        var ep = episodes.find(function(e) { return e.slug === tlState.slug; });
+        if (ep) tlLoadTranscript(ep);
+    }
+}
+
+function tlOpenPreview() {
+    if (!currentSlug) return;
+    ctxState.segments = tlState.segments;
+    ctxState.startIdx = tlState.selStartIdx;
+    ctxState.endIdx = tlState.selEndIdx;
+    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw';
+    ctxState.reelStartSec = tlState.reelStart;
+    openCtxVideoPopup();
 }
 
 // ─── Transcript Context — document-style selection for extending reel bounds ──
@@ -1232,7 +1730,14 @@ function removeCut(idx, reelId) {
 }
 
 function syncCutInputs() {
-    // Sync input values back into pendingCuts and preserve start/end
+    // Visual timeline mode — sync from tlState
+    if (document.getElementById('tl-track')) {
+        pendingCuts = tlState.cutsSec.map(function(c) {
+            return { from: formatTrimTime(c.from), to: formatTrimTime(c.to) };
+        });
+        return;
+    }
+    // Legacy text-input mode
     document.querySelectorAll('.trim-cut-from').forEach(function(el) {
         var i = parseInt(el.dataset.idx);
         if (pendingCuts[i]) pendingCuts[i].from = el.value.trim();
@@ -1425,6 +1930,38 @@ function rtChunkWords(words) {
     return chunks;
 }
 
+// Detect time-shift between saved chunks and a fresh transcript (mirrors subtitle.js).
+// Returns the amount to add to all chunk timestamps so they align with the new clip.
+function rtDetectChunkShift(savedChunks, reelWords) {
+    if (!savedChunks || !savedChunks.length || !reelWords || !reelWords.length) return 0;
+    var chunkTextWords = [];
+    for (var ci = 0; ci < Math.min(savedChunks.length, 5); ci++) {
+        var ws = savedChunks[ci].text.trim().split(/\s+/).filter(Boolean);
+        for (var wi = 0; wi < ws.length; wi++) { chunkTextWords.push(ws[wi]); if (chunkTextWords.length >= 12) break; }
+        if (chunkTextWords.length >= 12) break;
+    }
+    if (chunkTextWords.length < 2) return 0;
+    var norm = function(s) { return s.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim(); };
+    var matchStart = Math.min(1, chunkTextWords.length - 1);
+    var matchWords = chunkTextWords.slice(matchStart, matchStart + 8).map(norm);
+    if (!matchWords.length) return 0;
+    var maxSearch = Math.min(reelWords.length, 300);
+    var bestScore = 0, bestPos = -1;
+    for (var i = 0; i < maxSearch; i++) {
+        var score = 0;
+        for (var j = 0; j < matchWords.length && (i + j) < reelWords.length; j++) {
+            if (norm(reelWords[i + j].word) === matchWords[j]) score++;
+        }
+        if (score > bestScore) { bestScore = score; bestPos = i; }
+    }
+    if (bestScore < Math.max(1, Math.ceil(matchWords.length * 0.4)) || bestPos < 0) return 0;
+    var firstWordPos = Math.max(0, bestPos - matchStart);
+    var wordTime = reelWords[firstWordPos].start;
+    var chunkTime = savedChunks[0].start;
+    var shift = wordTime - chunkTime;
+    return Math.abs(shift) > 0.3 ? shift : 0;
+}
+
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
     if (!contentEl) return;
@@ -1440,6 +1977,61 @@ async function loadReelTranscript(reelId) {
         var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
         if (chunksRes.ok) {
             reelChunksData = JSON.parse(await chunksRes.text());
+
+            // Also load the transcript — if it has content outside the saved
+            // chunks' time range (e.g. reel start was extended), merge new
+            // auto-generated chunks with the proofread ones.
+            try {
+                var txRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+                if (txRes.ok) {
+                    var txData = JSON.parse(await txRes.text());
+                    var txWords = rtReelWordsFromTranscript(txData);
+                    if (txWords.length) {
+                        var shift = rtDetectChunkShift(reelChunksData, txWords);
+                        if (shift !== 0) {
+                            console.log('[Transcript] Shifting chunks by ' + shift.toFixed(1) + 's');
+                            var clipEnd = 0;
+                            for (var we = 0; we < txWords.length; we++) { if (txWords[we].end > clipEnd) clipEnd = txWords[we].end; }
+                            reelChunksData.forEach(function(c) { c.start += shift; c.end += shift; });
+                            reelChunksData = reelChunksData.filter(function(c) { return c.start < clipEnd && c.end > 0; });
+                            if (reelChunksData.length) {
+                                reelChunksData[0].start = Math.max(0, reelChunksData[0].start);
+                                reelChunksData[reelChunksData.length - 1].end = Math.min(reelChunksData[reelChunksData.length - 1].end, clipEnd);
+                            }
+                            // Prepend chunks for new content before proofread chunks
+                            var chunksStart = reelChunksData.length ? reelChunksData[0].start : 0;
+                            if (chunksStart > 0.5) {
+                                var earlyWords = txWords.filter(function(w) { return w.start >= 0 && w.end < chunksStart; });
+                                if (earlyWords.length) {
+                                    var prependChunks = rtChunkWords(earlyWords);
+                                    if (prependChunks.length) {
+                                        var last = prependChunks[prependChunks.length - 1];
+                                        if (last.end > chunksStart) last.end = chunksStart;
+                                    }
+                                    reelChunksData = prependChunks.concat(reelChunksData);
+                                    console.log('[Transcript] Prepended ' + prependChunks.length + ' chunks for extended start');
+                                }
+                            }
+                            // Append chunks for new content after proofread chunks
+                            var chunksEnd = reelChunksData.length ? reelChunksData[reelChunksData.length - 1].end : 0;
+                            if (clipEnd - chunksEnd > 0.5) {
+                                var lateWords = txWords.filter(function(w) { return w.start >= chunksEnd; });
+                                if (lateWords.length) {
+                                    var appendChunks = rtChunkWords(lateWords);
+                                    reelChunksData = reelChunksData.concat(appendChunks);
+                                    console.log('[Transcript] Appended ' + appendChunks.length + ' chunks for extended end');
+                                }
+                            }
+                            // Close gaps
+                            for (var gi = 0; gi < reelChunksData.length - 1; gi++) {
+                                var gap = reelChunksData[gi + 1].start - reelChunksData[gi].end;
+                                if (gap > 0 && gap <= 3) reelChunksData[gi].end = reelChunksData[gi + 1].start;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+
             rtRenderChunks(contentEl);
             return;
         }
