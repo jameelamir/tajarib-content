@@ -175,6 +175,46 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     return true;
   }
 
+  // Serve overlay video files as WebM VP9 with alpha for browser live preview
+  const assetVideoMatch = url.pathname.match(/^\/api\/assets\/video\/(.+)$/);
+  if (req.method === "GET" && assetVideoMatch) {
+    const fileName = decodeURIComponent(assetVideoMatch[1]);
+    if (fileName.includes("..") || fileName.includes("/")) { res.writeHead(400); res.end("Invalid filename"); return true; }
+    const filePath = path.join(ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
+    const ext = path.extname(fileName).toLowerCase();
+    const baseName = path.basename(fileName, ext);
+    if ([".mov", ".mp4", ".avi"].includes(ext)) {
+      // Transcode to WebM VP9 with alpha preservation for browser playback
+      const webmPath = path.join(ASSETS_DIR, `.preview-${baseName}.webm`);
+      const srcStat = fs.statSync(filePath);
+      if (!fs.existsSync(webmPath) || fs.statSync(webmPath).mtimeMs < srcStat.mtimeMs) {
+        try {
+          const { execFileSync } = require("child_process");
+          execFileSync("ffmpeg", ["-y", "-i", filePath, "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "2M", "-auto-alt-ref", "0", "-an", webmPath], { stdio: "pipe", timeout: 60000 });
+        } catch (e) { res.writeHead(500); res.end("Transcode failed: " + (e.stderr?.toString().split("\n").slice(-3).join(" ") || e.message)); return true; }
+      }
+      const stat = fs.statSync(webmPath);
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/webm" });
+        fs.createReadStream(webmPath, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { "Content-Type": "video/webm", "Content-Length": stat.size, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=300" });
+        fs.createReadStream(webmPath).pipe(res);
+      }
+      return true;
+    }
+    // For non-video files (PNG/JPG), serve directly
+    const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif" };
+    res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+    res.end(fs.readFileSync(filePath));
+    return true;
+  }
+
   // Link a file from shared assets dir into local assets/ via symlink
   if (req.method === "POST" && url.pathname === "/api/link-asset") {
     const body = await readBody(req);
