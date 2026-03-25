@@ -38,7 +38,12 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     if (reelParam) {
       const isValid = (p) => fs.existsSync(p) && fs.statSync(p).size > 10240;
       const reelsDir = path.join(dir, "reels");
-      if (stage === 'pre-overlay') {
+      const subs = url.searchParams.get("subs");
+      if (subs === 'off') {
+        // Subtitles hidden — skip final and subtitled, serve cropped > raw
+        videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
+          path.join(reelsDir, `reel-${reelParam}.mp4`);
+      } else if (stage === 'pre-overlay') {
         // Skip final video — serve subtitled > cropped > raw (for overlay preview background)
         videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`) :
           isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
