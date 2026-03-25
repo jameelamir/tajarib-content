@@ -21,16 +21,21 @@ module.exports = async function publishRoutes(req, res, url, ctx) {
 
       let videoPath;
       const dir = path.join(EPISODES_DIR, slug);
+      // Prefer best available: full-final (overlay) > full-subtitled > per-reel final > per-reel subtitled > raw
+      const fullFinal = path.join(dir, "full-final.mp4");
       const fullSubtitled = path.join(dir, "full-subtitled.mp4");
-      if (fs.existsSync(fullSubtitled)) videoPath = fullSubtitled;
+      if (fs.existsSync(fullFinal)) videoPath = fullFinal;
+      else if (fs.existsSync(fullSubtitled)) videoPath = fullSubtitled;
       else if (meta.mediaType === "reel_full") {
         const files = fs.readdirSync(dir);
         const rawVideo = files.find(f => /\.(mp4|mkv|mov|avi)$/i.test(f) && !f.includes("reel") && !f.includes("final"));
         videoPath = path.join(dir, rawVideo || "raw.mp4");
       } else {
         const reelsDir = path.join(dir, "reels");
-        if (fs.existsSync(reelsDir)) { const f = fs.readdirSync(reelsDir).find(f => f.includes("subtitled") && f.endsWith(".mp4")); videoPath = f ? path.join(reelsDir, f) : path.join(reelsDir, "reel-001-subtitled.mp4"); }
-        else videoPath = path.join(dir, "reels", "reel-001-subtitled.mp4");
+        if (fs.existsSync(reelsDir)) {
+          const f = fs.readdirSync(reelsDir).find(f => f.endsWith("-final.mp4")) || fs.readdirSync(reelsDir).find(f => f.includes("subtitled") && f.endsWith(".mp4"));
+          videoPath = f ? path.join(reelsDir, f) : path.join(reelsDir, "reel-001-subtitled.mp4");
+        } else videoPath = path.join(dir, "reels", "reel-001-subtitled.mp4");
       }
 
       io.emit("toast", { type: "success", message: `Preparing video for ${useBuffer ? "Buffer" : "Zapier"}...` });
