@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = function init(ctx) {
-  const { EPISODES_DIR, GUESTS_FILE } = ctx;
+  const { EPISODES_DIR, GUESTS_FILE, SHARED_GUESTS_FILE } = ctx;
 
   function loadJSON(p) {
     if (!fs.existsSync(p)) return null;
@@ -70,6 +70,7 @@ module.exports = function init(ctx) {
       existing.lastUsed = new Date().toISOString();
     }
     saveJSON(GUESTS_FILE, guests);
+    if (SHARED_GUESTS_FILE) saveJSON(SHARED_GUESTS_FILE, guests);
   }
 
   /** Collect body from an incoming request (used by POST route handlers). */
