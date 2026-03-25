@@ -486,9 +486,26 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   }
 
   if (reels.length === 0) {
-    console.log("\n⚠️  No reels found in analysis. Will generate full-video subtitles.\n");
+    // No reels from analysis — treat the full video as a single reel
+    // and use the same ASS subtitle rendering as per-reel subtitles
+    console.log("\n⚠️  No reels found in analysis. Subtitling full video with ASS (same as per-reel).\n");
 
-    // Retranscribe full video with Whisper if transcript is from YouTube
+    if (!fs.existsSync(sourceVideo)) {
+      console.error(`❌ Source video not found: ${sourceVideo}`);
+      fs.readdirSync(dir).forEach(f => console.log(`      - ${f}`));
+      process.exit(1);
+    }
+
+    const subtitledPath = path.join(dir, "full-subtitled.mp4");
+    const subtitlePath = path.join(dir, "full.ass");
+
+    if (fs.existsSync(subtitledPath) && !force) {
+      console.log(`⏭️  Subtitled video already exists: ${subtitledPath}`);
+      console.log(`   Use --force to overwrite.`);
+      return;
+    }
+
+    // Retranscribe with Whisper if transcript is from YouTube
     if (isYouTubeTranscript && fs.existsSync(sourceVideo)) {
       const fullTranscriptPath = path.join(dir, "whisper-transcript.json");
       const whisperWords = whisperTranscribeClip(sourceVideo, fullTranscriptPath);
@@ -499,70 +516,74 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
 
     // Check for saved (proofread) subtitle chunks
     const fullChunksPath = path.join(dir, "full-chunks.json");
-    let precomputedChunks = null;
+    let savedChunks = null;
     if (fs.existsSync(fullChunksPath)) {
-      precomputedChunks = JSON.parse(fs.readFileSync(fullChunksPath, "utf8"));
-      console.log(`   📝 Using ${precomputedChunks.length} saved subtitle chunks`);
+      savedChunks = JSON.parse(fs.readFileSync(fullChunksPath, "utf8"));
+      console.log(`   📝 Using ${savedChunks.length} saved subtitle chunks`);
     }
 
-    // Generate SRT for the entire video
-    console.log(`📝 Generating SRT from ${precomputedChunks ? precomputedChunks.length + ' chunks' : (transcript.words?.length || 0) + ' words'}...`);
-    const srtContent = precomputedChunks ? generateSRTFromChunks(precomputedChunks) : generateSRT(transcript.words, 0);
-    const srtPath = path.join(dir, "full.srt");
-    fs.writeFileSync(srtPath, srtContent, "utf8");
-    console.log(`   ✅ SRT written: ${srtPath} (${srtContent.split("\n\n").length} subtitle blocks)`);
+    // Detect video dimensions for proper ASS scaling
+    const videoDims = getVideoDimensions(sourceVideo);
+    console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
 
-    // Burn subtitles into the full video
-    const subtitledPath = path.join(dir, "full-subtitled.mp4");
-    
-    if (!fs.existsSync(sourceVideo)) {
-      console.error(`❌ Source video not found: ${sourceVideo}`);
-      console.log(`   Available files in directory:`);
-      fs.readdirSync(dir).forEach(f => console.log(`      - ${f}`));
-      process.exit(1);
-    }
-    console.log(`   ✅ Source video found: ${sourceVideo}`);
+    // Generate ASS subtitles (same as per-reel path)
+    const reelWords = transcript.words || [];
+    const subtitleContent = generateASS(reelWords, 0, null, videoDims, subtitleStyle, savedChunks);
+    fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
+    const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
+    console.log(`   📝 ASS generated: ${blockCount} subtitle blocks`);
 
-    if (fs.existsSync(subtitledPath) && !force) {
-      console.log(`⏭️  Subtitled video already exists: ${subtitledPath}`);
-      console.log(`   Use --force to overwrite.`);
-      return;
-    }
+    // Also write SRT for reference/download
+    const srtContent = savedChunks ? generateSRTFromChunks(savedChunks) : generateSRT(reelWords, 0);
+    fs.writeFileSync(path.join(dir, "full.srt"), srtContent, "utf8");
 
-    console.log(`\n🔥 Burning subtitles into video...`);
-    console.log(`   Input:  ${sourceVideo}`);
-    console.log(`   SRT:    ${srtPath}`);
-    console.log(`   Output: ${subtitledPath}`);
-    
-    // Copy SRT to /tmp to avoid special characters in path (!, spaces, etc.)
-    const tmpSRT = path.join(os.tmpdir(), `tajarib-full-sub.srt`);
-    const tmpFullOut = path.join(os.tmpdir(), `tajarib-full-subtitled.mp4`);
-    fs.copyFileSync(srtPath, tmpSRT);
-    const escapedSRT = tmpSRT.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+    // Burn subtitles with gradient overlay (same as per-reel)
+    console.log(`   🔥 Burning subtitles with ffmpeg...`);
+    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-full.ass`);
+    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-full.mp4`);
+    fs.copyFileSync(subtitlePath, tmpSub);
+    const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+
+    // Generate gradient overlay (same as per-reel)
+    const gradW = videoDims.width;
+    const gradH = videoDims.height;
+    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-full.png`);
+    execFileSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i",
+      `color=black:size=${gradW}x${gradH}:d=1,format=rgba,geq=r=0:g=0:b=0:a='if(gt(Y,H*0.4),min(166,(Y-H*0.4)/(H*0.6)*166),0)'`,
+      "-frames:v", "1", tmpGrad
+    ], { stdio: "pipe" });
 
     const ffmpegArgs = [
       "-y",
       "-i", sourceVideo,
-      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00BE2F7B,BackColour=&H00BE2F7B,BorderStyle=3,Outline=4,Shadow=0,Bold=1,Alignment=2,MarginV=30'`,
+      "-i", tmpGrad,
+      "-filter_complex", `[0:v][1:v]overlay=format=auto,ass='${escapedSubtitle}'`,
       "-c:a", "copy",
-      tmpFullOut
+      tmpOut
     ];
 
-    console.log(`\n⏳ Running ffmpeg (this may take a while)...`);
     const startTime = Date.now();
-
     try {
       execFileSync("ffmpeg", ffmpegArgs, { stdio: "inherit" });
-      fs.copyFileSync(tmpFullOut, subtitledPath);
-      fs.unlinkSync(tmpFullOut);
-      fs.unlinkSync(tmpSRT);
+      fs.copyFileSync(tmpOut, subtitledPath);
+      fs.unlinkSync(tmpOut);
+      fs.unlinkSync(tmpSub);
+      if (fs.existsSync(tmpGrad)) fs.unlinkSync(tmpGrad);
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`\n✅ Done in ${duration}s`);
       console.log(`   📁 ${size} MB → ${subtitledPath}`);
+      // Remove stale full-final.mp4 since subtitles changed
+      const finalPath = path.join(dir, "full-final.mp4");
+      if (fs.existsSync(finalPath)) {
+        fs.unlinkSync(finalPath);
+        console.log(`   🗑️  Removed stale overlay: full-final.mp4`);
+      }
     } catch (e) {
-      try { fs.unlinkSync(tmpSRT); } catch {}
-      try { fs.unlinkSync(tmpFullOut); } catch {}
+      try { fs.unlinkSync(tmpSub); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+      if (fs.existsSync(tmpGrad)) try { fs.unlinkSync(tmpGrad); } catch {}
       console.error(`\n❌ Subtitle burn failed:`, e.stderr?.toString() || e.message);
       process.exit(1);
     }
