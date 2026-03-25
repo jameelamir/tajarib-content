@@ -16,6 +16,8 @@ service-account.json
 config.json
 agent.json
 bot-config.json
+gcal_brief.py
+gcal_bot.py
 auth.json
 buffer-config.json
 transcription-config.json
