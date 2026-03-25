@@ -55,7 +55,15 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
           path.join(reelsDir, `reel-${reelParam}.mp4`);
       }
     } else if (type === 'compressed') { videoPath = path.join(dir, "publish-compressed.mp4"); }
-    else if (type === 'subtitled') {
+    else if (type === 'final') {
+      const fullFinal = path.join(dir, "full-final.mp4");
+      if (fs.existsSync(fullFinal)) videoPath = fullFinal;
+      else {
+        const reelsDir = path.join(dir, "reels");
+        if (fs.existsSync(reelsDir)) { const f = fs.readdirSync(reelsDir).find(f => f.endsWith("-final.mp4")); videoPath = f ? path.join(reelsDir, f) : fullFinal; }
+        else videoPath = fullFinal;
+      }
+    } else if (type === 'subtitled') {
       const fullSub = path.join(dir, "full-subtitled.mp4");
       if (fs.existsSync(fullSub)) videoPath = fullSub;
       else {
