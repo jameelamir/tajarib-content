@@ -27,6 +27,7 @@ const EPISODES_DIR = fs.existsSync(SHARED_DIR) && SHARED_DIR !== WORKSPACE_DIR
   : path.join(WORKSPACE_DIR, "episodes");
 const UPLOADS_DIR = path.join(WORKSPACE_DIR, "uploads");
 const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
+const SHARED_GUESTS_FILE = SHARED_DIR !== WORKSPACE_DIR ? path.join(SHARED_DIR, "guests.json") : null;
 const { GLOBAL_CONFIG_DIR } = require("./server/global-config");
 const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 
@@ -47,7 +48,7 @@ const server = http.createServer(handler);
 const io = socketIo(server, { maxHttpBufferSize: 5e9 });
 
 const ctx = {
-  io, PORT, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, GUESTS_FILE, BUFFER_CONFIG_FILE,
+  io, PORT, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, GUESTS_FILE, SHARED_GUESTS_FILE, BUFFER_CONFIG_FILE,
   PYTHON_BIN, NODE_BIN,
   activeProcesses: {}, activeSteps: {}, serverLogs: {}, logs: {},
   pendingManualLLM: new Map(),
