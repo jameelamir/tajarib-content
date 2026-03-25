@@ -227,14 +227,22 @@
         
         <div class="field">
             <label>Transcription Method</label>
-            <div style="display:flex; gap:8px; margin-top:6px;">
+            <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
                     <input type="radio" name="transcribe-method" value="local" id="radio-local" checked>
-                    🏠 Local (Good, Free)
+                    🏠 Local (Free)
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="transcribe-method" value="groq" id="radio-groq">
+                    ⚡ Groq (Fast)
                 </label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
                     <input type="radio" name="transcribe-method" value="api" id="radio-api">
-                    ⚡ API (Fast, Paid)
+                    🌐 Haimaker
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="transcribe-method" value="skip" id="radio-skip">
+                    ⏭️ Skip
                 </label>
             </div>
             <div id="api-key-warning" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">

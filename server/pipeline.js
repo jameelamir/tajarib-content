@@ -97,7 +97,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic }) {
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod }) {
     const procKey = reelId ? `${slug}:${reelId}` : slug;
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -111,7 +111,7 @@ module.exports = function init(ctx) {
         cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
         if (force) args.push("--force");
         const tcfg = getTranscriptionConfig();
-        let tMethod = tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
+        let tMethod = transcribeMethod || tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
         // Fall back to local if selected method has no key
         if (tMethod === "groq" && !tcfg.groqApiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Groq selected but no API key — falling back to local\n" }); }
         if (tMethod === "api" && !tcfg.apiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Haimaker selected but no API key — falling back to local\n" }); }
