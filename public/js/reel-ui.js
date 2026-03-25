@@ -2421,6 +2421,28 @@ async function getMoreReels() {
     }
 }
 
+// ── Topic Reel ──────────────────────────────────────────────────────────
+
+async function getTopicReel() {
+    if (!currentSlug) return;
+    var topic = prompt('What topic should the reel be about?\nاكتب الموضوع المطلوب للريل:');
+    if (!topic || !topic.trim()) return;
+    topic = topic.trim();
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'analyze', topic: topic })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
 // ── Hide / Delete Reels ──────────────────────────────────────────────────
 
 async function toggleHideReel(reelId) {
