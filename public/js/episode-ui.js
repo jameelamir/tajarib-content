@@ -305,10 +305,11 @@ function renderMain(slug) {
         document.getElementById('post-cut-view').style.display = 'none';
 
         var isReelFull = ep.mediaType === 'reel_full';
-        document.getElementById('precut-status').style.display = isReelFull ? 'none' : 'flex';
-        document.getElementById('reel-full-layout').style.display = isReelFull ? 'flex' : 'none';
+        var isReelCut = ep.mediaType === 'reel_cut';
+        document.getElementById('precut-status').style.display = (isReelFull || isReelCut) ? 'none' : 'flex';
+        document.getElementById('reel-full-layout').style.display = (isReelFull || isReelCut) ? 'flex' : 'none';
 
-        if (isReelFull) {
+        if (isReelFull || isReelCut) {
             renderReelFullView(ep);
         }
         var pipeStopBtn2 = document.getElementById('pipeline-stop-btn');
