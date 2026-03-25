@@ -394,6 +394,14 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
   return entries.join("\n");
 }
 
+function generateSRTFromChunks(chunks) {
+  const entries = [];
+  for (let i = 0; i < chunks.length; i++) {
+    entries.push(`${i + 1}\n${formatSRTTime(chunks[i].start)} --> ${formatSRTTime(chunks[i].end)}\n${chunks[i].text}\n`);
+  }
+  return entries.join("\n");
+}
+
 async function subtitle(slug, force = false, titleCard = false, reelId = null, burnOnly = false, subtitleStyle = "animated", noTranscribe = false) {
   console.log(`\n🎬 Subtitle Generator — ${slug} (style: ${subtitleStyle})\n`);
   
@@ -489,9 +497,17 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       }
     }
 
+    // Check for saved (proofread) subtitle chunks
+    const fullChunksPath = path.join(dir, "full-chunks.json");
+    let precomputedChunks = null;
+    if (fs.existsSync(fullChunksPath)) {
+      precomputedChunks = JSON.parse(fs.readFileSync(fullChunksPath, "utf8"));
+      console.log(`   📝 Using ${precomputedChunks.length} saved subtitle chunks`);
+    }
+
     // Generate SRT for the entire video
-    console.log(`📝 Generating SRT from ${transcript.words?.length || 0} words...`);
-    const srtContent = generateSRT(transcript.words, 0);
+    console.log(`📝 Generating SRT from ${precomputedChunks ? precomputedChunks.length + ' chunks' : (transcript.words?.length || 0) + ' words'}...`);
+    const srtContent = precomputedChunks ? generateSRTFromChunks(precomputedChunks) : generateSRT(transcript.words, 0);
     const srtPath = path.join(dir, "full.srt");
     fs.writeFileSync(srtPath, srtContent, "utf8");
     console.log(`   ✅ SRT written: ${srtPath} (${srtContent.split("\n\n").length} subtitle blocks)`);
