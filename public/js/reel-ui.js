@@ -204,75 +204,112 @@ function renderReelDetail(ep, reelId) {
 // ─── Reel-Full View ───────────────────────────────────────────────────────────
 
 function renderReelFullView(ep) {
+    var isReelCut = ep.mediaType === 'reel_cut';
+
     // Video preview — only recreate if slug changed
-    var videoEl = document.getElementById('reel-full-video');
-    if (videoEl.dataset.slug !== ep.slug) {
+    var previewEl = document.getElementById('rf-preview');
+    if (previewEl.dataset.slug !== ep.slug) {
         var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now();
-        videoEl.innerHTML = '<video controls preload="metadata" style="max-height:250px; max-width:100%;" src="' + videoUrl + '"></video>';
-        videoEl.dataset.slug = ep.slug;
-        // Detect portrait video and switch to side-by-side layout
-        var vid = videoEl.querySelector('video');
+        previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:400px; border-radius:8px; background:#000;"></video>';
+        previewEl.dataset.slug = ep.slug;
+        var vid = previewEl.querySelector('video');
         if (vid) vid.addEventListener('loadedmetadata', function() {
-            var layout = document.getElementById('reel-full-layout');
-            if (layout) layout.classList.toggle('portrait', this.videoHeight > this.videoWidth);
+            var modular = document.getElementById('rf-modular');
+            if (modular) modular.classList.toggle('portrait', this.videoHeight > this.videoWidth);
         });
     }
 
-    // Caption tab — skip rebuild only if user is actively editing (preserves focus/input state)
-    var captionBody = document.getElementById('reel-full-caption-body');
-    var captionActions = document.getElementById('reel-full-caption-actions');
-    var existingTextarea = document.getElementById('reel-full-caption-textarea');
-    if (ep.content && ep.content.reels && ep.content.reels.length > 0) {
-        var caption = ep.content.reels[0].caption || '';
-        var fieldPath = 'reels.0.caption';
-        var textareaId = 'reel-full-caption-textarea';
-        var fbInput = document.getElementById('fb-' + textareaId);
-        var isUserEditing = fbInput && (fbInput.value.trim() || document.activeElement === fbInput || document.activeElement === existingTextarea);
-        if (!existingTextarea) {
-            // First render — build the editor
-            captionBody.innerHTML =
-                '<div class="content-field" data-field="' + fieldPath + '">' +
-                    '<div class="content-label" style="font-size:0.75rem; color:#888; margin-bottom:6px;">Reel Caption</div>' +
-                    '<textarea class="content-textarea" id="' + textareaId + '" rows="6" dir="rtl" style="text-align:right;" oninput="autoResize(this)">' + escHtml(caption) + '</textarea>' +
-                    feedbackRow(fieldPath, textareaId) +
-                    '<div class="content-hint" id="hint-' + textareaId + '"></div>' +
-                '</div>';
-            captionBody.querySelectorAll('.content-textarea').forEach(autoResize);
-        } else if (!isUserEditing && existingTextarea.value !== caption) {
-            // Caption changed on server (e.g. after generate) and user isn't editing — update
-            existingTextarea.value = caption;
-            autoResize(existingTextarea);
-        }
-        captionActions.style.display = 'flex';
+    // Pipeline actions — show for reel_cut (crop/sub/overlay), hide for reel_full
+    var actionsEl = document.getElementById('rf-actions');
+    if (isReelCut) {
+        actionsEl.innerHTML = buildStandaloneActions(ep);
+        actionsEl.style.display = '';
     } else {
-        captionBody.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>';
-        captionActions.style.display = 'none';
+        actionsEl.innerHTML = '';
+        actionsEl.style.display = 'none';
     }
 
-}
-
-
-function switchReelFullTab(tab) {
-    document.querySelectorAll('.reel-full-tab').forEach(function(el) {
-        el.classList.toggle('active', el.dataset.tab === tab);
-    });
-    ['caption', 'transcript'].forEach(function(t) {
-        var body = document.getElementById('rfTab-' + t);
-        if (body) {
-            body.classList.toggle('active', t === tab);
-            body.style.display = t === tab ? 'flex' : 'none';
+    // Caption editor
+    var captionEl = document.getElementById('rf-caption-editor');
+    var existingTextarea = document.getElementById('rf-caption-text');
+    if (ep.content && ep.content.reels && ep.content.reels.length > 0) {
+        var caption = ep.content.reels[0].caption || '';
+        var isUserEditing = existingTextarea && document.activeElement === existingTextarea;
+        if (!existingTextarea) {
+            captionEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<button onclick="runStep(\'generate\')" style="font-size:0.7rem;">↻ Generate</button>' +
+                '</div>' +
+                '<textarea id="rf-caption-text" class="content-textarea" rows="4" dir="rtl" style="text-align:right; font-size:0.8rem;" placeholder="No caption yet — run Caption to generate">' + escHtml(caption) + '</textarea>' +
+                '<div style="display:flex; gap:6px; margin-top:6px;">' +
+                    '<button onclick="saveStandaloneCaption()" style="font-size:0.7rem;">Save</button>' +
+                    '<button onclick="copyToClipboard(document.getElementById(\'rf-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
+                    '<button class="publish-btn" onclick="publishNow()" style="font-size:0.7rem;">Publish</button>' +
+                '</div>';
+        } else if (!isUserEditing && existingTextarea.value !== caption) {
+            existingTextarea.value = caption;
         }
-    });
+    } else {
+        if (!existingTextarea) {
+            captionEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<button class="primary" onclick="runStep(\'generate\')" style="font-size:0.7rem;">▶ Generate</button>' +
+                '</div>';
+        }
+    }
+
+    // Transcript editor — show for reel_cut if transcribed
+    var transcriptEl = document.getElementById('rf-transcript-editor');
+    if (ep.steps && ep.steps.transcribed) {
+        transcriptEl.style.display = '';
+        transcriptEl.innerHTML =
+            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Transcript</div>' +
+                '<button onclick="loadTextEditor()" style="font-size:0.65rem;">View / Edit</button>' +
+            '</div>';
+    } else {
+        transcriptEl.style.display = 'none';
+    }
 }
 
-async function saveReelFullCaption() {
+function buildStandaloneActions(ep) {
+    var steps = [];
+    steps.push({ id: 'crop', label: 'Crop', done: ep.steps.cropped });
+    steps.push({ id: 'subtitle', label: 'Sub', done: ep.steps.subtitled });
+    steps.push({ id: 'overlay', label: 'Overlay', done: ep.steps.overlaid });
+
+    var nextIdx = steps.findIndex(function(s) { return !s.done; });
+
+    var html = '<div class="reel-pipeline">';
+    steps.forEach(function(s, i) {
+        var cls = 'pipe-step';
+        if (s.done) cls += ' done';
+        else if (i === nextIdx) cls += ' next';
+        var icon = s.done ? '&#10003;' : (i === nextIdx ? '&#9654;' : '&#9675;');
+        if (i > 0) html += '<span class="pipe-sep">&#8250;</span>';
+        html += '<button class="' + cls + '" onclick="runStep(\'' + s.id + '\')">' +
+            '<span class="pipe-icon">' + icon + '</span>' + s.label +
+        '</button>';
+    });
+
+    // Finalize button
+    var remaining = steps.filter(function(s) { return !s.done; });
+    if (remaining.length > 0) {
+        html += '<span class="pipe-sep">&#8250;</span>' +
+            '<button class="pipe-step" style="color:#f59e0b; font-weight:600;" onclick="finalizeAll()" title="Run remaining steps">' +
+            '&#9889; Finalize</button>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function saveStandaloneCaption() {
     if (!currentSlug) return;
-    var textEl = document.getElementById('reel-full-caption-textarea');
+    var textEl = document.getElementById('rf-caption-text');
     if (!textEl) return;
-    // Visual feedback on Save button
-    var saveBtn = document.querySelector('#reel-full-caption-actions button');
-    var origText = saveBtn ? saveBtn.textContent : '';
-    if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
     try {
         var res = await fetch('/api/save-content', {
             method: 'POST',
@@ -282,22 +319,13 @@ async function saveReelFullCaption() {
         var data = await res.json();
         if (data.success) {
             showToast('Caption saved', 'success');
-            if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.color = 'var(--success)'; }
-            setTimeout(function() { if (saveBtn) { saveBtn.textContent = origText; saveBtn.style.color = ''; saveBtn.disabled = false; } }, 2000);
             await refresh();
         } else {
-            if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
             showToast(data.error || 'Save failed', 'error');
         }
     } catch (err) {
-        if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
         showToast('Save failed: ' + err.message, 'error');
     }
-}
-
-function copyReelFullCaption() {
-    var textEl = document.getElementById('reel-full-caption-textarea');
-    if (textEl) copyToClipboard(textEl.value);
 }
 
 function buildReelActions(ep, reel) {
