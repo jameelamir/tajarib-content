@@ -224,6 +224,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .overlay-config h3 { font-size: 0.8rem; text-transform: uppercase; color: #666; letter-spacing: 0.5px; margin-bottom: 12px; }
 .overlay-canvas-wrap { position: relative; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
 .overlay-canvas-wrap canvas { display: block; max-width: 100%; }
+.overlay-live-canvas { position: absolute; top: 0; left: 0; pointer-events: none; border-radius: 8px; z-index: 10; }
 .overlay-elements { display: flex; flex-direction: column; gap: 10px; }
 .overlay-el { background: #1a1a1a; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; }
 .overlay-el-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
