@@ -53,9 +53,14 @@ function renderSidebar() {
             var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
             var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
 
+            var topicBtnHtml = (ep.mediaType === 'episode' && ep.steps.transcribed) ?
+                '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();generateTopicClip()}" style="background:#111; border:1px solid #b45309; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
+                '<button style="background:#f59e0b; color:#000; border-color:#f59e0b;" onclick="event.stopPropagation(); generateTopicClip()">+ Topic</button>' : '';
+
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
                 '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
+                topicBtnHtml +
                 '<button onclick="event.stopPropagation(); runStep(\'cut\')">Cut All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
