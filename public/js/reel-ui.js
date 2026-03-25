@@ -260,15 +260,19 @@ function renderReelFullView(ep) {
         }
     }
 
-    // Transcript editor — show for reel_cut if transcribed
+    // Transcript editor — show if transcribed, with inline chunk editing
     var transcriptEl = document.getElementById('rf-transcript-editor');
     if (ep.steps && ep.steps.transcribed) {
-        transcriptEl.style.display = '';
-        transcriptEl.innerHTML =
-            '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Transcript</div>' +
-                '<button onclick="loadTextEditor()" style="font-size:0.65rem;">View / Edit</button>' +
-            '</div>';
+        var existingChunks = transcriptEl.querySelector('#rt-seg-list');
+        if (!existingChunks) {
+            transcriptEl.style.display = '';
+            transcriptEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
+                    '<button onclick="loadStandaloneTranscript()" style="font-size:0.65rem;">Load / Edit</button>' +
+                '</div>' +
+                '<div id="rf-transcript-content" style="display:none;"></div>';
+        }
     } else {
         transcriptEl.style.display = 'none';
     }
@@ -325,6 +329,27 @@ async function saveStandaloneCaption() {
         }
     } catch (err) {
         showToast('Save failed: ' + err.message, 'error');
+    }
+}
+
+async function loadStandaloneTranscript() {
+    var contentEl = document.getElementById('rf-transcript-content');
+    if (!contentEl) return;
+    contentEl.style.display = '';
+    contentEl.innerHTML = '<div style="color:#888; font-size:0.7rem; padding:8px;">Loading...</div>';
+
+    reelTranscriptReelId = '__standalone__';
+    reelChunksData = null;
+
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=transcript.json');
+        if (!res.ok) throw new Error('No transcript found');
+        var txData = JSON.parse(await res.text());
+        var words = rtReelWordsFromTranscript(txData);
+        reelChunksData = rtChunkWords(words);
+        rtRenderChunks(contentEl);
+    } catch (err) {
+        contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No transcript found — transcribe first or upload an SRT.</div>';
     }
 }
 
@@ -2284,7 +2309,7 @@ function rtMergeChunkWithPrev(chunkIdx) {
 }
 
 function seekReelVideo(time) {
-    var video = document.querySelector('#reel-preview video');
+    var video = document.querySelector('#reel-preview video') || document.querySelector('#rf-preview video');
     if (video) {
         video.currentTime = time;
         video.play();
@@ -2295,7 +2320,8 @@ async function saveReelChunks(reelId) {
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
     if (!reelChunksData) return;
-    var padded = String(reelId).padStart(2, '0');
+    var isStandalone = reelId === '__standalone__';
+    var padded = isStandalone ? null : String(reelId).padStart(2, '0');
     try {
         // Collect any in-progress text edits
         var segList = document.getElementById('rt-seg-list');
@@ -2306,12 +2332,13 @@ async function saveReelChunks(reelId) {
             });
         }
 
+        var chunksFile = isStandalone ? 'full-chunks.json' : 'reels/reel-' + padded + '-chunks.json';
         await fetch('/api/file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 slug: currentSlug,
-                file: 'reels/reel-' + padded + '-chunks.json',
+                file: chunksFile,
                 content: JSON.stringify(reelChunksData, null, 2)
             })
         });
@@ -2324,17 +2351,18 @@ async function saveReelChunks(reelId) {
         }
         if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
 
+        var stepBody = {
+            slug: currentSlug,
+            step: 'subtitle',
+            force: true,
+            noTranscribe: true,
+            subtitleStyle: (document.getElementById('reel-subtitle-style') || {}).value || 'animated'
+        };
+        if (!isStandalone) stepBody.reelId = reelId;
         await fetch('/api/run-step', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                slug: currentSlug,
-                step: 'subtitle',
-                reelId: reelId,
-                force: true,
-                noTranscribe: true,
-                subtitleStyle: (document.getElementById('reel-subtitle-style') || {}).value || 'animated'
-            })
+            body: JSON.stringify(stepBody)
         });
     } catch (err) {
         if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
