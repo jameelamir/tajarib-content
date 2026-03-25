@@ -1865,6 +1865,36 @@ var reelTranscriptData = null;
 var reelTranscriptReelId = null;
 var reelChunksData = null; // computed/saved subtitle chunks
 
+function rtFormatSRTTime(sec) {
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = Math.floor(sec % 60);
+    var ms = Math.floor((sec % 1) * 1000);
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ',' + String(ms).padStart(3, '0');
+}
+
+function downloadReelSRT() {
+    if (!reelChunksData || !reelChunksData.length) return;
+    // Sync any in-progress edits
+    rtSyncDomToData();
+    var lines = [];
+    for (var i = 0; i < reelChunksData.length; i++) {
+        var c = reelChunksData[i];
+        lines.push((i + 1) + '\n' + rtFormatSRTTime(c.start) + ' --> ' + rtFormatSRTTime(c.end) + '\n' + c.text + '\n');
+    }
+    var srt = lines.join('\n');
+    var blob = new Blob([srt], { type: 'text/srt;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var padded = String(reelTranscriptReelId).padStart(2, '0');
+    a.download = (currentSlug || 'reel') + '-reel-' + padded + '.srt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // Mirrors subtitle.js reelWordsFromTranscript — fills in words missing from
 // Whisper word-level timing using segment text as the source of truth.
 function rtReelWordsFromTranscript(t) {
@@ -2122,6 +2152,7 @@ function rtRenderChunks(containerEl) {
     html += '</div>';
     html += '<div style="display:flex; gap:6px;">' +
         '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-sub</button>' +
+        '<button onclick="downloadReelSRT()" style="font-size:0.7rem;">↓ SRT</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 
