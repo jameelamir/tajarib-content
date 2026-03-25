@@ -28,6 +28,7 @@ let pendingGuestFile = null;
 let pendingSrtFile = null;
 let pendingUrl = null;
 let selectedReelId = null;
+let hideSubtitles = false;
 let reelLogs = {};
 let storageData = null;
 let storageSortBy = 'size';
