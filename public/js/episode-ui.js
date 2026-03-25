@@ -193,7 +193,12 @@ async function runClipsAnalysis() {
 async function handleReplaceSrt(input) {
     var file = input.files[0];
     if (!file || !currentSlug) return;
-    if (!confirm('Replace transcript for "' + currentSlug + '" with this SRT?\n\nYou can re-analyze and re-cut afterwards.')) {
+    var ep = episodes.find(e => e.slug === currentSlug);
+    var hasTranscript = ep && ep.steps && ep.steps.transcribed;
+    var msg = hasTranscript
+        ? 'Replace transcript for "' + currentSlug + '" with this SRT?\n\nYou can re-analyze and re-cut afterwards.'
+        : 'Upload SRT transcript for "' + currentSlug + '"?';
+    if (!confirm(msg)) {
         input.value = '';
         return;
     }
@@ -251,9 +256,12 @@ function renderMain(slug) {
     // Episode pipeline bar
     renderEpisodePipelineBar(ep);
 
-    // Show Replace SRT button if episode is transcribed
+    // Show SRT upload button — "Upload SRT" if not transcribed, "Replace SRT" if transcribed
     var replaceSrtBtn = document.getElementById('replace-srt-btn');
-    if (replaceSrtBtn) replaceSrtBtn.style.display = ep.steps.transcribed ? '' : 'none';
+    if (replaceSrtBtn) {
+        replaceSrtBtn.style.display = '';
+        replaceSrtBtn.textContent = ep.steps.transcribed ? 'Replace SRT' : 'Upload SRT';
+    }
 
     // Show Clips button if analyzed (only for episodes)
     var clipsBtn = document.getElementById('analyze-clips-btn');
