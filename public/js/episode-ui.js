@@ -405,8 +405,15 @@ async function confirmMeta() {
     const role = document.getElementById('meta-role').value.trim();
     if (!guest || !role) return alert('Both fields required');
 
-    socket.emit('update-meta', {slug: currentSlug, guest, role});
+    const res = await fetch('/api/set-meta', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({slug: currentSlug, guest, role})
+    });
+    const data = await res.json();
+    if (!data.success) return alert('Failed to save metadata');
     closeMetaModal();
+    refresh();
 
     if (pendingRun) {
         await runStep(pendingRun);
