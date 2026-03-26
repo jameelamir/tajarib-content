@@ -535,6 +535,20 @@
     </div>
 </div>
 
+<!-- Publish Channel Picker Modal -->
+<div class="modal" id="publish-modal">
+    <div class="modal-box">
+        <h3>📤 Publish To...</h3>
+        <div id="publish-channels-list" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto;">
+            <div style="color:#666;">Loading channels...</div>
+        </div>
+        <div class="modal-actions">
+            <button onclick="closePublishModal()">Cancel</button>
+            <button class="success" id="publish-confirm-btn" onclick="confirmPublish()">Publish</button>
+        </div>
+    </div>
+</div>
+
 <!-- Manual Caption Modal -->
 <div class="modal" id="manual-caption-modal">
     <div class="modal-box">
@@ -1737,31 +1751,111 @@ async function runStep(step) {
 
 async function publishToZapier() {
     if (!currentSlug) return;
-    
+
     // Check if there's content
     const ep = episodes.find(e => e.slug === currentSlug);
     const hasContent = ep && ep.content && ep.content.reels && ep.content.reels.length > 0;
-    
+
     // Warn if no caption generated
     if (!hasContent) {
         const proceed = confirm('⚠️ No caption generated yet. A basic caption will be used.\n\nClick OK to publish anyway, or Cancel to generate a caption first.');
         if (!proceed) return;
     }
-    
-    try {
-        showToast('Sending to Zapier...', 'success');
-        const res = await fetch('/api/publish', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug})
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast('Sent to Zapier!', 'success');
-            refresh();
-        } else {
-            throw new Error(data.error);
+
+    openPublishModal();
+}
+
+function openPublishModal() {
+    const list = document.getElementById('publish-channels-list');
+    list.innerHTML = '<div style="color:#666;">Loading channels...</div>';
+    document.getElementById('publish-modal').classList.add('open');
+
+    // Fetch available channels
+    fetch('/api/buffer-config').then(r => r.json()).then(data => {
+        const channels = data.channels || {};
+        const channelArr = Object.values(channels);
+        const serviceIcons = {tiktok:'🎵 TikTok', instagram:'📸 Instagram', facebook:'📘 Facebook', youtube:'▶️ YouTube', linkedin:'💼 LinkedIn'};
+
+        let html = '';
+
+        // Zapier option (always available)
+        html += '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:#161616; border-radius:6px; cursor:pointer; border:1px solid #2a2a2a;">' +
+            '<input type="checkbox" class="publish-ch" value="zapier" checked style="width:16px; height:16px; accent-color:var(--accent);">' +
+            '<span style="color:#ddd; font-size:0.85rem;">⚡ Zapier</span>' +
+        '</label>';
+
+        // Buffer channels
+        if (channelArr.length > 0) {
+            channelArr.forEach(function(ch) {
+                const label = (serviceIcons[ch.service] || ch.service) + ' — ' + ch.name;
+                html += '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:#161616; border-radius:6px; cursor:pointer; border:1px solid #2a2a2a;">' +
+                    '<input type="checkbox" class="publish-ch" value="buffer:' + ch.id + '"' + (ch.enabled ? ' checked' : '') + ' style="width:16px; height:16px; accent-color:var(--accent);">' +
+                    '<span style="color:#ddd; font-size:0.85rem;">' + label + '</span>' +
+                '</label>';
+            });
         }
+
+        list.innerHTML = html;
+    }).catch(function() {
+        // If buffer config fails, just show Zapier
+        list.innerHTML = '<label style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:#161616; border-radius:6px; cursor:pointer; border:1px solid #2a2a2a;">' +
+            '<input type="checkbox" class="publish-ch" value="zapier" checked style="width:16px; height:16px; accent-color:var(--accent);">' +
+            '<span style="color:#ddd; font-size:0.85rem;">⚡ Zapier</span>' +
+        '</label>';
+    });
+}
+
+function closePublishModal() {
+    document.getElementById('publish-modal').classList.remove('open');
+}
+
+async function confirmPublish() {
+    if (!currentSlug) return;
+
+    const checkboxes = document.querySelectorAll('.publish-ch:checked');
+    if (checkboxes.length === 0) {
+        showToast('Select at least one channel', 'error');
+        return;
+    }
+
+    let useZapier = false;
+    const bufferChannelIds = [];
+    checkboxes.forEach(function(cb) {
+        if (cb.value === 'zapier') useZapier = true;
+        else if (cb.value.startsWith('buffer:')) bufferChannelIds.push(cb.value.replace('buffer:', ''));
+    });
+
+    closePublishModal();
+
+    try {
+        if (useZapier) {
+            showToast('Publishing via Zapier...', 'success');
+            const res = await fetch('/api/publish', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({slug: currentSlug, service: 'zapier'})
+            });
+            const data = await res.json();
+            if (data.success) showToast('Sent to Zapier!', 'success');
+            else throw new Error(data.error);
+        }
+
+        if (bufferChannelIds.length > 0) {
+            showToast('Publishing to ' + bufferChannelIds.length + ' Buffer channel(s)...', 'success');
+            const res = await fetch('/api/publish', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({slug: currentSlug, service: 'buffer', channelIds: bufferChannelIds})
+            });
+            const data = await res.json();
+            if (data.success) {
+                const ok = data.result && data.result.results ? data.result.results.filter(r => r.success).length : 0;
+                const fail = data.result && data.result.results ? data.result.results.filter(r => !r.success).length : 0;
+                showToast('Buffer: ' + ok + ' posted' + (fail ? ', ' + fail + ' failed' : ''), fail ? 'warning' : 'success');
+            } else throw new Error(data.error);
+        }
+
+        refresh();
     } catch (err) {
         showToast('Publish failed: ' + err.message, 'error');
     }

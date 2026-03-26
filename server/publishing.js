@@ -85,13 +85,13 @@ module.exports = function init(ctx) {
     return { success: true, service: "zapier" };
   }
 
-  async function publishViaBuffer(slug, caption, videoPath, bufferMode) {
+  async function publishViaBuffer(slug, caption, videoPath, bufferMode, channelIds) {
     io.emit("log", { slug, text: `\n📤 Uploading video for Buffer...\n` });
     io.emit("toast", { type: "success", message: "Uploading video to public host..." });
     const publicVideoUrl = await buffer.uploadToTempHost(videoPath);
     console.log(`[Buffer] Uploaded to: ${publicVideoUrl}`);
     io.emit("log", { slug, text: `✅ Uploaded: ${publicVideoUrl}\n` });
-    const results = await buffer.publish({ caption, videoUrl: publicVideoUrl, mode: bufferMode });
+    const results = await buffer.publish({ caption, videoUrl: publicVideoUrl, mode: bufferMode, channelIds });
     const failed = results.filter(r => !r.success);
     if (failed.length > 0 && failed.length === results.length) {
       throw new Error(`All Buffer posts failed: ${failed.map(f => `${f.service}: ${f.error}`).join("; ")}`);
