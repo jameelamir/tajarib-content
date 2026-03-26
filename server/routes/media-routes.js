@@ -268,6 +268,10 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
           fs.mkdirSync(SHARED_ASSETS_DIR, { recursive: true });
           const originalName = file.originalFilename || "lower-third.mov";
           destPath = path.join(SHARED_ASSETS_DIR, originalName);
+        } else if (assetType === "sponsor") {
+          // Save sponsor files with original filename so user can pick between them
+          const originalName = file.originalFilename || "sponsor.mov";
+          destPath = path.join(ASSETS_DIR, originalName);
         } else {
           const ext = assetType === "cta" ? path.extname(file.originalFilename || ".png") : ".mov";
           destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);
