@@ -2157,6 +2157,20 @@ function rtSyncDomToData() {
 }
 
 // Get cursor offset within a contenteditable, handling text nodes
+// Scroll a segment into view within #rt-seg-list only (no page-level scroll)
+function rtScrollSegIntoView(seg) {
+    if (!seg) return;
+    var container = document.getElementById('rt-seg-list');
+    if (!container) return;
+    var segTop = seg.offsetTop - container.offsetTop;
+    var segBottom = segTop + seg.offsetHeight;
+    if (segTop < container.scrollTop) {
+        container.scrollTop = segTop;
+    } else if (segBottom > container.scrollTop + container.clientHeight) {
+        container.scrollTop = segBottom - container.clientHeight;
+    }
+}
+
 function rtGetCursorOffset(el) {
     var sel = window.getSelection();
     if (!sel.rangeCount) return 0;
@@ -2169,7 +2183,7 @@ function rtGetCursorOffset(el) {
 
 // Set cursor at a character offset within a contenteditable
 function rtSetCursor(el, offset) {
-    el.focus();
+    el.focus({ preventScroll: true });
     var node = el.firstChild;
     if (!node) { // empty element
         var r = document.createRange(); r.selectNodeContents(el); r.collapse(true);
@@ -2259,7 +2273,7 @@ function rtRenderChunks(containerEl) {
                         var cursorPos = rtGetCursorOffset(this);
                         var targetLen = target.textContent.length;
                         rtSetCursor(target, Math.min(cursorPos, targetLen));
-                        target.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(target.closest('.tm-seg'));
                     }
                 }
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -2272,7 +2286,7 @@ function rtRenderChunks(containerEl) {
                     var prev = rtGetSegEl(idx - 1);
                     if (prev) {
                         rtSetCursor(prev, prev.textContent.length);
-                        prev.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(prev.closest('.tm-seg'));
                     }
                 }
                 // ArrowLeft at end of text → jump to start of next segment
@@ -2281,7 +2295,7 @@ function rtRenderChunks(containerEl) {
                     var next = rtGetSegEl(idx + 1);
                     if (next) {
                         rtSetCursor(next, 0);
-                        next.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(next.closest('.tm-seg'));
                     }
                 }
             }
@@ -2306,7 +2320,7 @@ function rtSplitChunk(chunkIdx, el) {
     );
     rtRenderChunks();
     var newEl = rtGetSegEl(chunkIdx + 1);
-    if (newEl) rtSetCursor(newEl, 0);
+    if (newEl) { rtSetCursor(newEl, 0); rtScrollSegIntoView(newEl.closest('.tm-seg')); }
 }
 
 function rtMergeChunkWithPrev(chunkIdx) {
@@ -2320,7 +2334,7 @@ function rtMergeChunkWithPrev(chunkIdx) {
     reelChunksData.splice(chunkIdx, 1);
     rtRenderChunks();
     var el = rtGetSegEl(chunkIdx - 1);
-    if (el) rtSetCursor(el, prevLen + 1);
+    if (el) { rtSetCursor(el, prevLen + 1); rtScrollSegIntoView(el.closest('.tm-seg')); }
 }
 
 function seekReelVideo(time) {
