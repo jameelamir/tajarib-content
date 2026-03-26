@@ -116,8 +116,13 @@ function renderOverlayConfig() {
                             '<label>Sponsor</label>' +
                             '<input type="checkbox" id="ov-sponsor-on" ' + (c.sponsor.enabled ? 'checked' : '') + ' onchange="overlayConfig.sponsor.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
-                        '<div class="overlay-asset-info" id="ov-sponsor-info"><span style="color:#555;">sponsor.mov</span></div>' +
+                        '<div class="overlay-asset-info" id="ov-sponsor-info"><span style="color:#555;">' + (c.sponsor.file || 'sponsor.mov') + '</span></div>' +
                         '<div class="overlay-el-body">' +
+                            '<div class="overlay-row"><label>File</label>' +
+                                '<select id="sponsor-asset-picker" onchange="selectSponsorAsset(this.value)" style="font-size:0.65rem; flex:1; background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:2px 4px;">' +
+                                    '<option value="">' + (c.sponsor.file || 'sponsor.mov') + '</option>' +
+                                '</select>' +
+                            '</div>' +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="80" max="300" value="' + c.sponsor.scale + '" oninput="overlayConfig.sponsor.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.sponsor.scale + 'px</span></div>' +
@@ -200,6 +205,8 @@ function renderOverlayConfig() {
         '</div>';
 
     initOverlayCanvas();
+    // Populate the sponsor file picker
+    populateSponsorAssetPicker();
     // Populate the asset file browser dropdown if lower-third custom mode is active
     if (overlayConfig.lowerThird.mode === 'custom') {
         populateLTAssetPicker();
@@ -213,7 +220,7 @@ function initOverlayCanvas() {
     drawOverlayCanvas();
 
     // Preload overlay MOV files as video elements
-    loadOverlayVideo('sponsor.mov');
+    loadOverlayVideo(overlayConfig.sponsor.file || 'sponsor.mov');
     loadOverlayVideo('logo.mov');
     loadOverlayVideo('logo.mp4');
     if (overlayConfig.lowerThird && overlayConfig.lowerThird.customFile) {
@@ -285,11 +292,12 @@ function loadOverlayImage(name) {
 function updateOverlayAssetInfo() {
     var sponsorInfo = document.getElementById('ov-sponsor-info');
     if (sponsorInfo) {
-        var img = overlayImageCache['sponsor.mov'];
+        var sponsorFile = (overlayConfig.sponsor && overlayConfig.sponsor.file) || 'sponsor.mov';
+        var img = overlayImageCache[sponsorFile];
         if (img && img.naturalWidth && !img._failed) {
-            sponsorInfo.innerHTML = '<span style="color:var(--success);">&#10003; sponsor.mov</span> <span style="color:#888;">' + img.naturalWidth + '×' + img.naturalHeight + ' native</span>';
+            sponsorInfo.innerHTML = '<span style="color:var(--success);">&#10003; ' + sponsorFile + '</span> <span style="color:#888;">' + img.naturalWidth + '×' + img.naturalHeight + ' native</span>';
         } else if (img && img._failed) {
-            sponsorInfo.innerHTML = '<span style="color:#f87171;">&#10007; sponsor.mov not found</span>';
+            sponsorInfo.innerHTML = '<span style="color:#f87171;">&#10007; ' + sponsorFile + ' not found</span>';
         }
     }
     var logoInfo = document.getElementById('ov-logo-info');
@@ -348,8 +356,9 @@ function getOverlayElements() {
 
     if (c.sponsor.enabled) {
         var scalePx = (c.sponsor.scale || 180);
-        var img = loadOverlayImage('sponsor.mov');
-        var vid = overlayVideoCache['sponsor.mov'];
+        var sponsorFile = c.sponsor.file || 'sponsor.mov';
+        var img = loadOverlayImage(sponsorFile);
+        var vid = overlayVideoCache[sponsorFile];
         // Use video dimensions for accurate aspect ratio, fall back to thumbnail
         var aspect = (vid && vid._ready && vid.videoWidth) ? vid.videoHeight / vid.videoWidth :
                      (img.naturalWidth && img.naturalHeight) ? img.naturalHeight / img.naturalWidth : 0.6;
@@ -543,6 +552,54 @@ function drawOverlayCanvas() {
 }
 
 // Populate the lower-third asset picker dropdown with files from assets/ and shared dir
+async function populateSponsorAssetPicker() {
+    var picker = document.getElementById('sponsor-asset-picker');
+    if (!picker) return;
+    try {
+        var res = await fetch('/api/assets/browse?type=video');
+        var data = await res.json();
+        var currentFile = (overlayConfig.sponsor && overlayConfig.sponsor.file) || 'sponsor.mov';
+        picker.innerHTML = '<option value="">-- Select file --</option>';
+        (data.files || []).forEach(function(f) {
+            var opt = document.createElement('option');
+            opt.value = f.source === 'shared' ? ('shared:' + f.path) : f.name;
+            var label = f.name + ' (' + f.sizeMb + ' MB' + (f.source === 'shared' ? ', shared' : '') + ')';
+            opt.textContent = label;
+            if (f.name === currentFile) opt.selected = true;
+            picker.appendChild(opt);
+        });
+    } catch (e) {
+        console.warn('Failed to load sponsor assets:', e);
+    }
+}
+
+async function selectSponsorAsset(value) {
+    if (!value) return;
+    var fileName;
+    if (value.startsWith('shared:')) {
+        var sourcePath = value.substring(7);
+        fileName = sourcePath.split('/').pop();
+        // Link shared file into local assets so video preview and FFmpeg can find it
+        try {
+            await fetch('/api/link-asset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourcePath: sourcePath, assetName: fileName })
+            });
+        } catch (e) {
+            console.warn('Failed to link shared asset:', e);
+        }
+    } else {
+        fileName = value;
+    }
+    overlayConfig.sponsor.file = fileName;
+    // Clear cached video/image so fresh ones load for the new file
+    delete overlayVideoCache[fileName];
+    delete overlayImageCache[fileName];
+    loadOverlayVideo(fileName);
+    renderOverlayConfig();
+}
+
 async function populateLTAssetPicker() {
     var picker = document.getElementById('lt-asset-picker');
     if (!picker) return;
@@ -645,7 +702,7 @@ function initLiveOverlay() {
     if (!vid) return;
 
     // Pre-load MOV overlay videos
-    loadOverlayVideo('sponsor.mov');
+    loadOverlayVideo((overlayConfig.sponsor && overlayConfig.sponsor.file) || 'sponsor.mov');
     var logoExts = ['.mov', '.mp4'];
     for (var i = 0; i < logoExts.length; i++) {
         loadOverlayVideo('logo' + logoExts[i]);
@@ -759,8 +816,9 @@ function drawLiveOverlay() {
             var scale = c.sponsor.scale || 180;
             var x = Math.round((c.sponsor.x / 100) * W);
             var y = Math.round((c.sponsor.y / 100) * H);
-            var sponsorVid = overlayVideoCache['sponsor.mov'];
-            var sponsorImg = overlayImageCache['sponsor.mov'];
+            var sponsorFileName = (c.sponsor.file || 'sponsor.mov');
+            var sponsorVid = overlayVideoCache[sponsorFileName];
+            var sponsorImg = overlayImageCache[sponsorFileName];
             if (sponsorVid && sponsorVid._ready && sponsorVid.readyState >= 2) {
                 // Sync video time
                 if (Math.abs(sponsorVid.currentTime - currentTime) > 0.3) {

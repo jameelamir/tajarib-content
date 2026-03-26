@@ -107,8 +107,13 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
 
   // Sponsor overlay
   if (config.sponsor && config.sponsor.enabled) {
-    const sponsorFile = path.join(ASSETS_DIR, "sponsor.mov");
-    if (fs.existsSync(sponsorFile)) {
+    const sponsorName = config.sponsor.file || "sponsor.mov";
+    const sponsorFile = fs.existsSync(path.join(ASSETS_DIR, sponsorName))
+      ? path.join(ASSETS_DIR, sponsorName)
+      : fs.existsSync(path.join(SHARED_ASSETS_DIR, sponsorName))
+        ? path.join(SHARED_ASSETS_DIR, sponsorName)
+        : null;
+    if (sponsorFile) {
       inputs.push(sponsorFile);
       const scale = config.sponsor.scale || 180;
       const x = Math.round((config.sponsor.x / 100) * videoWidth);

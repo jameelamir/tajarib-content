@@ -197,7 +197,8 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
   if (req.method === "GET" && assetVideoMatch) {
     const fileName = decodeURIComponent(assetVideoMatch[1]);
     if (fileName.includes("..") || fileName.includes("/")) { res.writeHead(400); res.end("Invalid filename"); return true; }
-    const filePath = path.join(ASSETS_DIR, fileName);
+    let filePath = path.join(ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath) && fs.existsSync(path.join(SHARED_ASSETS_DIR, fileName))) filePath = path.join(SHARED_ASSETS_DIR, fileName);
     if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
     const ext = path.extname(fileName).toLowerCase();
     const baseName = path.basename(fileName, ext);
