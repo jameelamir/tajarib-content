@@ -1683,22 +1683,6 @@ function renderMain(slug) {
         '</div>';
     }
 
-    // Clip from topic (for episodes with transcript)
-    if (ep.mediaType === 'episode' && ep.steps.transcribed) {
-        html += '<div class="stage" style="border-color:#f59e0b;">' +
-            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                '<h3>✂️ Topic Clip</h3>' +
-                '<span class="badge" style="background:#451a03; color:#fbbf24;">EXTRACT</span>' +
-            '</div>' +
-            '<div style="font-size:0.7rem; color:#555;">Create reel from specific topic</div>' +
-            '<div style="margin:8px 0;">' +
-                '<input type="text" id="clip-topic-input" placeholder="e.g., investment advice, startup story..." style="background:#111; border:1px solid #333; color:#ddd; padding:6px 8px; border-radius:4px; font-size:0.75rem; width:100%;">' +
-            '</div>' +
-            '<div class="stage-actions">' +
-                '<button class="primary" style="background:#f59e0b; color:#000; border-color:#f59e0b;" onclick="generateTopicClip()">Generate Clip</button>' +
-            '</div>' +
-        '</div>';
-    }
 
     document.getElementById('pipeline').innerHTML = html;
 }
@@ -2057,46 +2041,6 @@ async function loadPreview() {
         '</div>';
 }
 
-// Generate clip from topic
-async function generateTopicClip() {
-    if (!currentSlug) return;
-    
-    const topicInput = document.getElementById('clip-topic-input');
-    const topic = topicInput.value.trim();
-    
-    if (!topic) {
-        showToast('Please enter a topic', 'error');
-        return;
-    }
-    
-    try {
-        showToast('Generating clip for topic: ' + topic + '...', 'success');
-        
-        const res = await fetch('/api/generate-topic-clip', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                slug: currentSlug,
-                topic: topic,
-                guest: episodes.find(e => e.slug === currentSlug).guest,
-                role: episodes.find(e => e.slug === currentSlug).role
-            })
-        });
-        
-        const data = await res.json();
-        if (data.success) {
-            showToast('Clip generated! Refreshing...', 'success');
-            await refresh();
-            // Show the preview
-            document.getElementById('tab-preview').style.display = '';
-            switchTab('preview');
-        } else {
-            throw new Error(data.error);
-        }
-    } catch (err) {
-        showToast('Failed: ' + err.message, 'error');
-    }
-}
 
 // Show reels in modal
 async function showReels() {

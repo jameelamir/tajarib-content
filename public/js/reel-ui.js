@@ -2553,9 +2553,14 @@ async function getMoreReels() {
 
 async function getTopicReel() {
     if (!currentSlug) return;
-    var topic = prompt('What topic should the reel be about?\nاكتب الموضوع المطلوب للريل:');
-    if (!topic || !topic.trim()) return;
-    topic = topic.trim();
+    var topicInput = document.getElementById('clip-topic-input');
+    var topic = topicInput ? topicInput.value.trim() : '';
+    if (!topic) {
+        topic = prompt('What topic should the reel be about?\nاكتب الموضوع المطلوب للريل:');
+        if (!topic || !topic.trim()) return;
+        topic = topic.trim();
+    }
+    if (topicInput) topicInput.value = '';
     try {
         const res = await fetch('/api/run-step', {
             method: 'POST',

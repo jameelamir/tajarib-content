@@ -54,13 +54,12 @@ function renderSidebar() {
             var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
 
             var topicBtnHtml = (ep.mediaType === 'episode' && ep.steps.transcribed) ?
-                '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();generateTopicClip()}" style="background:#111; border:1px solid #b45309; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
-                '<button style="background:#f59e0b; color:#000; border-color:#f59e0b;" onclick="event.stopPropagation(); generateTopicClip()">+ Topic</button>' : '';
+                '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();getTopicReel()}" style="background:#111; border:1px solid #34d399; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
+                '<button style="color:#34d399; border-color:#34d399;" onclick="event.stopPropagation(); getTopicReel()">+ Topic</button>' : '';
 
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
                 '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
-                '<button onclick="event.stopPropagation(); getTopicReel()" style="color:#34d399;">+ Topic</button>' +
                 topicBtnHtml +
                 '<button onclick="event.stopPropagation(); runStep(\'cut\')">Cut All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
@@ -287,9 +286,6 @@ function renderMain(slug) {
         // Show/hide stop button in pipeline bar
         var pipeStopBtn = document.getElementById('pipeline-stop-btn');
         if (pipeStopBtn) pipeStopBtn.style.display = ep.isRunning ? '' : 'none';
-        // Topic clip
-        var tcSection = document.getElementById('topic-clip-section');
-        if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';
         // YouTube clips
         var clipsSection = document.getElementById('clips-section');
         if (clipsSection) {
@@ -954,45 +950,6 @@ async function generateAiTitle() {
     }
 }
 
-// Generate clip from topic
-async function generateTopicClip() {
-    if (!currentSlug) return;
-
-    const topicInput = document.getElementById('clip-topic-input');
-    const topic = topicInput.value.trim();
-
-    if (!topic) {
-        showToast('Please enter a topic', 'error');
-        return;
-    }
-
-    try {
-        showToast('Generating clip for topic: ' + topic + '...', 'success');
-
-        const res = await fetch('/api/generate-topic-clip', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                slug: currentSlug,
-                topic: topic,
-                guest: episodes.find(e => e.slug === currentSlug).guest,
-                role: episodes.find(e => e.slug === currentSlug).role
-            })
-        });
-
-        const data = await res.json();
-        if (data.success) {
-            showToast('Clip generated! Refreshing...', 'success');
-            await refresh();
-            document.getElementById('tab-preview').style.display = '';
-            switchTab('preview');
-        } else {
-            throw new Error(data.error);
-        }
-    } catch (err) {
-        showToast('Failed: ' + err.message, 'error');
-    }
-}
 
 // Show reels in modal
 async function showReels() {
