@@ -122,6 +122,8 @@ function renderOverlayConfig() {
                                 '<select id="sponsor-asset-picker" onchange="selectSponsorAsset(this.value)" style="font-size:0.65rem; flex:1; background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:2px 4px;">' +
                                     '<option value="">' + (c.sponsor.file || 'sponsor.mov') + '</option>' +
                                 '</select>' +
+                                '<button onclick="document.getElementById(\'sponsor-upload-input\').click()" style="font-size:0.6rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="Upload new file">+</button>' +
+                                '<input type="file" id="sponsor-upload-input" accept=".mov,.mp4" onchange="uploadSponsorAsset(this.files[0]);" style="display:none;">' +
                             '</div>' +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
@@ -598,6 +600,26 @@ async function selectSponsorAsset(value) {
     delete overlayImageCache[fileName];
     loadOverlayVideo(fileName);
     renderOverlayConfig();
+}
+
+async function uploadSponsorAsset(file) {
+    if (!file) return;
+    var fd = new FormData();
+    fd.append('type', 'sponsor');
+    fd.append('file', file);
+    try {
+        var res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
+        var data = await res.json();
+        if (data.success) {
+            overlayConfig.sponsor.file = data.file;
+            delete overlayVideoCache[data.file];
+            delete overlayImageCache[data.file];
+            loadOverlayVideo(data.file);
+            renderOverlayConfig();
+        }
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
 }
 
 async function populateLTAssetPicker() {
