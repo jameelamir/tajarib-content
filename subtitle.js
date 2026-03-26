@@ -201,6 +201,19 @@ function detectChunkShift(savedChunks, reelWords, wordStartOffset) {
   return Math.abs(shift) > 0.3 ? shift : 0;
 }
 
+// Wrap text with Unicode RTL embedding when it mixes Arabic with Latin/digits.
+// Libass (FFmpeg's ASS renderer) can mis-order bidirectional text because it
+// doesn't inherit an RTL base direction the way a browser with dir="rtl" does.
+// Pure Arabic text is unaffected; mixed text (e.g. "500 ألف") gets fixed.
+const HAS_LATIN_OR_DIGIT = /[A-Za-z0-9]/;
+function wrapRTLIfMixed(text) {
+  if (HAS_LATIN_OR_DIGIT.test(text)) {
+    // U+202B RIGHT-TO-LEFT EMBEDDING … U+202C POP DIRECTIONAL FORMATTING
+    return '\u202B' + text + '\u202C';
+  }
+  return text;
+}
+
 // Sentence-ending punctuation — break subtitle chunks at these boundaries
 const SENTENCE_END_RE = /[.!?؟…]+$/;
 
@@ -311,9 +324,10 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     // ── Title card ──
     if (titleCard) {
       const animMs = Math.round(Math.min(5, TITLE_DURATION) * 1000);
+      const tc = wrapRTLIfMixed(titleCard);
       dialogueLines.push(
-        `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${titleCard}`,
-        `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${titleCard}`
+        `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${tc}`,
+        `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${tc}`
       );
     }
 
@@ -321,9 +335,10 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     for (const chunk of chunks) {
       const chunkDur = chunk.end - chunk.start;
       const animMs = Math.round(Math.min(5, chunkDur) * 1000);
+      const ct = wrapRTLIfMixed(chunk.text);
       dialogueLines.push(
-        `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${chunk.text}`,
-        `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${chunk.text}`
+        `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${ct}`,
+        `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${ct}`
       );
     }
 
@@ -347,11 +362,11 @@ ${dialogueLines.join("\n")}`;
 
   // Static style — single layer, purple outline around text
   if (titleCard) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${titleCard}`);
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${wrapRTLIfMixed(titleCard)}`);
   }
 
   for (const chunk of chunks) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${chunk.text}`);
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${wrapRTLIfMixed(chunk.text)}`);
   }
 
   return `[Script Info]
