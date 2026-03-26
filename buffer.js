@@ -205,20 +205,30 @@ async function publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, chan
  * 1. Load config to get enabled channels
  * 2. Post to each channel
  */
-async function publish({ caption, videoUrl, videoThumbnailUrl, mode }) {
+async function publish({ caption, videoUrl, videoThumbnailUrl, mode, channelIds }) {
   const config = loadConfig();
   if (!config.accessToken) throw new Error("Buffer API token not configured");
   if (!config.channels || Object.keys(config.channels).length === 0) {
     throw new Error("No Buffer channels configured. Go to Settings to set up channels.");
   }
 
-  // Filter to only enabled channels
-  const enabledChannels = Object.values(config.channels).filter(ch => ch.enabled);
-  if (enabledChannels.length === 0) {
-    throw new Error("No Buffer channels enabled for publishing.");
+  let channels;
+  if (channelIds && channelIds.length > 0) {
+    // Publish only to the specific channels requested
+    const idSet = new Set(channelIds);
+    channels = Object.values(config.channels).filter(ch => idSet.has(ch.id));
+    if (channels.length === 0) {
+      throw new Error("None of the selected channels were found in Buffer config.");
+    }
+  } else {
+    // Fall back to all enabled channels
+    channels = Object.values(config.channels).filter(ch => ch.enabled);
+    if (channels.length === 0) {
+      throw new Error("No Buffer channels enabled for publishing.");
+    }
   }
 
-  return publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels: enabledChannels, mode });
+  return publishToAllChannels({ caption, videoUrl, videoThumbnailUrl, channels, mode });
 }
 
 /**

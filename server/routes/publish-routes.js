@@ -10,7 +10,7 @@ module.exports = async function publishRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/publish") {
     const body = await readBody(req);
     try {
-      const { slug, service, bufferMode } = JSON.parse(body);
+      const { slug, service, bufferMode, channelIds } = JSON.parse(body);
       const useBuffer = service === "buffer";
       const meta = loadMeta(slug);
       const content = loadJSON(path.join(EPISODES_DIR, slug, "content.json"));
@@ -43,7 +43,7 @@ module.exports = async function publishRoutes(req, res, url, ctx) {
 
       let result;
       if (useBuffer) {
-        result = await publishViaBuffer(slug, caption, publishVideoPath, bufferMode);
+        result = await publishViaBuffer(slug, caption, publishVideoPath, bufferMode, channelIds);
         const successCount = result.results.filter(r => r.success).length;
         const failCount = result.results.filter(r => !r.success).length;
         io.emit("toast", { type: failCount > 0 ? "warning" : "success", message: `Buffer: ${successCount} channel(s) posted${failCount > 0 ? `, ${failCount} failed` : ''}` });
