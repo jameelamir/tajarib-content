@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const llm = require("./llm");
 const prompts = require("./prompts");
-const { formatTimestamp, toSeconds, loadTranscript, formatTranscriptForPrompt, findSegmentByText, EPISODES_DIR } = require("./utils");
+const { formatTimestamp, toSeconds, loadTranscript, formatTranscriptForPrompt, findSegmentByText, findSegmentEndByText, EPISODES_DIR } = require("./utils");
 
 const CLI_ARGS = process.argv.slice(2);
 
@@ -86,6 +86,140 @@ function resolveTimestamps(analysis, segments) {
 }
 
 const SYSTEM_PROMPT = prompts.load("analyze-system");
+
+/**
+ * Format transcript segments within a time range, with pause indicators.
+ * Gives the LLM a detailed segment-level view for making trim decisions.
+ * Pauses (⏸) mark natural cut points where audio won't sound abrupt.
+ */
+function formatSegmentsForTrimming(transcript, startSec, endSec) {
+  const segs = transcript.segments.filter(s => s.start >= startSec - 0.5 && s.start < endSec);
+  const lines = [];
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    lines.push(`[${formatTimestamp(seg.start)}] ${seg.text.trim()}`);
+    if (i < segs.length - 1) {
+      const gap = segs[i + 1].start - seg.end;
+      if (gap >= 0.4) {
+        lines.push(`  ⏸ ${gap.toFixed(1)}s`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Auto-trim a topic reel that exceeds 90s down to 30-90s.
+ * Uses word-level timestamps to find natural cut points (pauses),
+ * then asks the LLM to choose which parts to keep for a coherent story.
+ * Returns the reel with updated start/end and internal cuts.
+ */
+async function trimTopicReel(slug, reel, transcript) {
+  const startSec = toSeconds(reel.start);
+  const endSec = toSeconds(reel.end);
+  const duration = endSec - startSec;
+
+  if (duration <= 90) return reel;
+
+  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — auto-trimming to fit 30-90s...`);
+
+  const segmentTranscript = formatSegmentsForTrimming(transcript, startSec, endSec);
+
+  const userMessage = prompts.load("trim-topic-user", {
+    topic: reel.hook || "الموضوع",
+    currentDuration: Math.round(duration),
+    segmentTranscript,
+  });
+
+  if (!llm.hasKey()) {
+    console.log("⚠️  No API key — skipping auto-trim (reel will be full length).");
+    return reel;
+  }
+
+  const config = llm.getConfig();
+  console.log(`🤖 Sending to ${config.model || "default model"} for smart trimming...`);
+  const trimStart = Date.now();
+
+  const response = await llm.chat({
+    system: SYSTEM_PROMPT,
+    user: userMessage,
+    maxTokens: 4096,
+  });
+
+  const trimElapsed = ((Date.now() - trimStart) / 1000).toFixed(1);
+
+  let result;
+  try {
+    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    console.error("❌ Failed to parse trim response:", response.text.slice(0, 300));
+    return reel;
+  }
+
+  const keepSections = result.keep || [];
+  if (keepSections.length === 0) {
+    console.log("⚠️  No keep sections returned — keeping full reel.");
+    return reel;
+  }
+
+  // Resolve keep sections to precise timestamps
+  const segments = transcript.segments;
+  const resolvedKeeps = [];
+
+  for (const keep of keepSections) {
+    const keepStart = findSegmentByText(segments, keep.text_start, { afterTime: startSec - 1 });
+    if (keepStart === null) {
+      console.log(`   ⚠️  Could not resolve text_start: "${keep.text_start}"`);
+      continue;
+    }
+
+    // Use findSegmentEndByText to get the END time of the last segment in this keep section
+    const keepEndTime = findSegmentEndByText(segments, keep.text_end, { afterTime: keepStart });
+    if (keepEndTime === null) {
+      console.log(`   ⚠️  Could not resolve text_end: "${keep.text_end}"`);
+      continue;
+    }
+
+    resolvedKeeps.push({ start: keepStart, end: keepEndTime });
+  }
+
+  if (resolvedKeeps.length === 0) {
+    console.log("⚠️  Could not resolve any keep sections — keeping full reel.");
+    return reel;
+  }
+
+  // Sort by start time
+  resolvedKeeps.sort((a, b) => a.start - b.start);
+
+  // Update reel boundaries to first/last kept section
+  reel.start = formatTimestamp(resolvedKeeps[0].start);
+  reel.end = formatTimestamp(resolvedKeeps[resolvedKeeps.length - 1].end);
+
+  // Compute internal cuts as gaps between consecutive keep sections
+  const internalCuts = [];
+  for (let i = 0; i < resolvedKeeps.length - 1; i++) {
+    const gapStart = resolvedKeeps[i].end;
+    const gapEnd = resolvedKeeps[i + 1].start;
+    if (gapEnd - gapStart > 0.5) {
+      internalCuts.push({
+        from: formatTimestamp(gapStart),
+        to: formatTimestamp(gapEnd),
+      });
+    }
+  }
+
+  reel.cuts = internalCuts;
+
+  const totalKept = resolvedKeeps.reduce((sum, k) => sum + (k.end - k.start), 0);
+  console.log(`   ✅ Trimmed in ${trimElapsed}s: ${Math.round(duration)}s → ${Math.round(totalKept)}s`);
+  console.log(`   📐 ${resolvedKeeps.length} section(s) kept, ${internalCuts.length} internal cut(s)`);
+  if (result.flow_summary) {
+    console.log(`   📝 ${result.flow_summary}`);
+  }
+
+  return reel;
+}
 
 async function analyze(slug, force = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
@@ -413,6 +547,15 @@ async function analyzeTopic(slug, topic) {
     resolveTimestamps({ reels: newReels }, transcript.segments);
   }
   const resolved = newReels.filter(r => r.start && r.end);
+
+  // Auto-trim reels that exceed 90 seconds
+  for (let i = 0; i < resolved.length; i++) {
+    const reelStart = toSeconds(resolved[i].start);
+    const reelEnd = toSeconds(resolved[i].end);
+    if (reelEnd - reelStart > 90) {
+      resolved[i] = await trimTopicReel(slug, resolved[i], transcript);
+    }
+  }
 
   // Assign new IDs starting after the max existing ID
   const maxId = existingReels.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
