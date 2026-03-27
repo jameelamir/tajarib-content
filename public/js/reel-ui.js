@@ -26,9 +26,13 @@ function renderReelList(ep) {
             {key: 'subtitled', label: 'SUB'},
             {key: 'final', label: 'OVR'}
         ];
+        var reelProcKey = currentSlug + ':' + r.id;
+        var reelRunning = runningStep[reelProcKey] || runningStep[currentSlug] || null;
+        var stepMap = {cut:'cut', generated:'generate', cropped:'crop', subtitled:'subtitle', final:'overlay'};
         var chips = chipDefs.map(function(c) {
             var cls = r[c.key] ? 'done' : 'pending';
             if (c.key === 'cut' && !r.cut) cls = 'missing';
+            if (reelRunning && reelRunning === stepMap[c.key]) cls += ' running';
             return '<span class="reel-chip ' + cls + '">' + c.label + '</span>';
         }).join('');
 
@@ -392,10 +396,15 @@ function buildReelActions(ep, reel) {
     // Find next undone step
     var nextIdx = steps.findIndex(function(s) { return !s.done; });
 
+    // Detect running step for this reel
+    var reelProcKey = ep.slug + ':' + reelId;
+    var reelRunning = runningStep[reelProcKey] || runningStep[ep.slug] || null;
+
     var html = '<div class="reel-pipeline">';
     steps.forEach(function(s, i) {
         var cls = 'pipe-step';
-        if (s.done) cls += ' done';
+        if (reelRunning === s.id) cls += ' running';
+        else if (s.done) cls += ' done';
         else if (i === nextIdx) cls += ' next';
         var icon = s.done ? '&#10003;' : (i === nextIdx ? '&#9654;' : '&#9675;');
         if (i > 0) html += '<span class="pipe-sep">&#8250;</span>';

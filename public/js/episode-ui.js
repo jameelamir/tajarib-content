@@ -77,8 +77,12 @@ function renderSidebar() {
                     {key: 'subtitled', title: 'Subtitle'},
                     {key: 'final', title: 'Overlay'}
                 ];
+                var reelProcKey = ep.slug + ':' + r.id;
+                var reelRunning = runningStep[reelProcKey] || runningStep[ep.slug] || null;
+                var stepMap = {cut:'cut', generated:'generate', cropped:'crop', subtitled:'subtitle', final:'overlay'};
                 var dots = dotDefs.map(function(d) {
                     var cls = r[d.key] ? 'done' : (d.key === 'cut' && !r.cut ? 'missing' : 'pending');
+                    if (reelRunning && reelRunning === stepMap[d.key]) cls += ' running';
                     return '<span class="dot ' + cls + '" title="' + d.title + '"></span>';
                 }).join('');
 
