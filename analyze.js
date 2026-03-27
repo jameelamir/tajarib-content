@@ -119,9 +119,7 @@ async function trimTopicReel(slug, reel, transcript) {
   const endSec = toSeconds(reel.end);
   const duration = endSec - startSec;
 
-  if (duration <= 90) return reel;
-
-  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — auto-trimming to fit 30-90s...`);
+  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — trimming to 30-90s...`);
 
   const segmentTranscript = formatSegmentsForTrimming(transcript, startSec, endSec);
 
@@ -547,15 +545,6 @@ async function analyzeTopic(slug, topic) {
     resolveTimestamps({ reels: newReels }, transcript.segments);
   }
   const resolved = newReels.filter(r => r.start && r.end);
-
-  // Auto-trim reels that exceed 90 seconds
-  for (let i = 0; i < resolved.length; i++) {
-    const reelStart = toSeconds(resolved[i].start);
-    const reelEnd = toSeconds(resolved[i].end);
-    if (reelEnd - reelStart > 90) {
-      resolved[i] = await trimTopicReel(slug, resolved[i], transcript);
-    }
-  }
 
   // Assign new IDs starting after the max existing ID
   const maxId = existingReels.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
