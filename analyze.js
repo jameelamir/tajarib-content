@@ -119,9 +119,7 @@ async function trimTopicReel(slug, reel, transcript) {
   const endSec = toSeconds(reel.end);
   const duration = endSec - startSec;
 
-  if (duration <= 90) return reel;
-
-  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — auto-trimming to fit 30-90s...`);
+  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — trimming to 30-90s...`);
 
   const segmentTranscript = formatSegmentsForTrimming(transcript, startSec, endSec);
 

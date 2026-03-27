@@ -426,9 +426,8 @@ function buildReelActions(ep, reel) {
     }
 
     // Meta actions (trim/hide/delete) pushed to the right
-    var reelDuration = reel.duration || 0;
     html += '<div class="pipe-meta">' +
-        (reelDuration > 90 ? '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' : '') +
+        '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
         '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
         (reel.hidden ? 'Show' : 'Hide') + '</button>' +
         '<button onclick="deleteReel(\'' + reelId + '\')" style="color:#f87171;" title="Delete reel files">&#128465;</button>' +
