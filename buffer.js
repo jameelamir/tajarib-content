@@ -32,25 +32,43 @@ async function graphql(query, variables = {}, token) {
   const accessToken = token || loadConfig().accessToken;
   if (!accessToken) throw new Error("Buffer API token not configured");
 
-  const res = await fetch(BUFFER_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+  // Extract operation name for logging
+  const opMatch = query.match(/(?:query|mutation)\s+(\w+)/);
+  const opName = opMatch ? opMatch[1] : "unknown";
+  console.log(`[Buffer API] ${opName} starting...`);
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Buffer API error ${res.status}: ${text}`);
-  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
 
-  const json = await res.json();
-  if (json.errors && json.errors.length > 0) {
-    throw new Error(`Buffer GraphQL error: ${json.errors.map(e => e.message).join(", ")}`);
+  try {
+    const res = await fetch(BUFFER_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+    console.log(`[Buffer API] ${opName} responded ${res.status}`);
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Buffer API error ${res.status}: ${text}`);
+    }
+
+    const json = await res.json();
+    if (json.errors && json.errors.length > 0) {
+      throw new Error(`Buffer GraphQL error: ${json.errors.map(e => e.message).join(", ")}`);
+    }
+    return json.data;
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === "AbortError") throw new Error(`Buffer API timed out after 60s (${opName})`);
+    throw err;
   }
-  return json.data;
 }
 
 /**
@@ -103,6 +121,8 @@ async function createPost({ channelId, service, text, videoUrl, videoThumbnailUr
 
   if (service === "tiktok") {
     metadata.tiktok = { title: null };
+    // TikTok captions cannot exceed 150 characters
+    if (text.length > 150) text = text.substring(0, 147) + "...";
   } else if (service === "linkedin") {
     metadata.linkedin = {};
   } else if (service === "facebook") {
@@ -165,6 +185,7 @@ async function createPost({ channelId, service, text, videoUrl, videoThumbnailUr
   `, { input });
 
   const result = data.createPost;
+  console.log(`[Buffer API] CreatePost result (${service}):`, JSON.stringify(result));
 
   // Check for error types
   if (result.message) {
@@ -237,8 +258,11 @@ async function publish({ caption, videoUrl, videoThumbnailUrl, mode, channelIds 
  */
 async function uploadToTempHost(filePath) {
   return new Promise((resolve, reject) => {
+    const sizeMB = (fs.statSync(filePath).size / 1024 / 1024).toFixed(1);
+    console.log(`[Upload] Starting upload of ${sizeMB}MB to catbox.moe...`);
     const proc = spawn("curl", [
-      "-s", "-F", "reqtype=fileupload",
+      "-sS", "--max-time", "300",
+      "-F", "reqtype=fileupload",
       "-F", "time=72h",
       "-F", `fileToUpload=@${filePath}`,
       "https://litterbox.catbox.moe/resources/internals/api.php"
@@ -246,13 +270,14 @@ async function uploadToTempHost(filePath) {
 
     let stdout = "";
     let stderr = "";
-    proc.stdout.on("data", d => stdout += d.toString());
-    proc.stderr.on("data", d => stderr += d.toString());
+    proc.stdout.on("data", d => { stdout += d.toString(); });
+    proc.stderr.on("data", d => { stderr += d.toString(); });
     proc.on("error", err => reject(new Error(`Upload failed to start: ${err.message}`)));
     proc.on("close", code => {
-      if (code !== 0) return reject(new Error(`Upload failed (code ${code}): ${stderr}`));
+      console.log(`[Upload] curl exited code=${code} stdout="${stdout.trim().substring(0, 200)}" stderr="${stderr.trim().substring(0, 200)}"`);
+      if (code !== 0) return reject(new Error(`Upload failed (code ${code}): ${stderr.trim() || stdout.trim()}`));
       const url = stdout.trim();
-      if (!url.startsWith("http")) return reject(new Error(`Upload returned invalid URL: ${url}`));
+      if (!url.startsWith("http")) return reject(new Error(`Upload returned invalid response: ${url.substring(0, 200)}`));
       resolve(url);
     });
   });

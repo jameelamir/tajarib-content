@@ -185,7 +185,10 @@ function renderReelDetail(ep, reelId) {
             transcriptEditorEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
                     '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
-                    '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                    '<div style="display:flex; gap:4px;">' +
+                        '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                        '<button class="transcript-dock-btn' + (transcriptDocked ? ' docked' : '') + '" onclick="toggleTranscriptDock()" style="font-size:0.65rem;" title="' + (transcriptDocked ? 'Undock from preview' : 'Dock next to preview') + '">' + (transcriptDocked ? '⇩' : '⇧') + '</button>' +
+                    '</div>' +
                 '</div>' +
                 '<div id="reel-transcript-content" style="display:none;"></div>';
         } else {
@@ -936,10 +939,15 @@ function tlHighlightActiveSegment(timeSec) {
         var playing = seg && timeSec >= seg.start - 0.1 && timeSec < seg.end + 0.1;
         segEls[i].classList.toggle('tl-seg-playing', playing);
         if (playing && isPlaying && !tlState.dragging) {
-            var elRect = segEls[i].getBoundingClientRect();
-            var docRect = doc.getBoundingClientRect();
-            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
-                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            // Scroll within the timeline container only — avoid scrollIntoView
+            // which scrolls all ancestor containers and yanks the user away
+            // from the transcript editor below.
+            var segTop = segEls[i].offsetTop - doc.offsetTop;
+            var segBottom = segTop + segEls[i].offsetHeight;
+            if (segTop < doc.scrollTop) {
+                doc.scrollTop = segTop;
+            } else if (segBottom > doc.scrollTop + doc.clientHeight) {
+                doc.scrollTop = segBottom - doc.clientHeight;
             }
         }
     }
@@ -2606,6 +2614,26 @@ async function trimReel(reelId) {
 }
 
 // ── Hide / Delete Reels ──────────────────────────────────────────────────
+
+async function toggleDoneReel(reelId) {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/done-reel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reelId: reelId})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Reel ' + reelId + (data.done ? ' marked done' : ' marked undone'), 'success');
+            refresh();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
 
 async function toggleHideReel(reelId) {
     if (!currentSlug) return;
