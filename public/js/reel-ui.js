@@ -416,8 +416,10 @@ function buildReelActions(ep, reel) {
             '&#9889; Finalize</button>';
     }
 
-    // Meta actions (hide/delete) pushed to the right
+    // Meta actions (trim/hide/delete) pushed to the right
+    var reelDuration = reel.duration || 0;
     html += '<div class="pipe-meta">' +
+        (reelDuration > 90 ? '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' : '') +
         '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
         (reel.hidden ? 'Show' : 'Hide') + '</button>' +
         '<button onclick="deleteReel(\'' + reelId + '\')" style="color:#f87171;" title="Delete reel files">&#128465;</button>' +
@@ -2566,6 +2568,25 @@ async function getTopicReel() {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ slug: currentSlug, step: 'analyze', topic: topic })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+// ── Trim Reel ────────────────────────────────────────────────────────────
+
+async function trimReel(reelId) {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'trim', reelId: reelId })
         });
         const data = await res.json();
         if (!data.success) {

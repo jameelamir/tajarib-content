@@ -578,6 +578,36 @@ async function analyzeTopic(slug, topic) {
   return outputPath;
 }
 
+/**
+ * "Trim Reel" mode: intelligently trim a specific reel to 30-90s using
+ * segment-level transcript analysis with natural pause detection.
+ */
+async function trimReel(slug, reelId) {
+  const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
+  if (!fs.existsSync(outputPath)) {
+    console.error("❌ No existing analysis.json — run analyze first.");
+    process.exit(1);
+  }
+
+  const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  const reel = (existing.reels || []).find(r => String(r.id) === String(reelId));
+  if (!reel) {
+    console.error(`❌ Reel ${reelId} not found in analysis.json`);
+    process.exit(1);
+  }
+
+  const transcript = loadTranscript(slug);
+  const trimmed = await trimTopicReel(slug, reel, transcript);
+
+  // Update reel in-place
+  const idx = existing.reels.findIndex(r => String(r.id) === String(reelId));
+  existing.reels[idx] = trimmed;
+  fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+
+  console.log(`📄 Saved: ${outputPath}`);
+  return outputPath;
+}
+
 module.exports = { resolveTimestamps };
 
 // CLI
@@ -585,13 +615,16 @@ if (require.main === module) {
   const slugIdx = CLI_ARGS.indexOf("--slug");
   const force = CLI_ARGS.includes("--force");
   const more = CLI_ARGS.includes("--more");
+  const trim = CLI_ARGS.includes("--trim");
   const topicIdx = CLI_ARGS.indexOf("--topic");
   const topic = topicIdx !== -1 ? CLI_ARGS[topicIdx + 1] : null;
+  const reelIdIdx = CLI_ARGS.indexOf("--reel-id");
+  const reelId = reelIdIdx !== -1 ? CLI_ARGS[reelIdIdx + 1] : null;
   if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
-    console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more] [--topic <topic>]");
+    console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more] [--topic <topic>] [--trim --reel-id <id>]");
     process.exit(1);
   }
   const slug = CLI_ARGS[slugIdx + 1];
-  const run = topic ? analyzeTopic(slug, topic) : more ? analyzeMore(slug) : analyze(slug, force);
+  const run = trim ? trimReel(slug, reelId) : topic ? analyzeTopic(slug, topic) : more ? analyzeMore(slug) : analyze(slug, force);
   run.catch(err => { console.error("❌", err.message); process.exit(1); });
 }
