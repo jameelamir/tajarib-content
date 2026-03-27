@@ -132,6 +132,40 @@ function findSegmentByText(segments, excerpt, opts) {
   return bestIdx >= 0 && bestScore > 0.3 ? segments[bestIdx].start : null;
 }
 
+/**
+ * Like findSegmentByText but returns the END time of the matching segment
+ * (or the last segment in a multi-segment window match).
+ * Useful when resolving the end boundary of a "keep" section for trimming.
+ */
+function findSegmentEndByText(segments, excerpt, opts) {
+  if (!excerpt || !segments.length) return null;
+  const afterTime = (opts && opts.afterTime) || 0;
+  const needle = normalizeNumerals(excerpt.trim().replace(/\s+/g, " "));
+
+  for (let winSize = 1; winSize <= Math.min(4, segments.length); winSize++) {
+    for (let i = 0; i <= segments.length - winSize; i++) {
+      if (segments[i].start < afterTime) continue;
+      const combined = normalizeNumerals(segments.slice(i, i + winSize).map(s => s.text.trim()).join(" ").replace(/\s+/g, " "));
+      if (combined.includes(needle) || (needle.includes(combined) && winSize > 1)) {
+        return segments[i + winSize - 1].end;
+      }
+    }
+  }
+
+  const needleWords = needle.split(" ");
+  let bestIdx = -1;
+  let bestScore = 0;
+  for (let i = 0; i < segments.length; i++) {
+    if (segments[i].start < afterTime) continue;
+    const haystackWords = normalizeNumerals(segments[i].text.trim().replace(/\s+/g, " ")).split(" ");
+    const overlap = needleWords.filter(w => haystackWords.includes(w)).length;
+    const score = overlap / Math.max(needleWords.length, 1);
+    if (score > bestScore) { bestScore = score; bestIdx = i; }
+  }
+
+  return bestIdx >= 0 && bestScore > 0.3 ? segments[bestIdx].end : null;
+}
+
 module.exports = {
   EPISODES_DIR,
   toSeconds,
@@ -141,4 +175,5 @@ module.exports = {
   loadTranscript,
   formatTranscriptForPrompt,
   findSegmentByText,
+  findSegmentEndByText,
 };
