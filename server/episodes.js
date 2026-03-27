@@ -77,6 +77,7 @@ module.exports = function init(ctx) {
         // Per-reel status
         const reelStatuses = [];
         const hiddenReels = new Set(meta.hiddenReels || []);
+        const doneReels = new Set(meta.doneReels || []);
         const fileReelIds = reelFiles.filter(f => /^reel-\d+\.mp4$/.test(f)).sort().map(f => f.match(/reel-(\d+)\.mp4/)[1]);
         const validCutIds = new Set(fileReelIds.filter(id => {
           try { return fs.statSync(path.join(reelsDir, `reel-${id}.mp4`)).size > 0; } catch { return false; }
@@ -94,6 +95,7 @@ module.exports = function init(ctx) {
             subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
             final: reelFiles.includes(`reel-${id}-final.mp4`),
             hidden: hiddenReels.has(id),
+            done: doneReels.has(id),
             hook: reelInfo.hook || reelInfo.title || "",
             duration: reelInfo.duration || null, start: reelInfo.start || null, end: reelInfo.end || null,
             cuts: reelInfo.cuts || []

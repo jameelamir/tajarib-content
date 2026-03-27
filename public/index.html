@@ -1817,7 +1817,7 @@ async function confirmPublish() {
             const res = await fetch('/api/publish', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({slug: currentSlug, service: 'zapier'})
+                body: JSON.stringify({slug: currentSlug, service: 'zapier', reelId: selectedReelId || undefined})
             });
             const data = await res.json();
             if (data.success) showToast('Sent to Zapier!', 'success');
@@ -1829,7 +1829,7 @@ async function confirmPublish() {
             const res = await fetch('/api/publish', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({slug: currentSlug, service: 'buffer', channelIds: bufferChannelIds})
+                body: JSON.stringify({slug: currentSlug, service: 'buffer', channelIds: bufferChannelIds, reelId: selectedReelId || undefined})
             });
             const data = await res.json();
             if (data.success) {
