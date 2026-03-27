@@ -37,7 +37,7 @@ async function publishNow() {
         const res = await fetch('/api/publish', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slug: currentSlug, service: service, bufferMode: bufferMode})
+            body: JSON.stringify({slug: currentSlug, service: service, bufferMode: bufferMode, reelId: selectedReelId || undefined})
         });
         const data = await res.json();
         if (data.success) {

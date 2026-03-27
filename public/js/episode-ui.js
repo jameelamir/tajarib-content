@@ -86,11 +86,12 @@ function renderSidebar() {
                     return '<span class="dot ' + cls + '" title="' + d.title + '"></span>';
                 }).join('');
 
-                return '<div class="sidebar-reel ' + (selectedReelId === r.id ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="event.stopPropagation(); selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
+                return '<div class="sidebar-reel ' + (selectedReelId === r.id ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + (r.done ? ' done-reel' : '') + '" onclick="event.stopPropagation(); selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
                     '<span class="sidebar-reel-title">' + r.id + '</span>' +
                     (r.hook ? '<span class="sidebar-reel-hook">' + r.hook + '</span>' : '') +
                     '<span class="sidebar-reel-dots">' + dots + '</span>' +
                     '<span class="sidebar-reel-actions">' +
+                        '<button class="sidebar-reel-btn' + (r.done ? ' sidebar-reel-btn-done-active' : '') + '" onclick="event.stopPropagation(); toggleDoneReel(\'' + r.id + '\')" title="' + (r.done ? 'Mark undone' : 'Mark done') + '">✓</button>' +
                         '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show' : 'Hide') + '">' + (r.hidden ? '👁' : '−') + '</button>' +
                         '<button class="sidebar-reel-btn sidebar-reel-btn-del" onclick="event.stopPropagation(); deleteReel(\'' + r.id + '\')" title="Delete">×</button>' +
                     '</span>' +

@@ -86,11 +86,12 @@ module.exports = function init(ctx) {
   }
 
   async function publishViaBuffer(slug, caption, videoPath, bufferMode, channelIds) {
-    io.emit("log", { slug, text: `\n📤 Uploading video for Buffer...\n` });
-    io.emit("toast", { type: "success", message: "Uploading video to public host..." });
+    const sizeMB = (require("fs").statSync(videoPath).size / 1024 / 1024).toFixed(1);
+    io.emit("log", { slug, text: `\n📤 Uploading ${sizeMB}MB video to temp host...\n` });
     const publicVideoUrl = await buffer.uploadToTempHost(videoPath);
     console.log(`[Buffer] Uploaded to: ${publicVideoUrl}`);
     io.emit("log", { slug, text: `✅ Uploaded: ${publicVideoUrl}\n` });
+    io.emit("toast", { type: "success", message: "Upload done — posting to Buffer channels..." });
     const results = await buffer.publish({ caption, videoUrl: publicVideoUrl, mode: bufferMode, channelIds });
     const failed = results.filter(r => !r.success);
     if (failed.length > 0 && failed.length === results.length) {

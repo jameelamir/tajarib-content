@@ -73,6 +73,22 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/done-reel") {
+    const body = await readBody(req);
+    try {
+      const { slug, reelId } = JSON.parse(body);
+      if (!slug || !reelId) throw new Error("slug + reelId required");
+      const meta = loadMeta(slug);
+      const doneReels = new Set(meta.doneReels || []);
+      const wasDone = doneReels.has(reelId);
+      if (wasDone) doneReels.delete(reelId); else doneReels.add(reelId);
+      saveMeta(slug, { doneReels: [...doneReels] });
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, done: !wasDone }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/hide-reel") {
     const body = await readBody(req);
     try {
