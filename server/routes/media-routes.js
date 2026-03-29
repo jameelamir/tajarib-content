@@ -38,7 +38,12 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     if (reelParam) {
       const isValid = (p) => fs.existsSync(p) && fs.statSync(p).size > 10240;
       const reelsDir = path.join(dir, "reels");
-      if (stage === 'pre-overlay') {
+      const subs = url.searchParams.get("subs");
+      if (subs === 'off') {
+        // Subtitles hidden — skip final and subtitled, serve cropped > raw
+        videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
+          path.join(reelsDir, `reel-${reelParam}.mp4`);
+      } else if (stage === 'pre-overlay') {
         // Skip final video — serve subtitled > cropped > raw (for overlay preview background)
         videoPath = isValid(path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-subtitled.mp4`) :
           isValid(path.join(reelsDir, `reel-${reelParam}-cropped.mp4`)) ? path.join(reelsDir, `reel-${reelParam}-cropped.mp4`) :
@@ -50,7 +55,15 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
           path.join(reelsDir, `reel-${reelParam}.mp4`);
       }
     } else if (type === 'compressed') { videoPath = path.join(dir, "publish-compressed.mp4"); }
-    else if (type === 'subtitled') {
+    else if (type === 'final') {
+      const fullFinal = path.join(dir, "full-final.mp4");
+      if (fs.existsSync(fullFinal)) videoPath = fullFinal;
+      else {
+        const reelsDir = path.join(dir, "reels");
+        if (fs.existsSync(reelsDir)) { const f = fs.readdirSync(reelsDir).find(f => f.endsWith("-final.mp4")); videoPath = f ? path.join(reelsDir, f) : fullFinal; }
+        else videoPath = fullFinal;
+      }
+    } else if (type === 'subtitled') {
       const fullSub = path.join(dir, "full-subtitled.mp4");
       if (fs.existsSync(fullSub)) videoPath = fullSub;
       else {
@@ -179,6 +192,47 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     return true;
   }
 
+  // Serve overlay video files as WebM VP9 with alpha for browser live preview
+  const assetVideoMatch = url.pathname.match(/^\/api\/assets\/video\/(.+)$/);
+  if (req.method === "GET" && assetVideoMatch) {
+    const fileName = decodeURIComponent(assetVideoMatch[1]);
+    if (fileName.includes("..") || fileName.includes("/")) { res.writeHead(400); res.end("Invalid filename"); return true; }
+    let filePath = path.join(ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath) && fs.existsSync(path.join(SHARED_ASSETS_DIR, fileName))) filePath = path.join(SHARED_ASSETS_DIR, fileName);
+    if (!fs.existsSync(filePath)) { res.writeHead(404); res.end("Not found"); return true; }
+    const ext = path.extname(fileName).toLowerCase();
+    const baseName = path.basename(fileName, ext);
+    if ([".mov", ".mp4", ".avi"].includes(ext)) {
+      // Transcode to WebM VP9 with alpha preservation for browser playback
+      const webmPath = path.join(ASSETS_DIR, `.preview-${baseName}.webm`);
+      const srcStat = fs.statSync(filePath);
+      if (!fs.existsSync(webmPath) || fs.statSync(webmPath).mtimeMs < srcStat.mtimeMs) {
+        try {
+          const { execFileSync } = require("child_process");
+          execFileSync("ffmpeg", ["-y", "-i", filePath, "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "2M", "-auto-alt-ref", "0", "-an", webmPath], { stdio: "pipe", timeout: 60000 });
+        } catch (e) { res.writeHead(500); res.end("Transcode failed: " + (e.stderr?.toString().split("\n").slice(-3).join(" ") || e.message)); return true; }
+      }
+      const stat = fs.statSync(webmPath);
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/webm" });
+        fs.createReadStream(webmPath, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { "Content-Type": "video/webm", "Content-Length": stat.size, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=300" });
+        fs.createReadStream(webmPath).pipe(res);
+      }
+      return true;
+    }
+    // For non-video files (PNG/JPG), serve directly
+    const mimeTypes = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif" };
+    res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+    res.end(fs.readFileSync(filePath));
+    return true;
+  }
+
   // Link a file from shared assets dir into local assets/ via symlink
   if (req.method === "POST" && url.pathname === "/api/link-asset") {
     const body = await readBody(req);
@@ -214,6 +268,10 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
           fs.mkdirSync(SHARED_ASSETS_DIR, { recursive: true });
           const originalName = file.originalFilename || "lower-third.mov";
           destPath = path.join(SHARED_ASSETS_DIR, originalName);
+        } else if (assetType === "sponsor") {
+          // Save sponsor files with original filename so user can pick between them
+          const originalName = file.originalFilename || "sponsor.mov";
+          destPath = path.join(ASSETS_DIR, originalName);
         } else {
           const ext = assetType === "cta" ? path.extname(file.originalFilename || ".png") : ".mov";
           destPath = path.join(ASSETS_DIR, `${assetType}${ext}`);

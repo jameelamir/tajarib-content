@@ -64,6 +64,9 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
           fs.copyFileSync(srtFile.filepath, path.join(epDir, `uploaded${srtExt}`)); fs.unlinkSync(srtFile.filepath);
           io.emit("log", { slug, text: `📄 SRT uploaded — transcription skipped (${transcriptData.segment_count} segments)\n` });
           io.emit("status-update", {}); await handlePostTranscription(slug);
+        } else if (transcribeMethod === 'skip') {
+          io.emit("log", { slug, text: `⏭️ Transcription skipped — you can transcribe later from the episode view\n` });
+          io.emit("status-update", {});
         } else { startTranscription(slug, finalPath, transcribeMethod); }
 
         res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, slug }));
@@ -101,6 +104,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
         io.emit("status-update", {});
         const gotYouTubeTranscript = await tryFetchYouTubeTranscript(slug, videoUrl);
         if (gotYouTubeTranscript) { io.emit("log", { slug, text: "📝 Using YouTube transcript — skipping Whisper.\n" }); await handlePostTranscription(slug); io.emit("status-update", {}); }
+        else if ((transcribeMethod || "local") === "skip") { io.emit("log", { slug, text: "⏭️ Transcription skipped — you can transcribe later from the episode view\n" }); io.emit("status-update", {}); }
         else startTranscription(slug, outPath, transcribeMethod || "local");
       });
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, slug }));

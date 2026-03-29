@@ -26,9 +26,13 @@ function renderReelList(ep) {
             {key: 'subtitled', label: 'SUB'},
             {key: 'final', label: 'OVR'}
         ];
+        var reelProcKey = currentSlug + ':' + r.id;
+        var reelRunning = runningStep[reelProcKey] || runningStep[currentSlug] || null;
+        var stepMap = {cut:'cut', generated:'generate', cropped:'crop', subtitled:'subtitle', final:'overlay'};
         var chips = chipDefs.map(function(c) {
             var cls = r[c.key] ? 'done' : 'pending';
             if (c.key === 'cut' && !r.cut) cls = 'missing';
+            if (reelRunning && reelRunning === stepMap[c.key]) cls += ' running';
             return '<span class="reel-chip ' + cls + '">' + c.label + '</span>';
         }).join('');
 
@@ -103,11 +107,12 @@ function renderReelDetail(ep, reelId) {
         // Reset portrait layout since there's no video
         var modular = document.getElementById('reel-detail-modular');
         if (modular) modular.classList.remove('portrait');
-    } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now();
+    } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug || previewEl.dataset.hideSubs !== String(hideSubtitles)) {
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + (hideSubtitles ? '&subs=off' : '') + '&t=' + Date.now();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.reelId = reelId;
         previewEl.dataset.slug = ep.slug;
+        previewEl.dataset.hideSubs = String(hideSubtitles);
         // Detect portrait video and switch to side-by-side layout
         var vid = previewEl.querySelector('video');
         if (vid) vid.addEventListener('loadedmetadata', function() {
@@ -180,7 +185,10 @@ function renderReelDetail(ep, reelId) {
             transcriptEditorEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
                     '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
-                    '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                    '<div style="display:flex; gap:4px;">' +
+                        '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
+                        '<button class="transcript-dock-btn' + (transcriptDocked ? ' docked' : '') + '" onclick="toggleTranscriptDock()" style="font-size:0.65rem;" title="' + (transcriptDocked ? 'Undock from preview' : 'Dock next to preview') + '">' + (transcriptDocked ? '⇩' : '⇧') + '</button>' +
+                    '</div>' +
                 '</div>' +
                 '<div id="reel-transcript-content" style="display:none;"></div>';
         } else {
@@ -203,75 +211,125 @@ function renderReelDetail(ep, reelId) {
 // ─── Reel-Full View ───────────────────────────────────────────────────────────
 
 function renderReelFullView(ep) {
-    // Video preview — only recreate if slug changed
-    var videoEl = document.getElementById('reel-full-video');
-    if (videoEl.dataset.slug !== ep.slug) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now();
-        videoEl.innerHTML = '<video controls preload="metadata" style="max-height:250px; max-width:100%;" src="' + videoUrl + '"></video>';
-        videoEl.dataset.slug = ep.slug;
-        // Detect portrait video and switch to side-by-side layout
-        var vid = videoEl.querySelector('video');
+    var isReelCut = ep.mediaType === 'reel_cut';
+
+    // Video preview — show best available: final > subtitled > raw
+    var previewEl = document.getElementById('rf-preview');
+    var videoType = ep.steps.overlaid ? 'final' : ep.steps.subtitled ? 'subtitled' : 'raw';
+    var cacheKey = ep.slug + ':' + videoType;
+    if (previewEl.dataset.cacheKey !== cacheKey) {
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=' + videoType + '&t=' + Date.now();
+        previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:400px; border-radius:8px; background:#000;"></video>';
+        previewEl.dataset.cacheKey = cacheKey;
+        var vid = previewEl.querySelector('video');
         if (vid) vid.addEventListener('loadedmetadata', function() {
-            var layout = document.getElementById('reel-full-layout');
-            if (layout) layout.classList.toggle('portrait', this.videoHeight > this.videoWidth);
+            var modular = document.getElementById('rf-modular');
+            if (modular) modular.classList.toggle('portrait', this.videoHeight > this.videoWidth);
         });
     }
 
-    // Caption tab — skip rebuild only if user is actively editing (preserves focus/input state)
-    var captionBody = document.getElementById('reel-full-caption-body');
-    var captionActions = document.getElementById('reel-full-caption-actions');
-    var existingTextarea = document.getElementById('reel-full-caption-textarea');
-    if (ep.content && ep.content.reels && ep.content.reels.length > 0) {
-        var caption = ep.content.reels[0].caption || '';
-        var fieldPath = 'reels.0.caption';
-        var textareaId = 'reel-full-caption-textarea';
-        var fbInput = document.getElementById('fb-' + textareaId);
-        var isUserEditing = fbInput && (fbInput.value.trim() || document.activeElement === fbInput || document.activeElement === existingTextarea);
-        if (!existingTextarea) {
-            // First render — build the editor
-            captionBody.innerHTML =
-                '<div class="content-field" data-field="' + fieldPath + '">' +
-                    '<div class="content-label" style="font-size:0.75rem; color:#888; margin-bottom:6px;">Reel Caption</div>' +
-                    '<textarea class="content-textarea" id="' + textareaId + '" rows="6" dir="rtl" style="text-align:right;" oninput="autoResize(this)">' + escHtml(caption) + '</textarea>' +
-                    feedbackRow(fieldPath, textareaId) +
-                    '<div class="content-hint" id="hint-' + textareaId + '"></div>' +
-                '</div>';
-            captionBody.querySelectorAll('.content-textarea').forEach(autoResize);
-        } else if (!isUserEditing && existingTextarea.value !== caption) {
-            // Caption changed on server (e.g. after generate) and user isn't editing — update
-            existingTextarea.value = caption;
-            autoResize(existingTextarea);
-        }
-        captionActions.style.display = 'flex';
+    // Pipeline actions — show for reel_cut (crop/sub/overlay), hide for reel_full
+    var actionsEl = document.getElementById('rf-actions');
+    if (isReelCut) {
+        actionsEl.innerHTML = buildStandaloneActions(ep);
+        actionsEl.style.display = '';
     } else {
-        captionBody.innerHTML = '<div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>';
-        captionActions.style.display = 'none';
+        actionsEl.innerHTML = '';
+        actionsEl.style.display = 'none';
     }
 
-}
-
-
-function switchReelFullTab(tab) {
-    document.querySelectorAll('.reel-full-tab').forEach(function(el) {
-        el.classList.toggle('active', el.dataset.tab === tab);
-    });
-    ['caption', 'transcript'].forEach(function(t) {
-        var body = document.getElementById('rfTab-' + t);
-        if (body) {
-            body.classList.toggle('active', t === tab);
-            body.style.display = t === tab ? 'flex' : 'none';
+    // Caption editor
+    var captionEl = document.getElementById('rf-caption-editor');
+    var existingTextarea = document.getElementById('rf-caption-text');
+    if (ep.content && ep.content.reels && ep.content.reels.length > 0) {
+        var caption = ep.content.reels[0].caption || '';
+        var isUserEditing = existingTextarea && document.activeElement === existingTextarea;
+        if (!existingTextarea) {
+            captionEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<button onclick="runStep(\'generate\')" style="font-size:0.7rem;">↻ Generate</button>' +
+                '</div>' +
+                '<textarea id="rf-caption-text" class="content-textarea" rows="4" dir="rtl" style="text-align:right; font-size:0.8rem;" placeholder="No caption yet — run Caption to generate">' + escHtml(caption) + '</textarea>' +
+                '<div style="display:flex; gap:6px; margin-top:6px;">' +
+                    '<button onclick="saveStandaloneCaption()" style="font-size:0.7rem;">Save</button>' +
+                    '<button onclick="copyToClipboard(document.getElementById(\'rf-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
+                    '<button class="publish-btn" onclick="publishNow()" style="font-size:0.7rem;">Publish</button>' +
+                '</div>';
+        } else if (!isUserEditing && existingTextarea.value !== caption) {
+            existingTextarea.value = caption;
         }
-    });
+    } else {
+        if (!existingTextarea) {
+            captionEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<button class="primary" onclick="runStep(\'generate\')" style="font-size:0.7rem;">▶ Generate</button>' +
+                '</div>';
+        }
+    }
+
+    // Transcript editor — show if transcribed, with inline chunk editing
+    var transcriptEl = document.getElementById('rf-transcript-editor');
+    if (ep.steps && ep.steps.transcribed) {
+        var existingChunks = transcriptEl.querySelector('#rt-seg-list');
+        if (!existingChunks) {
+            transcriptEl.style.display = '';
+            transcriptEl.innerHTML =
+                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
+                    '<button onclick="loadStandaloneTranscript()" style="font-size:0.65rem;">Load / Edit</button>' +
+                '</div>' +
+                '<div id="rf-transcript-content" style="display:none;"></div>';
+        }
+    } else {
+        transcriptEl.style.display = 'none';
+    }
 }
 
-async function saveReelFullCaption() {
+function buildStandaloneActions(ep) {
+    var steps = [];
+    steps.push({ id: 'crop', label: 'Crop', done: ep.steps.cropped });
+    steps.push({ id: 'subtitle', label: 'Sub', done: ep.steps.subtitled, extra:
+        '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
+            '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
+        '</select>'
+    });
+    steps.push({ id: 'overlay', label: 'Overlay', done: ep.steps.overlaid, extra:
+        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
+    });
+
+    var nextIdx = steps.findIndex(function(s) { return !s.done; });
+
+    var html = '<div class="reel-pipeline">';
+    steps.forEach(function(s, i) {
+        var cls = 'pipe-step';
+        if (s.done) cls += ' done';
+        else if (i === nextIdx) cls += ' next';
+        var icon = s.done ? '&#10003;' : (i === nextIdx ? '&#9654;' : '&#9675;');
+        if (i > 0) html += '<span class="pipe-sep">&#8250;</span>';
+        html += '<button class="' + cls + '" onclick="runStep(\'' + s.id + '\')">' +
+            '<span class="pipe-icon">' + icon + '</span>' + s.label +
+        '</button>';
+        if (s.extra) html += s.extra;
+    });
+
+    // Finalize button
+    var remaining = steps.filter(function(s) { return !s.done; });
+    if (remaining.length > 0) {
+        html += '<span class="pipe-sep">&#8250;</span>' +
+            '<button class="pipe-step" style="color:#f59e0b; font-weight:600;" onclick="finalizeAll()" title="Run remaining steps">' +
+            '&#9889; Finalize</button>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function saveStandaloneCaption() {
     if (!currentSlug) return;
-    var textEl = document.getElementById('reel-full-caption-textarea');
+    var textEl = document.getElementById('rf-caption-text');
     if (!textEl) return;
-    // Visual feedback on Save button
-    var saveBtn = document.querySelector('#reel-full-caption-actions button');
-    var origText = saveBtn ? saveBtn.textContent : '';
-    if (saveBtn) { saveBtn.textContent = 'Saving...'; saveBtn.disabled = true; }
     try {
         var res = await fetch('/api/save-content', {
             method: 'POST',
@@ -281,22 +339,34 @@ async function saveReelFullCaption() {
         var data = await res.json();
         if (data.success) {
             showToast('Caption saved', 'success');
-            if (saveBtn) { saveBtn.textContent = 'Saved!'; saveBtn.style.color = 'var(--success)'; }
-            setTimeout(function() { if (saveBtn) { saveBtn.textContent = origText; saveBtn.style.color = ''; saveBtn.disabled = false; } }, 2000);
             await refresh();
         } else {
-            if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
             showToast(data.error || 'Save failed', 'error');
         }
     } catch (err) {
-        if (saveBtn) { saveBtn.textContent = origText; saveBtn.disabled = false; }
         showToast('Save failed: ' + err.message, 'error');
     }
 }
 
-function copyReelFullCaption() {
-    var textEl = document.getElementById('reel-full-caption-textarea');
-    if (textEl) copyToClipboard(textEl.value);
+async function loadStandaloneTranscript() {
+    var contentEl = document.getElementById('rf-transcript-content');
+    if (!contentEl) return;
+    contentEl.style.display = '';
+    contentEl.innerHTML = '<div style="color:#888; font-size:0.7rem; padding:8px;">Loading...</div>';
+
+    reelTranscriptReelId = '__standalone__';
+    reelChunksData = null;
+
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=transcript.json');
+        if (!res.ok) throw new Error('No transcript found');
+        var txData = JSON.parse(await res.text());
+        var words = rtReelWordsFromTranscript(txData);
+        reelChunksData = rtChunkWords(words);
+        rtRenderChunks(contentEl);
+    } catch (err) {
+        contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No transcript found — transcribe first or upload an SRT.</div>';
+    }
 }
 
 function buildReelActions(ep, reel) {
@@ -318,7 +388,9 @@ function buildReelActions(ep, reel) {
     steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled, extra:
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
-        '</select>'
+        '</select>' +
+        (reel.subtitled ? '<button onclick="event.stopPropagation(); toggleSubtitles()" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer; opacity:' + (hideSubtitles ? '0.5' : '1') + ';" title="' + (hideSubtitles ? 'Show subtitles in preview' : 'Hide subtitles in preview') + '">' +
+            (hideSubtitles ? '&#9676; Off' : '&#9679; On') + '</button>' : '')
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
         '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
@@ -327,10 +399,15 @@ function buildReelActions(ep, reel) {
     // Find next undone step
     var nextIdx = steps.findIndex(function(s) { return !s.done; });
 
+    // Detect running step for this reel
+    var reelProcKey = ep.slug + ':' + reelId;
+    var reelRunning = runningStep[reelProcKey] || runningStep[ep.slug] || null;
+
     var html = '<div class="reel-pipeline">';
     steps.forEach(function(s, i) {
         var cls = 'pipe-step';
-        if (s.done) cls += ' done';
+        if (reelRunning === s.id) cls += ' running';
+        else if (s.done) cls += ' done';
         else if (i === nextIdx) cls += ' next';
         var icon = s.done ? '&#10003;' : (i === nextIdx ? '&#9654;' : '&#9675;');
         if (i > 0) html += '<span class="pipe-sep">&#8250;</span>';
@@ -351,8 +428,9 @@ function buildReelActions(ep, reel) {
             '&#9889; Finalize</button>';
     }
 
-    // Meta actions (hide/delete) pushed to the right
+    // Meta actions (trim/hide/delete) pushed to the right
     html += '<div class="pipe-meta">' +
+        '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
         '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
         (reel.hidden ? 'Show' : 'Hide') + '</button>' +
         '<button onclick="deleteReel(\'' + reelId + '\')" style="color:#f87171;" title="Delete reel files">&#128465;</button>' +
@@ -1218,10 +1296,15 @@ function tlHighlightActiveSegment(timeSec) {
         var playing = seg && timeSec >= seg.start - 0.1 && timeSec < seg.end + 0.1;
         segEls[i].classList.toggle('tl-seg-playing', playing);
         if (playing && isPlaying && !tlState.dragging) {
-            var elRect = segEls[i].getBoundingClientRect();
-            var docRect = doc.getBoundingClientRect();
-            if (elRect.bottom > docRect.bottom - 5 || elRect.top < docRect.top + 5) {
-                segEls[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            // Scroll within the timeline container only — avoid scrollIntoView
+            // which scrolls all ancestor containers and yanks the user away
+            // from the transcript editor below.
+            var segTop = segEls[i].offsetTop - doc.offsetTop;
+            var segBottom = segTop + segEls[i].offsetHeight;
+            if (segTop < doc.scrollTop) {
+                doc.scrollTop = segTop;
+            } else if (segBottom > doc.scrollTop + doc.clientHeight) {
+                doc.scrollTop = segBottom - doc.clientHeight;
             }
         }
     }
@@ -2233,6 +2316,36 @@ var reelTranscriptData = null;
 var reelTranscriptReelId = null;
 var reelChunksData = null; // computed/saved subtitle chunks
 
+function rtFormatSRTTime(sec) {
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = Math.floor(sec % 60);
+    var ms = Math.floor((sec % 1) * 1000);
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ',' + String(ms).padStart(3, '0');
+}
+
+function downloadReelSRT() {
+    if (!reelChunksData || !reelChunksData.length) return;
+    // Sync any in-progress edits
+    rtSyncDomToData();
+    var lines = [];
+    for (var i = 0; i < reelChunksData.length; i++) {
+        var c = reelChunksData[i];
+        lines.push((i + 1) + '\n' + rtFormatSRTTime(c.start) + ' --> ' + rtFormatSRTTime(c.end) + '\n' + c.text + '\n');
+    }
+    var srt = lines.join('\n');
+    var blob = new Blob([srt], { type: 'text/srt;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var padded = String(reelTranscriptReelId).padStart(2, '0');
+    a.download = (currentSlug || 'reel') + '-reel-' + padded + '.srt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // Mirrors subtitle.js reelWordsFromTranscript — fills in words missing from
 // Whisper word-level timing using segment text as the source of truth.
 function rtReelWordsFromTranscript(t) {
@@ -2298,6 +2411,38 @@ function rtChunkWords(words) {
     return chunks;
 }
 
+// Detect time-shift between saved chunks and a fresh transcript (mirrors subtitle.js).
+// Returns the amount to add to all chunk timestamps so they align with the new clip.
+function rtDetectChunkShift(savedChunks, reelWords) {
+    if (!savedChunks || !savedChunks.length || !reelWords || !reelWords.length) return 0;
+    var chunkTextWords = [];
+    for (var ci = 0; ci < Math.min(savedChunks.length, 5); ci++) {
+        var ws = savedChunks[ci].text.trim().split(/\s+/).filter(Boolean);
+        for (var wi = 0; wi < ws.length; wi++) { chunkTextWords.push(ws[wi]); if (chunkTextWords.length >= 12) break; }
+        if (chunkTextWords.length >= 12) break;
+    }
+    if (chunkTextWords.length < 2) return 0;
+    var norm = function(s) { return s.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim(); };
+    var matchStart = Math.min(1, chunkTextWords.length - 1);
+    var matchWords = chunkTextWords.slice(matchStart, matchStart + 8).map(norm);
+    if (!matchWords.length) return 0;
+    var maxSearch = Math.min(reelWords.length, 300);
+    var bestScore = 0, bestPos = -1;
+    for (var i = 0; i < maxSearch; i++) {
+        var score = 0;
+        for (var j = 0; j < matchWords.length && (i + j) < reelWords.length; j++) {
+            if (norm(reelWords[i + j].word) === matchWords[j]) score++;
+        }
+        if (score > bestScore) { bestScore = score; bestPos = i; }
+    }
+    if (bestScore < Math.max(1, Math.ceil(matchWords.length * 0.4)) || bestPos < 0) return 0;
+    var firstWordPos = Math.max(0, bestPos - matchStart);
+    var wordTime = reelWords[firstWordPos].start;
+    var chunkTime = savedChunks[0].start;
+    var shift = wordTime - chunkTime;
+    return Math.abs(shift) > 0.3 ? shift : 0;
+}
+
 async function loadReelTranscript(reelId) {
     var contentEl = document.getElementById('reel-transcript-content');
     if (!contentEl) return;
@@ -2313,6 +2458,61 @@ async function loadReelTranscript(reelId) {
         var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
         if (chunksRes.ok) {
             reelChunksData = JSON.parse(await chunksRes.text());
+
+            // Also load the transcript — if it has content outside the saved
+            // chunks' time range (e.g. reel start was extended), merge new
+            // auto-generated chunks with the proofread ones.
+            try {
+                var txRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+                if (txRes.ok) {
+                    var txData = JSON.parse(await txRes.text());
+                    var txWords = rtReelWordsFromTranscript(txData);
+                    if (txWords.length) {
+                        var shift = rtDetectChunkShift(reelChunksData, txWords);
+                        if (shift !== 0) {
+                            console.log('[Transcript] Shifting chunks by ' + shift.toFixed(1) + 's');
+                            var clipEnd = 0;
+                            for (var we = 0; we < txWords.length; we++) { if (txWords[we].end > clipEnd) clipEnd = txWords[we].end; }
+                            reelChunksData.forEach(function(c) { c.start += shift; c.end += shift; });
+                            reelChunksData = reelChunksData.filter(function(c) { return c.start < clipEnd && c.end > 0; });
+                            if (reelChunksData.length) {
+                                reelChunksData[0].start = Math.max(0, reelChunksData[0].start);
+                                reelChunksData[reelChunksData.length - 1].end = Math.min(reelChunksData[reelChunksData.length - 1].end, clipEnd);
+                            }
+                            // Prepend chunks for new content before proofread chunks
+                            var chunksStart = reelChunksData.length ? reelChunksData[0].start : 0;
+                            if (chunksStart > 0.5) {
+                                var earlyWords = txWords.filter(function(w) { return w.start >= 0 && w.end < chunksStart; });
+                                if (earlyWords.length) {
+                                    var prependChunks = rtChunkWords(earlyWords);
+                                    if (prependChunks.length) {
+                                        var last = prependChunks[prependChunks.length - 1];
+                                        if (last.end > chunksStart) last.end = chunksStart;
+                                    }
+                                    reelChunksData = prependChunks.concat(reelChunksData);
+                                    console.log('[Transcript] Prepended ' + prependChunks.length + ' chunks for extended start');
+                                }
+                            }
+                            // Append chunks for new content after proofread chunks
+                            var chunksEnd = reelChunksData.length ? reelChunksData[reelChunksData.length - 1].end : 0;
+                            if (clipEnd - chunksEnd > 0.5) {
+                                var lateWords = txWords.filter(function(w) { return w.start >= chunksEnd; });
+                                if (lateWords.length) {
+                                    var appendChunks = rtChunkWords(lateWords);
+                                    reelChunksData = reelChunksData.concat(appendChunks);
+                                    console.log('[Transcript] Appended ' + appendChunks.length + ' chunks for extended end');
+                                }
+                            }
+                            // Close gaps
+                            for (var gi = 0; gi < reelChunksData.length - 1; gi++) {
+                                var gap = reelChunksData[gi + 1].start - reelChunksData[gi].end;
+                                if (gap > 0 && gap <= 3) reelChunksData[gi].end = reelChunksData[gi + 1].start;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+
             // Sync with timeline subtitle track
             tlState.chunks = reelChunksData;
             tlState.chunksLoaded = true;
@@ -2351,6 +2551,20 @@ function rtSyncDomToData() {
 }
 
 // Get cursor offset within a contenteditable, handling text nodes
+// Scroll a segment into view within #rt-seg-list only (no page-level scroll)
+function rtScrollSegIntoView(seg) {
+    if (!seg) return;
+    var container = document.getElementById('rt-seg-list');
+    if (!container) return;
+    var segTop = seg.offsetTop - container.offsetTop;
+    var segBottom = segTop + seg.offsetHeight;
+    if (segTop < container.scrollTop) {
+        container.scrollTop = segTop;
+    } else if (segBottom > container.scrollTop + container.clientHeight) {
+        container.scrollTop = segBottom - container.clientHeight;
+    }
+}
+
 function rtGetCursorOffset(el) {
     var sel = window.getSelection();
     if (!sel.rangeCount) return 0;
@@ -2363,7 +2577,7 @@ function rtGetCursorOffset(el) {
 
 // Set cursor at a character offset within a contenteditable
 function rtSetCursor(el, offset) {
-    el.focus();
+    el.focus({ preventScroll: true });
     var node = el.firstChild;
     if (!node) { // empty element
         var r = document.createRange(); r.selectNodeContents(el); r.collapse(true);
@@ -2393,7 +2607,13 @@ function rtGetSegEl(idx) {
 }
 
 function rtRenderChunks(containerEl) {
-    if (!containerEl) containerEl = document.getElementById('reel-transcript-content');
+    if (!containerEl) {
+        // Find the active container — check for existing seg list first (re-render),
+        // then fall back to the known container IDs
+        var existing = document.getElementById('rt-seg-list');
+        containerEl = existing ? existing.parentElement
+            : (document.getElementById('reel-transcript-content') || document.getElementById('rf-transcript-content'));
+    }
     if (!containerEl || !reelChunksData) return;
 
     var html = '<div id="rt-seg-list" style="max-height:350px; overflow-y:auto; padding:4px 0; margin-bottom:8px;">';
@@ -2411,6 +2631,7 @@ function rtRenderChunks(containerEl) {
     html += '</div>';
     html += '<div style="display:flex; gap:6px;">' +
         '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-sub</button>' +
+        '<button onclick="downloadReelSRT()" style="font-size:0.7rem;">↓ SRT</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 
@@ -2447,7 +2668,7 @@ function rtRenderChunks(containerEl) {
                         var cursorPos = rtGetCursorOffset(this);
                         var targetLen = target.textContent.length;
                         rtSetCursor(target, Math.min(cursorPos, targetLen));
-                        target.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(target.closest('.tm-seg'));
                     }
                 }
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -2460,7 +2681,7 @@ function rtRenderChunks(containerEl) {
                     var prev = rtGetSegEl(idx - 1);
                     if (prev) {
                         rtSetCursor(prev, prev.textContent.length);
-                        prev.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(prev.closest('.tm-seg'));
                     }
                 }
                 // ArrowLeft at end of text → jump to start of next segment
@@ -2469,7 +2690,7 @@ function rtRenderChunks(containerEl) {
                     var next = rtGetSegEl(idx + 1);
                     if (next) {
                         rtSetCursor(next, 0);
-                        next.closest('.tm-seg').scrollIntoView({ block: 'nearest' });
+                        rtScrollSegIntoView(next.closest('.tm-seg'));
                     }
                 }
             }
@@ -2495,7 +2716,7 @@ function rtSplitChunk(chunkIdx, el) {
     rtRenderChunks();
     tlRenderSubTrack(); // sync timeline
     var newEl = rtGetSegEl(chunkIdx + 1);
-    if (newEl) rtSetCursor(newEl, 0);
+    if (newEl) { rtSetCursor(newEl, 0); rtScrollSegIntoView(newEl.closest('.tm-seg')); }
 }
 
 function rtMergeChunkWithPrev(chunkIdx) {
@@ -2510,11 +2731,11 @@ function rtMergeChunkWithPrev(chunkIdx) {
     rtRenderChunks();
     tlRenderSubTrack(); // sync timeline
     var el = rtGetSegEl(chunkIdx - 1);
-    if (el) rtSetCursor(el, prevLen + 1);
+    if (el) { rtSetCursor(el, prevLen + 1); rtScrollSegIntoView(el.closest('.tm-seg')); }
 }
 
 function seekReelVideo(time) {
-    var video = document.querySelector('#reel-preview video');
+    var video = document.querySelector('#reel-preview video') || document.querySelector('#rf-preview video');
     if (video) {
         video.currentTime = time;
         video.play();
@@ -2525,7 +2746,8 @@ async function saveReelChunks(reelId) {
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
     if (!reelChunksData) return;
-    var padded = String(reelId).padStart(2, '0');
+    var isStandalone = reelId === '__standalone__';
+    var padded = isStandalone ? null : String(reelId).padStart(2, '0');
     try {
         // Collect any in-progress text edits
         var segList = document.getElementById('rt-seg-list');
@@ -2536,12 +2758,13 @@ async function saveReelChunks(reelId) {
             });
         }
 
+        var chunksFile = isStandalone ? 'full-chunks.json' : 'reels/reel-' + padded + '-chunks.json';
         await fetch('/api/file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 slug: currentSlug,
-                file: 'reels/reel-' + padded + '-chunks.json',
+                file: chunksFile,
                 content: JSON.stringify(reelChunksData, null, 2)
             })
         });
@@ -2554,17 +2777,18 @@ async function saveReelChunks(reelId) {
         }
         if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
 
+        var stepBody = {
+            slug: currentSlug,
+            step: 'subtitle',
+            force: true,
+            noTranscribe: true,
+            subtitleStyle: (document.getElementById('reel-subtitle-style') || {}).value || 'animated'
+        };
+        if (!isStandalone) stepBody.reelId = reelId;
         await fetch('/api/run-step', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                slug: currentSlug,
-                step: 'subtitle',
-                reelId: reelId,
-                force: true,
-                noTranscribe: true,
-                subtitleStyle: (document.getElementById('reel-subtitle-style') || {}).value || 'animated'
-            })
+            body: JSON.stringify(stepBody)
         });
     } catch (err) {
         if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
@@ -2651,6 +2875,15 @@ async function saveReelCaption(reelId) {
 
 // ─── Run Reel Step ───────────────────────────────────────────────────────────
 
+function toggleSubtitles() {
+    hideSubtitles = !hideSubtitles;
+    // Force video reload by clearing cached reel id
+    var previewEl = document.getElementById('reel-preview');
+    if (previewEl) previewEl.dataset.hideSubs = '';
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (ep && selectedReelId) renderReelDetail(ep, selectedReelId);
+}
+
 async function runReelStep(reelId, step) {
     if (!currentSlug) return;
     var ep = episodes.find(function(e) { return e.slug === currentSlug; });
@@ -2713,7 +2946,73 @@ async function getMoreReels() {
     }
 }
 
+// ── Topic Reel ──────────────────────────────────────────────────────────
+
+async function getTopicReel() {
+    if (!currentSlug) return;
+    var topicInput = document.getElementById('clip-topic-input');
+    var topic = topicInput ? topicInput.value.trim() : '';
+    if (!topic) {
+        topic = prompt('What topic should the reel be about?\nاكتب الموضوع المطلوب للريل:');
+        if (!topic || !topic.trim()) return;
+        topic = topic.trim();
+    }
+    if (topicInput) topicInput.value = '';
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'analyze', topic: topic })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+// ── Trim Reel ────────────────────────────────────────────────────────────
+
+async function trimReel(reelId) {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, step: 'trim', reelId: reelId })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
 // ── Hide / Delete Reels ──────────────────────────────────────────────────
+
+async function toggleDoneReel(reelId) {
+    if (!currentSlug) return;
+    try {
+        const res = await fetch('/api/done-reel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reelId: reelId})
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Reel ' + reelId + (data.done ? ' marked done' : ' marked undone'), 'success');
+            refresh();
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
 
 async function toggleHideReel(reelId) {
     if (!currentSlug) return;

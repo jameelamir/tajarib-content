@@ -33,45 +33,6 @@ module.exports = async function contentRoutes(req, res, url, ctx) {
     return true;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/generate-topic-clip") {
-    const body = await readBody(req);
-    try {
-      const { slug, topic, guest, role } = JSON.parse(body);
-      if (!slug || !topic) throw new Error("slug and topic required");
-      const transcriptPath = path.join(EPISODES_DIR, slug, "transcript.json");
-      if (!fs.existsSync(transcriptPath)) throw new Error("Transcript not found");
-      const transcript = loadJSON(transcriptPath);
-      const transcriptText = transcript.full_text || transcript.segments.map(s => s.text).join(' ');
-      const systemPrompt = prompts.load("topic-clip-system");
-      const prompt = prompts.load("topic-clip-user", { topic, transcriptText });
-      const aiResult = await callClaude(systemPrompt, prompt, 1024, { slug, step: "topic-clip", expectedFormat: "json" });
-      const clipData = JSON.parse(aiResult.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
-
-      const content = { guest, role, opener: clipData.hook, reels: [{ id: "topic-" + Date.now(), hook: clipData.hook, caption: clipData.caption, start_time: clipData.start_time, end_time: clipData.end_time, duration: clipData.end_time - clipData.start_time, purpose: "Topic: " + topic }], createdAt: new Date().toISOString() };
-      const reelSlug = slug + "-" + topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30);
-      const reelDir = path.join(EPISODES_DIR, reelSlug);
-      fs.mkdirSync(reelDir, { recursive: true });
-      const meta = loadMeta(slug);
-      const videoFile = meta.rawVideo || path.join(EPISODES_DIR, slug, "raw.mp4");
-      saveMeta(reelSlug, { mediaType: "reel_full", originalFilename: meta.originalFilename, createdAt: new Date().toISOString(), rawVideo: videoFile, guest, role, sourceEpisode: slug, topic });
-      fs.copyFileSync(transcriptPath, path.join(reelDir, "transcript.json"));
-      saveJSON(path.join(reelDir, "content.json"), content);
-
-      const startMin = Math.floor(clipData.start_time / 60), startSec = Math.floor(clipData.start_time % 60);
-      const endMin = Math.floor(clipData.end_time / 60), endSec = Math.floor(clipData.end_time % 60);
-      saveJSON(path.join(reelDir, "analysis.json"), { reels: [{ id: 1, title: clipData.hook, hook: clipData.hook, start: `${startMin}:${String(startSec).padStart(2, '0')}`, end: `${endMin}:${String(endSec).padStart(2, '0')}`, duration: Math.round(clipData.end_time - clipData.start_time) }] });
-
-      io.emit("log", { slug: reelSlug, text: `\n▶ Cutting topic clip: ${topic}\n` });
-      const cutProc = spawn(NODE_BIN, ["cut.js", "--slug", reelSlug, "--video", videoFile], { cwd: WORKSPACE_DIR });
-      cutProc.stdout.on("data", d => io.emit("log", { slug: reelSlug, text: d.toString() }));
-      cutProc.stderr.on("data", d => io.emit("log", { slug: reelSlug, text: d.toString() }));
-      cutProc.on("close", (code) => { io.emit("log", { slug: reelSlug, text: `\nClip cut complete. Exit: ${code}\n` }); io.emit("status-update", {}); });
-
-      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, slug: reelSlug }));
-    } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
-    return true;
-  }
-
   if (req.method === "POST" && url.pathname === "/api/analyze-clips") {
     const body = await readBody(req);
     try {

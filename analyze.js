@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const llm = require("./llm");
 const prompts = require("./prompts");
-const { formatTimestamp, toSeconds, loadTranscript, formatTranscriptForPrompt, findSegmentByText, EPISODES_DIR } = require("./utils");
+const { formatTimestamp, toSeconds, loadTranscript, formatTranscriptForPrompt, findSegmentByText, findSegmentEndByText, EPISODES_DIR } = require("./utils");
 
 const CLI_ARGS = process.argv.slice(2);
 
@@ -86,6 +86,163 @@ function resolveTimestamps(analysis, segments) {
 }
 
 const SYSTEM_PROMPT = prompts.load("analyze-system");
+
+/**
+ * Format transcript segments within a time range, with pause indicators.
+ * Gives the LLM a detailed segment-level view for making trim decisions.
+ * Pauses (⏸) mark natural cut points where audio won't sound abrupt.
+ */
+function formatSegmentsForTrimming(transcript, startSec, endSec) {
+  const segs = transcript.segments.filter(s => s.start >= startSec - 0.5 && s.start < endSec);
+  const lines = [];
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    lines.push(`[${formatTimestamp(seg.start)}] ${seg.text.trim()}`);
+    if (i < segs.length - 1) {
+      const gap = segs[i + 1].start - seg.end;
+      if (gap >= 0.4) {
+        lines.push(`  ⏸ ${gap.toFixed(1)}s`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Auto-trim a topic reel that exceeds 90s down to 30-90s.
+ * Uses word-level timestamps to find natural cut points (pauses),
+ * then asks the LLM to choose which parts to keep for a coherent story.
+ * Returns the reel with updated start/end and internal cuts.
+ */
+async function trimTopicReel(slug, reel, transcript) {
+  const startSec = toSeconds(reel.start);
+  const endSec = toSeconds(reel.end);
+  const duration = endSec - startSec;
+
+  console.log(`✂️  Reel ${reel.id} is ${Math.round(duration)}s — trimming to 30-90s...`);
+
+  const segmentTranscript = formatSegmentsForTrimming(transcript, startSec, endSec);
+
+  const userMessage = prompts.load("trim-topic-user", {
+    topic: reel.hook || "الموضوع",
+    currentDuration: Math.round(duration),
+    segmentTranscript,
+  });
+
+  const epDir = path.join(EPISODES_DIR, slug);
+  const isResume = CLI_ARGS.includes("--resume");
+  let rawContent;
+
+  if (isResume) {
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      console.error("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    rawContent = fs.readFileSync(responsePath, "utf8");
+    console.log("📋 Using manually provided LLM response");
+  } else {
+    if (!llm.hasKey()) {
+      console.log("📋 No API key found — entering manual LLM mode");
+      const promptData = {
+        step: "trim",
+        system: SYSTEM_PROMPT,
+        user: userMessage,
+        expectedFormat: "json",
+        reelId: reel.id,
+      };
+      fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+      console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+      process.exit(42);
+    }
+
+    const config = llm.getConfig();
+    console.log(`🤖 Sending to ${config.model || "default model"} for smart trimming...`);
+    const trimStart = Date.now();
+
+    const response = await llm.chat({
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      maxTokens: 4096,
+    });
+
+    const trimElapsed = ((Date.now() - trimStart) / 1000).toFixed(1);
+    rawContent = response.text;
+    console.log(`   ⏱️  LLM responded in ${trimElapsed}s`);
+  }
+
+  let result;
+  try {
+    const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    console.error("❌ Failed to parse trim response:", rawContent.slice(0, 300));
+    return reel;
+  }
+
+  const keepSections = result.keep || [];
+  if (keepSections.length === 0) {
+    console.log("⚠️  No keep sections returned — keeping full reel.");
+    return reel;
+  }
+
+  // Resolve keep sections to precise timestamps
+  const segments = transcript.segments;
+  const resolvedKeeps = [];
+
+  for (const keep of keepSections) {
+    const keepStart = findSegmentByText(segments, keep.text_start, { afterTime: startSec - 1 });
+    if (keepStart === null) {
+      console.log(`   ⚠️  Could not resolve text_start: "${keep.text_start}"`);
+      continue;
+    }
+
+    // Use findSegmentEndByText to get the END time of the last segment in this keep section
+    const keepEndTime = findSegmentEndByText(segments, keep.text_end, { afterTime: keepStart });
+    if (keepEndTime === null) {
+      console.log(`   ⚠️  Could not resolve text_end: "${keep.text_end}"`);
+      continue;
+    }
+
+    resolvedKeeps.push({ start: keepStart, end: keepEndTime });
+  }
+
+  if (resolvedKeeps.length === 0) {
+    console.log("⚠️  Could not resolve any keep sections — keeping full reel.");
+    return reel;
+  }
+
+  // Sort by start time
+  resolvedKeeps.sort((a, b) => a.start - b.start);
+
+  // Update reel boundaries to first/last kept section
+  reel.start = formatTimestamp(resolvedKeeps[0].start);
+  reel.end = formatTimestamp(resolvedKeeps[resolvedKeeps.length - 1].end);
+
+  // Compute internal cuts as gaps between consecutive keep sections
+  const internalCuts = [];
+  for (let i = 0; i < resolvedKeeps.length - 1; i++) {
+    const gapStart = resolvedKeeps[i].end;
+    const gapEnd = resolvedKeeps[i + 1].start;
+    if (gapEnd - gapStart > 0.5) {
+      internalCuts.push({
+        from: formatTimestamp(gapStart),
+        to: formatTimestamp(gapEnd),
+      });
+    }
+  }
+
+  reel.cuts = internalCuts;
+
+  const totalKept = resolvedKeeps.reduce((sum, k) => sum + (k.end - k.start), 0);
+  console.log(`   ✅ Trimmed: ${Math.round(duration)}s → ${Math.round(totalKept)}s`);
+  console.log(`   📐 ${resolvedKeeps.length} section(s) kept, ${internalCuts.length} internal cut(s)`);
+  if (result.flow_summary) {
+    console.log(`   📝 ${result.flow_summary}`);
+  }
+
+  return reel;
+}
 
 async function analyze(slug, force = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
@@ -321,6 +478,150 @@ async function analyzeMore(slug) {
   return outputPath;
 }
 
+/**
+ * "Topic Reel" mode: search the transcript for a specific topic and generate
+ * a reel centered around it.
+ */
+async function analyzeTopic(slug, topic) {
+  const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
+  if (!fs.existsSync(outputPath)) {
+    console.error("❌ No existing analysis.json — run analyze first.");
+    process.exit(1);
+  }
+
+  const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  const existingReels = existing.reels || [];
+
+  console.log(`🔍 Searching for topic reel: "${topic}" in ${slug} (${existingReels.length} existing)`);
+  const transcript = loadTranscript(slug);
+  const formattedTranscript = formatTranscriptForPrompt(transcript);
+
+  const userMessage = prompts.load("analyze-topic-user", {
+    topic,
+    durationMinutes: Math.round(transcript.duration_seconds / 60),
+    formattedTranscript,
+  });
+
+  const epDir = path.join(EPISODES_DIR, slug);
+  const isResume = CLI_ARGS.includes("--resume");
+  let rawContent;
+  let elapsed = "0";
+  let tokenInfo = { input: 0, output: 0, total: 0 };
+  let modelName = "manual";
+
+  if (isResume) {
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      console.error("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    rawContent = fs.readFileSync(responsePath, "utf8");
+    console.log("📋 Using manually provided LLM response");
+  } else if (!llm.hasKey()) {
+    console.log("📋 No API key found — entering manual LLM mode");
+    const promptData = {
+      step: "analyze-topic",
+      topic,
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      expectedFormat: "json"
+    };
+    fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+    console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+    process.exit(42);
+  } else {
+    const config = llm.getConfig();
+    console.log(`🤖 Sending to ${config.model || 'default model'} for topic reel...`);
+    const startTime = Date.now();
+
+    const response = await llm.chat({
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      maxTokens: 4096,
+    });
+
+    elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    rawContent = response.text;
+    modelName = response.model;
+    tokenInfo = response.usage;
+  }
+
+  // Parse JSON response
+  let result;
+  try {
+    const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    console.error("❌ Failed to parse LLM response as JSON:");
+    console.error(rawContent.slice(0, 500));
+    process.exit(1);
+  }
+
+  const newReels = result.reels || [];
+  if (newReels.length === 0) {
+    console.log("⚠️  LLM found no reels for this topic.");
+    return outputPath;
+  }
+
+  // Resolve timestamps on new reels
+  const hasTextRefs = newReels.some(r => r.text_start);
+  if (hasTextRefs) {
+    console.log("🔗 Resolving text references to precise timestamps...");
+    resolveTimestamps({ reels: newReels }, transcript.segments);
+  }
+  const resolved = newReels.filter(r => r.start && r.end);
+
+  // Assign new IDs starting after the max existing ID
+  const maxId = existingReels.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0);
+  for (let i = 0; i < resolved.length; i++) {
+    resolved[i].id = maxId + 1 + i;
+  }
+
+  // Merge into existing analysis
+  existing.reels = [...existingReels, ...resolved];
+  existing.analyzed_at = new Date().toISOString();
+  existing.topic_model = modelName;
+  existing.topic_tokens = tokenInfo;
+
+  fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+
+  console.log(`✅ Found ${resolved.length} topic reel(s) for "${topic}" in ${elapsed}s`);
+  console.log(`   Total reels: ${existing.reels.length}`);
+  console.log(`   Tokens used: ${tokenInfo.total.toLocaleString()}`);
+  console.log(`📄 Saved: ${outputPath}`);
+  return outputPath;
+}
+
+/**
+ * "Trim Reel" mode: intelligently trim a specific reel to 30-90s using
+ * segment-level transcript analysis with natural pause detection.
+ */
+async function trimReel(slug, reelId) {
+  const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
+  if (!fs.existsSync(outputPath)) {
+    console.error("❌ No existing analysis.json — run analyze first.");
+    process.exit(1);
+  }
+
+  const existing = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+  const reel = (existing.reels || []).find(r => String(r.id) === String(reelId));
+  if (!reel) {
+    console.error(`❌ Reel ${reelId} not found in analysis.json`);
+    process.exit(1);
+  }
+
+  const transcript = loadTranscript(slug);
+  const trimmed = await trimTopicReel(slug, reel, transcript);
+
+  // Update reel in-place
+  const idx = existing.reels.findIndex(r => String(r.id) === String(reelId));
+  existing.reels[idx] = trimmed;
+  fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+
+  console.log(`📄 Saved: ${outputPath}`);
+  return outputPath;
+}
+
 module.exports = { resolveTimestamps };
 
 // CLI
@@ -328,11 +629,16 @@ if (require.main === module) {
   const slugIdx = CLI_ARGS.indexOf("--slug");
   const force = CLI_ARGS.includes("--force");
   const more = CLI_ARGS.includes("--more");
+  const trim = CLI_ARGS.includes("--trim");
+  const topicIdx = CLI_ARGS.indexOf("--topic");
+  const topic = topicIdx !== -1 ? CLI_ARGS[topicIdx + 1] : null;
+  const reelIdIdx = CLI_ARGS.indexOf("--reel-id");
+  const reelId = reelIdIdx !== -1 ? CLI_ARGS[reelIdIdx + 1] : null;
   if (slugIdx === -1 || !CLI_ARGS[slugIdx + 1]) {
-    console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more]");
+    console.error("Usage: node analyze.js --slug <episode-slug> [--force] [--more] [--topic <topic>] [--trim --reel-id <id>]");
     process.exit(1);
   }
   const slug = CLI_ARGS[slugIdx + 1];
-  const run = more ? analyzeMore(slug) : analyze(slug, force);
+  const run = trim ? trimReel(slug, reelId) : topic ? analyzeTopic(slug, topic) : more ? analyzeMore(slug) : analyze(slug, force);
   run.catch(err => { console.error("❌", err.message); process.exit(1); });
 }

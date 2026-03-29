@@ -53,9 +53,14 @@ function renderSidebar() {
             var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
             var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
 
+            var topicBtnHtml = (ep.mediaType === 'episode' && ep.steps.transcribed) ?
+                '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();getTopicReel()}" style="background:#111; border:1px solid #34d399; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
+                '<button style="color:#34d399; border-color:#34d399;" onclick="event.stopPropagation(); getTopicReel()">+ Topic</button>' : '';
+
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +
                 '<button onclick="event.stopPropagation(); getMoreReels()" style="color:#c084fc;">+ More</button>' +
+                topicBtnHtml +
                 '<button onclick="event.stopPropagation(); runStep(\'cut\')">Cut All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'crop\')">Crop All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
@@ -72,16 +77,21 @@ function renderSidebar() {
                     {key: 'subtitled', title: 'Subtitle'},
                     {key: 'final', title: 'Overlay'}
                 ];
+                var reelProcKey = ep.slug + ':' + r.id;
+                var reelRunning = runningStep[reelProcKey] || runningStep[ep.slug] || null;
+                var stepMap = {cut:'cut', generated:'generate', cropped:'crop', subtitled:'subtitle', final:'overlay'};
                 var dots = dotDefs.map(function(d) {
                     var cls = r[d.key] ? 'done' : (d.key === 'cut' && !r.cut ? 'missing' : 'pending');
+                    if (reelRunning && reelRunning === stepMap[d.key]) cls += ' running';
                     return '<span class="dot ' + cls + '" title="' + d.title + '"></span>';
                 }).join('');
 
-                return '<div class="sidebar-reel ' + (selectedReelId === r.id ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="event.stopPropagation(); selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
+                return '<div class="sidebar-reel ' + (selectedReelId === r.id ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + (r.done ? ' done-reel' : '') + '" onclick="event.stopPropagation(); selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
                     '<span class="sidebar-reel-title">' + r.id + '</span>' +
                     (r.hook ? '<span class="sidebar-reel-hook">' + r.hook + '</span>' : '') +
                     '<span class="sidebar-reel-dots">' + dots + '</span>' +
                     '<span class="sidebar-reel-actions">' +
+                        '<button class="sidebar-reel-btn' + (r.done ? ' sidebar-reel-btn-done-active' : '') + '" onclick="event.stopPropagation(); toggleDoneReel(\'' + r.id + '\')" title="' + (r.done ? 'Mark undone' : 'Mark done') + '">✓</button>' +
                         '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show' : 'Hide') + '">' + (r.hidden ? '👁' : '−') + '</button>' +
                         '<button class="sidebar-reel-btn sidebar-reel-btn-del" onclick="event.stopPropagation(); deleteReel(\'' + r.id + '\')" title="Delete">×</button>' +
                     '</span>' +
@@ -187,7 +197,12 @@ async function runClipsAnalysis() {
 async function handleReplaceSrt(input) {
     var file = input.files[0];
     if (!file || !currentSlug) return;
-    if (!confirm('Replace transcript for "' + currentSlug + '" with this SRT?\n\nYou can re-analyze and re-cut afterwards.')) {
+    var ep = episodes.find(e => e.slug === currentSlug);
+    var hasTranscript = ep && ep.steps && ep.steps.transcribed;
+    var msg = hasTranscript
+        ? 'Replace transcript for "' + currentSlug + '" with this SRT?\n\nYou can re-analyze and re-cut afterwards.'
+        : 'Upload SRT transcript for "' + currentSlug + '"?';
+    if (!confirm(msg)) {
         input.value = '';
         return;
     }
@@ -245,9 +260,12 @@ function renderMain(slug) {
     // Episode pipeline bar
     renderEpisodePipelineBar(ep);
 
-    // Show Replace SRT button if episode is transcribed
+    // Show SRT upload button — "Upload SRT" if not transcribed, "Replace SRT" if transcribed
     var replaceSrtBtn = document.getElementById('replace-srt-btn');
-    if (replaceSrtBtn) replaceSrtBtn.style.display = ep.steps.transcribed ? '' : 'none';
+    if (replaceSrtBtn) {
+        replaceSrtBtn.style.display = '';
+        replaceSrtBtn.textContent = ep.steps.transcribed ? 'Replace SRT' : 'Upload SRT';
+    }
 
     // Show Clips button if analyzed (only for episodes)
     var clipsBtn = document.getElementById('analyze-clips-btn');
@@ -273,9 +291,6 @@ function renderMain(slug) {
         // Show/hide stop button in pipeline bar
         var pipeStopBtn = document.getElementById('pipeline-stop-btn');
         if (pipeStopBtn) pipeStopBtn.style.display = ep.isRunning ? '' : 'none';
-        // Topic clip
-        var tcSection = document.getElementById('topic-clip-section');
-        if (tcSection) tcSection.style.display = (ep.mediaType === 'episode' && ep.steps.transcribed) ? '' : 'none';
         // YouTube clips
         var clipsSection = document.getElementById('clips-section');
         if (clipsSection) {
@@ -291,10 +306,11 @@ function renderMain(slug) {
         document.getElementById('post-cut-view').style.display = 'none';
 
         var isReelFull = ep.mediaType === 'reel_full';
-        document.getElementById('precut-status').style.display = isReelFull ? 'none' : 'flex';
-        document.getElementById('reel-full-layout').style.display = isReelFull ? 'flex' : 'none';
+        var isReelCut = ep.mediaType === 'reel_cut';
+        document.getElementById('precut-status').style.display = (isReelFull || isReelCut) ? 'none' : 'flex';
+        document.getElementById('reel-full-layout').style.display = (isReelFull || isReelCut) ? 'flex' : 'none';
 
-        if (isReelFull) {
+        if (isReelFull || isReelCut) {
             renderReelFullView(ep);
         }
         var pipeStopBtn2 = document.getElementById('pipeline-stop-btn');
@@ -309,7 +325,7 @@ function renderEpisodePipelineBar(ep) {
     const isCut = ep.steps.cut && ep.reelStatuses && ep.reelStatuses.length > 0;
 
     const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
-    const episodeLevelSteps = ['compose'];
+    const episodeLevelSteps = ['compose', 'transcribe'];
     const stepsToShow = steps.filter(function(s) {
         return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
     });
@@ -330,12 +346,33 @@ function renderEpisodePipelineBar(ep) {
         var onclick = 'runStep(\'' + s.id + '\')';
 
         var connector = (i > 0) ? '<div class="ep-step-connector' + (done ? ' done' : '') + '"></div>' : '';
+
+        // Add method selector and SRT upload for transcribe step
+        var methodSelector = '';
+        if (s.id === 'transcribe') {
+            methodSelector = '<select id="transcribe-method-select" onclick="event.stopPropagation()" style="background:#111; border:1px solid #333; color:#888; padding:2px 4px; border-radius:3px; font-size:0.6rem; margin-left:4px; cursor:pointer;">' +
+                '<option value="local">🏠 Local</option>' +
+                '<option value="groq">⚡ Groq</option>' +
+                '<option value="api">🌐 API</option>' +
+            '</select>' +
+            '<input type="file" id="pipeline-srt-input" accept=".srt,.vtt" style="display:none;" onchange="handleReplaceSrt(this)">' +
+            '<button onclick="event.stopPropagation(); document.getElementById(\'pipeline-srt-input\').click()" style="background:none; border:1px solid #444; color:#888; padding:2px 6px; border-radius:3px; font-size:0.6rem; margin-left:4px; cursor:pointer;" title="Upload SRT file">SRT</button>';
+        }
+
         return connector +
             '<div class="' + cls + '" onclick="' + onclick + '" title="Click to run: ' + s.desc + '">' +
             '<span class="chip-icon">' + icon + '</span>' +
             '<span>' + label + '</span>' +
+            methodSelector +
         '</div>';
     }).join('');
+
+    // Set default transcription method from config
+    var methodSelect = document.getElementById('transcribe-method-select');
+    if (methodSelect) {
+        var defaultMethod = (typeof transcriptionConfig !== 'undefined' && transcriptionConfig.defaultMethod) || 'local';
+        if (defaultMethod !== 'skip') methodSelect.value = defaultMethod;
+    }
 }
 
 // Actions
@@ -360,8 +397,15 @@ async function runStep(step) {
         }
     }
 
+    // Get transcription method for transcribe step
+    let transcribeMethod = null;
+    if (step === 'transcribe') {
+        const methodSelect = document.getElementById('transcribe-method-select');
+        if (methodSelect) transcribeMethod = methodSelect.value;
+    }
+
     // Auto-enable face tracking for crop step
-    var body = {slug: currentSlug, step, force: true, model};
+    var body = {slug: currentSlug, step, force: true, model, transcribeMethod};
     if (step === 'crop') {
         body.faceTrack = true;
         body.ratio = '9:16';
@@ -399,8 +443,15 @@ async function confirmMeta() {
     const role = document.getElementById('meta-role').value.trim();
     if (!guest || !role) return alert('Both fields required');
 
-    socket.emit('update-meta', {slug: currentSlug, guest, role});
+    const res = await fetch('/api/set-meta', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({slug: currentSlug, guest, role})
+    });
+    const data = await res.json();
+    if (!data.success) return alert('Failed to save metadata');
     closeMetaModal();
+    refresh();
 
     if (pendingRun) {
         await runStep(pendingRun);
@@ -904,45 +955,6 @@ async function generateAiTitle() {
     }
 }
 
-// Generate clip from topic
-async function generateTopicClip() {
-    if (!currentSlug) return;
-
-    const topicInput = document.getElementById('clip-topic-input');
-    const topic = topicInput.value.trim();
-
-    if (!topic) {
-        showToast('Please enter a topic', 'error');
-        return;
-    }
-
-    try {
-        showToast('Generating clip for topic: ' + topic + '...', 'success');
-
-        const res = await fetch('/api/generate-topic-clip', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                slug: currentSlug,
-                topic: topic,
-                guest: episodes.find(e => e.slug === currentSlug).guest,
-                role: episodes.find(e => e.slug === currentSlug).role
-            })
-        });
-
-        const data = await res.json();
-        if (data.success) {
-            showToast('Clip generated! Refreshing...', 'success');
-            await refresh();
-            document.getElementById('tab-preview').style.display = '';
-            switchTab('preview');
-        } else {
-            throw new Error(data.error);
-        }
-    } catch (err) {
-        showToast('Failed: ' + err.message, 'error');
-    }
-}
 
 // Show reels in modal
 async function showReels() {

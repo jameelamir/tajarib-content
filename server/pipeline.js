@@ -97,7 +97,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly }) {
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod }) {
     const procKey = reelId ? `${slug}:${reelId}` : slug;
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -111,7 +111,7 @@ module.exports = function init(ctx) {
         cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
         if (force) args.push("--force");
         const tcfg = getTranscriptionConfig();
-        let tMethod = tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
+        let tMethod = transcribeMethod || tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
         // Fall back to local if selected method has no key
         if (tMethod === "groq" && !tcfg.groqApiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Groq selected but no API key — falling back to local\n" }); }
         if (tMethod === "api" && !tcfg.apiKey) { tMethod = "local"; io.emit("log", { slug, text: "⚠ Haimaker selected but no API key — falling back to local\n" }); }
@@ -119,7 +119,8 @@ module.exports = function init(ctx) {
         else if (tMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
         else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
         break;
-      case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
+      case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (topic) args.push("--topic", topic); else if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
+      case "trim": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug, "--trim"]; if (reelId) args.push("--reel-id", reelId); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "generate": cmd = NODE_BIN; { const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : []; const modelArgs = model ? ["--model", model] : []; args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs]; if (reelId) args.push("--reel-id", reelId); if (youtubeOnly) args.push("--youtube-only"); if (force) args.push("--force"); if (resume) { args.push("--resume", "--resume-round", String(resumeRound || 0)); } } break;
       case "cut":

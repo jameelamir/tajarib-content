@@ -108,25 +108,19 @@
             <!-- For episodes: empty area (console is in the drawer) -->
             <div id="precut-status" style="display:none; flex:1;"></div>
 
-            <!-- For reel_full: video + tabbed editor -->
+            <!-- For reel_full / reel_cut: modular view matching reel detail -->
             <div id="reel-full-layout" class="reel-full-layout" style="display:none;">
-                <div class="reel-full-video" id="reel-full-video"></div>
-                <div class="reel-full-main">
-                <div class="reel-full-tabs">
-                    <div class="reel-full-tab active" data-tab="caption" onclick="switchReelFullTab('caption')">Caption</div>
-                </div>
-                <!-- Caption tab -->
-                <div class="reel-full-tab-body active" id="rfTab-caption">
-                    <div class="reel-full-caption-wrap" id="reel-full-caption-body">
-                        <div style="color:#555; font-size:0.8rem; text-align:center; padding:20px;">Run the Caption step to generate a caption.</div>
-                    </div>
-                    <div class="reel-full-actions" id="reel-full-caption-actions" style="display:none;">
-                        <button onclick="saveReelFullCaption()" style="font-size:0.75rem;">Save</button>
-                        <button onclick="copyReelFullCaption()" style="font-size:0.75rem;">Copy</button>
-                        <button class="publish-btn" onclick="publishNow()" style="font-size:0.75rem;">Publish</button>
+                <div class="reel-detail-scroll">
+                    <div class="reel-detail-modular" id="rf-modular">
+                        <div class="reel-preview" id="rf-preview"></div>
+                        <div class="reel-detail-content">
+                            <div class="reel-actions" id="rf-actions"></div>
+                            <div id="rf-caption-editor" style="background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div id="rf-transcript-editor" style="display:none; background:#111; border:1px solid var(--border); border-radius:8px; padding:10px 12px;"></div>
+                            <div id="rf-overlay-config" style="display:none;"></div>
+                        </div>
                     </div>
                 </div>
-                </div><!-- /.reel-full-main -->
             </div>
         </div>
 
@@ -141,13 +135,6 @@
                     </div>
                     <div class="reel-list-bulk" id="reel-list-bulk"></div>
                     <div class="reel-list" id="reel-list"></div>
-                    <div id="topic-clip-section" style="display:none; padding:10px 14px; border-top:1px solid var(--border);">
-                        <div style="font-size:0.7rem; color:#f59e0b; margin-bottom:6px;">✂️ Topic Clip</div>
-                        <div style="display:flex; gap:6px;">
-                            <input type="text" id="clip-topic-input" placeholder="e.g., investment advice..." style="background:#111; border:1px solid #333; color:#ddd; padding:5px 8px; border-radius:4px; font-size:0.7rem; flex:1; min-width:0;">
-                            <button style="background:#f59e0b; color:#000; border-color:#f59e0b; padding:4px 10px; font-size:0.7rem;" onclick="generateTopicClip()">Go</button>
-                        </div>
-                    </div>
                     <div id="clips-section" style="display:none; padding:10px 14px; border-top:1px solid var(--border);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                             <span style="font-size:0.7rem; color:#a855f7; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">YouTube Clips</span>
@@ -227,14 +214,22 @@
         
         <div class="field">
             <label>Transcription Method</label>
-            <div style="display:flex; gap:8px; margin-top:6px;">
+            <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
                     <input type="radio" name="transcribe-method" value="local" id="radio-local" checked>
-                    🏠 Local (Good, Free)
+                    🏠 Local (Free)
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="transcribe-method" value="groq" id="radio-groq">
+                    ⚡ Groq (Fast)
                 </label>
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
                     <input type="radio" name="transcribe-method" value="api" id="radio-api">
-                    ⚡ API (Fast, Paid)
+                    🌐 Haimaker
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; color:#888; cursor:pointer;">
+                    <input type="radio" name="transcribe-method" value="skip" id="radio-skip">
+                    ⏭️ Skip
                 </label>
             </div>
             <div id="api-key-warning" style="font-size:0.7rem; color:#f59e0b; margin-top:6px; display:none;">

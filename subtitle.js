@@ -244,6 +244,75 @@ function filterWordsForCuts(words, reelStart, reelEnd, cuts) {
     });
 }
 
+// Detect time-shift between saved (proofread) chunks and a fresh transcript.
+// When a reel's start boundary is extended earlier, the clip is re-cut and
+// re-transcribed with 0-indexed timestamps. The old chunks still carry timestamps
+// from the previous clip. This function finds where the old chunk content appears
+// in the new transcript and returns the shift to apply (positive = chunks need to
+// move forward because new content was prepended to the clip).
+function detectChunkShift(savedChunks, reelWords, wordStartOffset) {
+  if (!savedChunks || !savedChunks.length || !reelWords || !reelWords.length) return 0;
+
+  // Collect words from the first few saved chunks
+  const chunkTextWords = [];
+  for (const chunk of savedChunks.slice(0, 5)) {
+    const words = chunk.text.trim().split(/\s+/).filter(Boolean);
+    chunkTextWords.push(...words);
+    if (chunkTextWords.length >= 12) break;
+  }
+  if (chunkTextWords.length < 2) return 0;
+
+  // Remove Arabic diacritics / kashida for fuzzy matching
+  const norm = s => s.replace(/[\u064B-\u065F\u0670\u0640]/g, '').trim();
+
+  // Skip the first word (Whisper often transcribes segment-initial words
+  // differently between runs, e.g. "ترى" vs "درى"). Match from word 2 onward.
+  const matchStart = Math.min(1, chunkTextWords.length - 1);
+  const matchWords = chunkTextWords.slice(matchStart, matchStart + 8).map(norm);
+  if (!matchWords.length) return 0;
+
+  // Sliding-window search over the first portion of the new transcript
+  const maxSearch = Math.min(reelWords.length, 300);
+  let bestScore = 0;
+  let bestPos = -1;
+
+  for (let i = 0; i < maxSearch; i++) {
+    let score = 0;
+    for (let j = 0; j < matchWords.length && (i + j) < reelWords.length; j++) {
+      if (norm(reelWords[i + j].word) === matchWords[j]) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestPos = i;
+    }
+  }
+
+  // Need at least 40% of searched words to match
+  if (bestScore < Math.max(1, Math.ceil(matchWords.length * 0.4)) || bestPos < 0) return 0;
+
+  // bestPos is where matchWords[0] was found — the first chunk's first word
+  // is matchStart positions earlier in the reelWords stream.
+  const firstWordPos = Math.max(0, bestPos - matchStart);
+  const wordTime = reelWords[firstWordPos].start - wordStartOffset;
+  const chunkTime = savedChunks[0].start;
+  const shift = wordTime - chunkTime;
+
+  return Math.abs(shift) > 0.3 ? shift : 0;
+}
+
+// Wrap text with Unicode RTL embedding when it mixes Arabic with Latin/digits.
+// Libass (FFmpeg's ASS renderer) can mis-order bidirectional text because it
+// doesn't inherit an RTL base direction the way a browser with dir="rtl" does.
+// Pure Arabic text is unaffected; mixed text (e.g. "500 ألف") gets fixed.
+const HAS_LATIN_OR_DIGIT = /[A-Za-z0-9]/;
+function wrapRTLIfMixed(text) {
+  if (HAS_LATIN_OR_DIGIT.test(text)) {
+    // U+202B RIGHT-TO-LEFT EMBEDDING … U+202C POP DIRECTIONAL FORMATTING
+    return '\u202B' + text + '\u202C';
+  }
+  return text;
+}
+
 // Sentence-ending punctuation — break subtitle chunks at these boundaries
 const SENTENCE_END_RE = /[.!?؟…]+$/;
 
@@ -354,9 +423,10 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     // ── Title card ──
     if (titleCard) {
       const animMs = Math.round(Math.min(5, TITLE_DURATION) * 1000);
+      const tc = wrapRTLIfMixed(titleCard);
       dialogueLines.push(
-        `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${titleCard}`,
-        `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${titleCard}`
+        `Dialogue: 1,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleHighlight,,0,0,0,,{\\clip(${W},${titleClipTop},${W},${titleClipBot})\\t(0,${animMs},0.5,\\clip(0,${titleClipTop},${W},${titleClipBot}))}${tc}`,
+        `Dialogue: 2,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},TitleText,,0,0,0,,${tc}`
       );
     }
 
@@ -364,9 +434,10 @@ function generateASS(words, startOffset = 0, titleCard = null, videoDimensions =
     for (const chunk of chunks) {
       const chunkDur = chunk.end - chunk.start;
       const animMs = Math.round(Math.min(5, chunkDur) * 1000);
+      const ct = wrapRTLIfMixed(chunk.text);
       dialogueLines.push(
-        `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${chunk.text}`,
-        `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${chunk.text}`
+        `Dialogue: 1,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Highlight,,0,0,0,,{\\clip(${W},${defClipTop},${W},${defClipBot})\\t(0,${animMs},0.5,\\clip(0,${defClipTop},${W},${defClipBot}))}${ct}`,
+        `Dialogue: 2,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Text,,0,0,0,,${ct}`
       );
     }
 
@@ -390,11 +461,11 @@ ${dialogueLines.join("\n")}`;
 
   // Static style — single layer, purple outline around text
   if (titleCard) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${titleCard}`);
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(0)},${formatASSTime(TITLE_DURATION)},Title,,0,0,0,,${wrapRTLIfMixed(titleCard)}`);
   }
 
   for (const chunk of chunks) {
-    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${chunk.text}`);
+    dialogueLines.push(`Dialogue: 0,${formatASSTime(chunk.start)},${formatASSTime(chunk.end)},Default,,0,0,0,,${wrapRTLIfMixed(chunk.text)}`);
   }
 
   return `[Script Info]
@@ -434,6 +505,14 @@ function generateSRT(words, startOffset = 0, titleCard = null) {
     entryNumber++;
   }
 
+  return entries.join("\n");
+}
+
+function generateSRTFromChunks(chunks) {
+  const entries = [];
+  for (let i = 0; i < chunks.length; i++) {
+    entries.push(`${i + 1}\n${formatSRTTime(chunks[i].start)} --> ${formatSRTTime(chunks[i].end)}\n${chunks[i].text}\n`);
+  }
   return entries.join("\n");
 }
 
@@ -521,9 +600,26 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   }
 
   if (reels.length === 0) {
-    console.log("\n⚠️  No reels found in analysis. Will generate full-video subtitles.\n");
+    // No reels from analysis — treat the full video as a single reel
+    // and use the same ASS subtitle rendering as per-reel subtitles
+    console.log("\n⚠️  No reels found in analysis. Subtitling full video with ASS (same as per-reel).\n");
 
-    // Retranscribe full video with Whisper if transcript is from YouTube
+    if (!fs.existsSync(sourceVideo)) {
+      console.error(`❌ Source video not found: ${sourceVideo}`);
+      fs.readdirSync(dir).forEach(f => console.log(`      - ${f}`));
+      process.exit(1);
+    }
+
+    const subtitledPath = path.join(dir, "full-subtitled.mp4");
+    const subtitlePath = path.join(dir, "full.ass");
+
+    if (fs.existsSync(subtitledPath) && !force) {
+      console.log(`⏭️  Subtitled video already exists: ${subtitledPath}`);
+      console.log(`   Use --force to overwrite.`);
+      return;
+    }
+
+    // Retranscribe with Whisper if transcript is from YouTube
     if (isYouTubeTranscript && fs.existsSync(sourceVideo)) {
       const fullTranscriptPath = path.join(dir, "whisper-transcript.json");
       const whisperWords = whisperTranscribeClip(sourceVideo, fullTranscriptPath);
@@ -532,64 +628,76 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       }
     }
 
-    // Generate SRT for the entire video
-    console.log(`📝 Generating SRT from ${transcript.words?.length || 0} words...`);
-    const srtContent = generateSRT(transcript.words, 0);
-    const srtPath = path.join(dir, "full.srt");
-    fs.writeFileSync(srtPath, srtContent, "utf8");
-    console.log(`   ✅ SRT written: ${srtPath} (${srtContent.split("\n\n").length} subtitle blocks)`);
-
-    // Burn subtitles into the full video
-    const subtitledPath = path.join(dir, "full-subtitled.mp4");
-    
-    if (!fs.existsSync(sourceVideo)) {
-      console.error(`❌ Source video not found: ${sourceVideo}`);
-      console.log(`   Available files in directory:`);
-      fs.readdirSync(dir).forEach(f => console.log(`      - ${f}`));
-      process.exit(1);
-    }
-    console.log(`   ✅ Source video found: ${sourceVideo}`);
-
-    if (fs.existsSync(subtitledPath) && !force) {
-      console.log(`⏭️  Subtitled video already exists: ${subtitledPath}`);
-      console.log(`   Use --force to overwrite.`);
-      return;
+    // Check for saved (proofread) subtitle chunks
+    const fullChunksPath = path.join(dir, "full-chunks.json");
+    let savedChunks = null;
+    if (fs.existsSync(fullChunksPath)) {
+      savedChunks = JSON.parse(fs.readFileSync(fullChunksPath, "utf8"));
+      console.log(`   📝 Using ${savedChunks.length} saved subtitle chunks`);
     }
 
-    console.log(`\n🔥 Burning subtitles into video...`);
-    console.log(`   Input:  ${sourceVideo}`);
-    console.log(`   SRT:    ${srtPath}`);
-    console.log(`   Output: ${subtitledPath}`);
-    
-    // Copy SRT to /tmp to avoid special characters in path (!, spaces, etc.)
-    const tmpSRT = path.join(os.tmpdir(), `tajarib-full-sub.srt`);
-    const tmpFullOut = path.join(os.tmpdir(), `tajarib-full-subtitled.mp4`);
-    fs.copyFileSync(srtPath, tmpSRT);
-    const escapedSRT = tmpSRT.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+    // Detect video dimensions for proper ASS scaling
+    const videoDims = getVideoDimensions(sourceVideo);
+    console.log(`   📐 Video dimensions: ${videoDims.width}x${videoDims.height}`);
+
+    // Generate ASS subtitles (same as per-reel path)
+    const reelWords = transcript.words || [];
+    const subtitleContent = generateASS(reelWords, 0, null, videoDims, subtitleStyle, savedChunks);
+    fs.writeFileSync(subtitlePath, subtitleContent, "utf8");
+    const blockCount = subtitleContent.split("\n").filter(l => l.includes("Dialogue")).length;
+    console.log(`   📝 ASS generated: ${blockCount} subtitle blocks`);
+
+    // Also write SRT for reference/download
+    const srtContent = savedChunks ? generateSRTFromChunks(savedChunks) : generateSRT(reelWords, 0);
+    fs.writeFileSync(path.join(dir, "full.srt"), srtContent, "utf8");
+
+    // Burn subtitles with gradient overlay (same as per-reel)
+    console.log(`   🔥 Burning subtitles with ffmpeg...`);
+    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-full.ass`);
+    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-full.mp4`);
+    fs.copyFileSync(subtitlePath, tmpSub);
+    const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+
+    // Generate gradient overlay (same as per-reel)
+    const gradW = videoDims.width;
+    const gradH = videoDims.height;
+    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-full.png`);
+    execFileSync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i",
+      `color=black:size=${gradW}x${gradH}:d=1,format=rgba,geq=r=0:g=0:b=0:a='if(gt(Y,H*0.4),min(166,(Y-H*0.4)/(H*0.6)*166),0)'`,
+      "-frames:v", "1", tmpGrad
+    ], { stdio: "pipe" });
 
     const ffmpegArgs = [
       "-y",
       "-i", sourceVideo,
-      "-vf", `subtitles='${escapedSRT}':force_style='FontName=SomarSans-Bold,FontSize=52,PrimaryColour=&H00FFFFFF,OutlineColour=&H00BE2F7B,BackColour=&H00BE2F7B,BorderStyle=3,Outline=12,Shadow=0,Bold=1,Alignment=2,MarginV=100'`,
+      "-i", tmpGrad,
+      "-filter_complex", `[0:v][1:v]overlay=format=auto,ass='${escapedSubtitle}'`,
       "-c:a", "copy",
-      tmpFullOut
+      tmpOut
     ];
 
-    console.log(`\n⏳ Running ffmpeg (this may take a while)...`);
     const startTime = Date.now();
-
     try {
       execFileSync("ffmpeg", ffmpegArgs, { stdio: "inherit" });
-      fs.copyFileSync(tmpFullOut, subtitledPath);
-      fs.unlinkSync(tmpFullOut);
-      fs.unlinkSync(tmpSRT);
+      fs.copyFileSync(tmpOut, subtitledPath);
+      fs.unlinkSync(tmpOut);
+      fs.unlinkSync(tmpSub);
+      if (fs.existsSync(tmpGrad)) fs.unlinkSync(tmpGrad);
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const size = (fs.statSync(subtitledPath).size / 1024 / 1024).toFixed(1);
       console.log(`\n✅ Done in ${duration}s`);
       console.log(`   📁 ${size} MB → ${subtitledPath}`);
+      // Remove stale full-final.mp4 since subtitles changed
+      const finalPath = path.join(dir, "full-final.mp4");
+      if (fs.existsSync(finalPath)) {
+        fs.unlinkSync(finalPath);
+        console.log(`   🗑️  Removed stale overlay: full-final.mp4`);
+      }
     } catch (e) {
-      try { fs.unlinkSync(tmpSRT); } catch {}
-      try { fs.unlinkSync(tmpFullOut); } catch {}
+      try { fs.unlinkSync(tmpSub); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+      if (fs.existsSync(tmpGrad)) try { fs.unlinkSync(tmpGrad); } catch {}
       console.error(`\n❌ Subtitle burn failed:`, e.stderr?.toString() || e.message);
       process.exit(1);
     }
@@ -761,14 +869,35 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       // keep the proofread chunks and only generate new chunks for uncovered portions.
       // This handles the case where a user proofreads subtitles, then extends the reel.
       if (savedChunks && savedChunks.length && reelWords && reelWords.length) {
+        // When a reel is re-cut with a different start boundary, the clip is
+        // re-transcribed with fresh 0-indexed timestamps. The saved chunks still
+        // carry timestamps from the OLD clip. Detect the misalignment by matching
+        // chunk text against the new transcript and shift chunk times accordingly.
+        const shift = detectChunkShift(savedChunks, reelWords, wordStartOffset);
+        if (shift !== 0) {
+          console.log(`   🔄 Chunks misaligned by ${shift > 0 ? '+' : ''}${shift.toFixed(1)}s — shifting timestamps`);
+          savedChunks.forEach(c => { c.start += shift; c.end += shift; });
+
+          // Trim chunks that now fall outside the clip (e.g. reel was also
+          // shortened from the end, or a cut was added)
+          const clipEnd = Math.max(...reelWords.map(w => w.end - wordStartOffset));
+          savedChunks = savedChunks.filter(c => c.start < clipEnd && c.end > 0);
+          if (savedChunks.length) {
+            savedChunks[0].start = Math.max(0, savedChunks[0].start);
+            savedChunks[savedChunks.length - 1].end = Math.min(
+              savedChunks[savedChunks.length - 1].end, clipEnd
+            );
+          }
+        }
+
         // Account for internal cuts when computing actual video duration
         const mergeReelCuts = (reel.cuts || [])
           .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
           .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
         const mergeCutDuration = mergeReelCuts.reduce((sum, c) => sum + (c.to - c.from), 0);
         const reelDuration = endSec - startSec - mergeCutDuration;
-        const chunksEnd = Math.max(...savedChunks.map(c => c.end));
-        const chunksStart = Math.min(...savedChunks.map(c => c.start));
+        const chunksEnd = savedChunks.length ? Math.max(...savedChunks.map(c => c.end)) : 0;
+        const chunksStart = savedChunks.length ? Math.min(...savedChunks.map(c => c.start)) : 0;
 
         let prependChunks = [];
         let appendChunks = [];
