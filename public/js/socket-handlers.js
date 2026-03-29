@@ -99,6 +99,7 @@ function setupSocketHandlers() {
             reelLogs[key] += data.text;
         }
         if (currentSlug === data.slug) updateLogs();
+        if (pendingResumeData && data.slug === pendingResumeData.slug) appendProgressLog(data.text);
     });
     socket.on('process-start', function(data) {
         var procKey = data.reelId ? data.slug + ':' + data.reelId : data.slug;
@@ -106,6 +107,17 @@ function setupSocketHandlers() {
         if (currentSlug === data.slug) renderMain(currentSlug);
     });
     socket.on('process-end', function(data) {
+        if (pendingResumeData && data.slug === pendingResumeData.slug &&
+            String(data.reelId || '') === String(pendingResumeData.reelId || '')) {
+            finishLlmProgress(data.code);
+        }
+        if (data.step === 'trim' && data.code === 0 && data.reelId) {
+            fetch('/api/run-step', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slug: data.slug, step: 'cut', reelId: data.reelId, force: true })
+            });
+        }
         if (data.step === 'stopped') {
             // Stop kills all processes for this slug — clear all matching keys
             for (var k in runningStep) { if (k === data.slug || k.startsWith(data.slug + ':')) delete runningStep[k]; }

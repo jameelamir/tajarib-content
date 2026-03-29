@@ -55,7 +55,8 @@ function renderSidebar() {
 
             var topicBtnHtml = (ep.mediaType === 'episode' && ep.steps.transcribed) ?
                 '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();getTopicReel()}" style="background:#111; border:1px solid #34d399; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
-                '<button style="color:#34d399; border-color:#34d399;" onclick="event.stopPropagation(); getTopicReel()">+ Topic</button>' : '';
+                '<button style="color:#34d399; border-color:#34d399;" onclick="event.stopPropagation(); getTopicReel()">+ Topic</button>' +
+                '<button id="clip-auto-trim-toggle" data-active="0" title="Auto-trim: AI will tighten the reel after finding it" onclick="event.stopPropagation(); toggleAutoTrim(this)" style="color:#666; border-color:#666; font-size:0.65rem; padding:2px 5px; margin-left:2px;">&#9986;</button>' : '';
 
             var toolbarHtml = '<div class="ep-reels-toolbar">' +
                 '<button onclick="event.stopPropagation(); openFindReel()" style="color:var(--accent); border-color:var(--accent);">+ Find</button>' +

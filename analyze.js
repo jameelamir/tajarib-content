@@ -482,7 +482,7 @@ async function analyzeMore(slug) {
  * "Topic Reel" mode: search the transcript for a specific topic and generate
  * a reel centered around it.
  */
-async function analyzeTopic(slug, topic) {
+async function analyzeTopic(slug, topic, autoTrim = false) {
   const outputPath = path.join(EPISODES_DIR, slug, "analysis.json");
   if (!fs.existsSync(outputPath)) {
     console.error("❌ No existing analysis.json — run analyze first.");
@@ -589,6 +589,17 @@ async function analyzeTopic(slug, topic) {
   console.log(`   Total reels: ${existing.reels.length}`);
   console.log(`   Tokens used: ${tokenInfo.total.toLocaleString()}`);
   console.log(`📄 Saved: ${outputPath}`);
+
+  if (autoTrim && resolved.length > 0) {
+    console.log(`\n✂️  Auto-trimming ${resolved.length} new reel(s)...`);
+    for (let i = 0; i < resolved.length; i++) {
+      resolved[i] = await trimTopicReel(slug, resolved[i], transcript);
+    }
+    existing.reels = [...existingReels, ...resolved];
+    fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
+    console.log(`✅ Auto-trim complete`);
+  }
+
   return outputPath;
 }
 
@@ -618,6 +629,15 @@ async function trimReel(slug, reelId) {
   existing.reels[idx] = trimmed;
   fs.writeFileSync(outputPath, JSON.stringify(existing, null, 2), "utf8");
 
+  // Delete stale video files so the next cut reflects the new trim boundaries
+  const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+  const padded = String(reelId).padStart(2, "0");
+  if (fs.existsSync(reelsDir)) {
+    const stale = fs.readdirSync(reelsDir).filter(f => f.startsWith(`reel-${padded}`) && f.endsWith(".mp4"));
+    for (const f of stale) fs.unlinkSync(path.join(reelsDir, f));
+    if (stale.length) console.log(`🗑️  Cleared ${stale.length} stale video file(s) for reel ${reelId}`);
+  }
+
   console.log(`📄 Saved: ${outputPath}`);
   return outputPath;
 }
@@ -630,6 +650,7 @@ if (require.main === module) {
   const force = CLI_ARGS.includes("--force");
   const more = CLI_ARGS.includes("--more");
   const trim = CLI_ARGS.includes("--trim");
+  const autoTrim = CLI_ARGS.includes("--auto-trim");
   const topicIdx = CLI_ARGS.indexOf("--topic");
   const topic = topicIdx !== -1 ? CLI_ARGS[topicIdx + 1] : null;
   const reelIdIdx = CLI_ARGS.indexOf("--reel-id");
@@ -639,6 +660,6 @@ if (require.main === module) {
     process.exit(1);
   }
   const slug = CLI_ARGS[slugIdx + 1];
-  const run = trim ? trimReel(slug, reelId) : topic ? analyzeTopic(slug, topic) : more ? analyzeMore(slug) : analyze(slug, force);
+  const run = trim ? trimReel(slug, reelId) : topic ? analyzeTopic(slug, topic, autoTrim) : more ? analyzeMore(slug) : analyze(slug, force);
   run.catch(err => { console.error("❌", err.message); process.exit(1); });
 }

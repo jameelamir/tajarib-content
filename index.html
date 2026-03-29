@@ -332,6 +332,7 @@
 <div class="modal" id="llm-modal">
     <div class="modal-box" style="width:680px; max-height:90vh; overflow-y:auto;">
         <h3 id="llm-modal-title">📋 Manual LLM — Analyze</h3>
+        <div id="llm-prompt-area">
         <div style="font-size:0.7rem; color:#888; margin-bottom:12px;">
             Copy the prompt below, paste it into Claude, then paste the response back here.
         </div>
@@ -368,6 +369,14 @@
         <div class="modal-actions">
             <button onclick="closeLlmModal()">Cancel</button>
             <button class="primary" onclick="submitLlmResponse()">Submit Response</button>
+        </div>
+        </div>
+
+        <div id="llm-progress-area" style="display:none;">
+            <pre id="llm-progress-log" style="background:#0a0a0a; border:1px solid #333; border-radius:6px; padding:10px; font-size:0.65rem; color:#ccc; min-height:120px; max-height:340px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; margin-bottom:14px;"></pre>
+            <div class="modal-actions">
+                <button onclick="closeLlmModal()">Close</button>
+            </div>
         </div>
     </div>
 </div>
