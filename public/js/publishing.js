@@ -160,6 +160,7 @@ function openLlmModal(data) {
         'topic-clip': 'Topic Clip',
         'analyze-more': 'More Reels',
         'analyze-clips': 'Reel Suggestions',
+        trim: 'Smart Trim',
         dashboard: 'AI Request',
     };
     // Map reel-N / reel-0N steps to "Reel N Caption"

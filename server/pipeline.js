@@ -120,7 +120,7 @@ module.exports = function init(ctx) {
         else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
         break;
       case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (topic) args.push("--topic", topic); else if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
-      case "trim": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug, "--trim"]; if (reelId) args.push("--reel-id", reelId); break;
+      case "trim": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug, "--trim"]; if (reelId) args.push("--reel-id", reelId); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "generate": cmd = NODE_BIN; { const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : []; const modelArgs = model ? ["--model", model] : []; args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs]; if (reelId) args.push("--reel-id", reelId); if (youtubeOnly) args.push("--youtube-only"); if (force) args.push("--force"); if (resume) { args.push("--resume", "--resume-round", String(resumeRound || 0)); } } break;
       case "cut":

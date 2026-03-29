@@ -84,6 +84,12 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       } else if (step === "youtube") {
         youtubeOnly = true;
         resumeRound = 0;
+      } else if (step === "trim") {
+        // Recover reelId from llm-prompt.json for trim resumption
+        const promptPath = path.join(EPISODES_DIR, slug, "llm-prompt.json");
+        if (fs.existsSync(promptPath)) {
+          try { reelId = JSON.parse(fs.readFileSync(promptPath, "utf8")).reelId; } catch (_) {}
+        }
       }
       const more = step === "analyze-more";
       // Recover topic from llm-prompt.json when resuming a topic analysis
