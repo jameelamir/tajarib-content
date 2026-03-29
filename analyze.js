@@ -129,29 +129,54 @@ async function trimTopicReel(slug, reel, transcript) {
     segmentTranscript,
   });
 
-  if (!llm.hasKey()) {
-    console.log("⚠️  No API key — skipping auto-trim (reel will be full length).");
-    return reel;
+  const epDir = path.join(EPISODES_DIR, slug);
+  const isResume = CLI_ARGS.includes("--resume");
+  let rawContent;
+
+  if (isResume) {
+    const responsePath = path.join(epDir, "llm-response.txt");
+    if (!fs.existsSync(responsePath)) {
+      console.error("❌ No llm-response.txt found for resume.");
+      process.exit(1);
+    }
+    rawContent = fs.readFileSync(responsePath, "utf8");
+    console.log("📋 Using manually provided LLM response");
+  } else {
+    if (!llm.hasKey()) {
+      console.log("📋 No API key found — entering manual LLM mode");
+      const promptData = {
+        step: "trim",
+        system: SYSTEM_PROMPT,
+        user: userMessage,
+        expectedFormat: "json",
+        reelId: reel.id,
+      };
+      fs.writeFileSync(path.join(epDir, "llm-prompt.json"), JSON.stringify(promptData, null, 2), "utf8");
+      console.log("📄 Prompt saved to llm-prompt.json — awaiting manual response");
+      process.exit(42);
+    }
+
+    const config = llm.getConfig();
+    console.log(`🤖 Sending to ${config.model || "default model"} for smart trimming...`);
+    const trimStart = Date.now();
+
+    const response = await llm.chat({
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      maxTokens: 4096,
+    });
+
+    const trimElapsed = ((Date.now() - trimStart) / 1000).toFixed(1);
+    rawContent = response.text;
+    console.log(`   ⏱️  LLM responded in ${trimElapsed}s`);
   }
-
-  const config = llm.getConfig();
-  console.log(`🤖 Sending to ${config.model || "default model"} for smart trimming...`);
-  const trimStart = Date.now();
-
-  const response = await llm.chat({
-    system: SYSTEM_PROMPT,
-    user: userMessage,
-    maxTokens: 4096,
-  });
-
-  const trimElapsed = ((Date.now() - trimStart) / 1000).toFixed(1);
 
   let result;
   try {
-    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     result = JSON.parse(cleaned);
   } catch (e) {
-    console.error("❌ Failed to parse trim response:", response.text.slice(0, 300));
+    console.error("❌ Failed to parse trim response:", rawContent.slice(0, 300));
     return reel;
   }
 
@@ -210,7 +235,7 @@ async function trimTopicReel(slug, reel, transcript) {
   reel.cuts = internalCuts;
 
   const totalKept = resolvedKeeps.reduce((sum, k) => sum + (k.end - k.start), 0);
-  console.log(`   ✅ Trimmed in ${trimElapsed}s: ${Math.round(duration)}s → ${Math.round(totalKept)}s`);
+  console.log(`   ✅ Trimmed: ${Math.round(duration)}s → ${Math.round(totalKept)}s`);
   console.log(`   📐 ${resolvedKeeps.length} section(s) kept, ${internalCuts.length} internal cut(s)`);
   if (result.flow_summary) {
     console.log(`   📝 ${result.flow_summary}`);
