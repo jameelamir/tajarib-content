@@ -3,6 +3,8 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { toSeconds } = require("../../utils");
+const { remapChunksForCuts, closeSubtitleGaps } = require("../../subtitle");
 
 module.exports = async function reelRoutes(req, res, url, ctx) {
   const { io, EPISODES_DIR, loadJSON, saveJSON, loadMeta, saveMeta, readBody } = ctx;
@@ -37,10 +39,44 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
       const padded = String(reelId).padStart(2, "0");
       const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
       if (!reel) throw new Error("Reel not found in analysis");
+
+      // Capture old state before updating (needed to remap proofread chunks)
+      const oldStart = toSeconds(reel.start);
+      const oldEnd = toSeconds(reel.end);
+      const oldCuts = (reel.cuts || []).map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }));
+
       reel.start = start; reel.end = end;
       reel.cuts = Array.isArray(cuts) ? cuts.filter(c => c.from && c.to) : [];
       saveJSON(analysisPath, analysis);
+
       const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+
+      // Remap proofread subtitle chunks to match new video timeline
+      const newStartSec = toSeconds(start);
+      const newEndSec = toSeconds(end);
+      const newCutsSec = reel.cuts.map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }));
+      const chunksFile = path.join(reelsDir, `reel-${padded}-chunks.json`);
+      const chunksStateFile = path.join(reelsDir, `reel-${padded}-chunks-state.json`);
+      try {
+        if (fs.existsSync(chunksFile)) {
+          const oldChunks = JSON.parse(fs.readFileSync(chunksFile, "utf8"));
+          if (oldChunks.length) {
+            const remapped = remapChunksForCuts(oldChunks, oldStart, oldEnd, oldCuts, newStartSec, newEndSec, newCutsSec);
+            if (remapped.length > 0) {
+              closeSubtitleGaps(remapped);
+              fs.writeFileSync(chunksFile, JSON.stringify(remapped, null, 2));
+              // Track the reel state chunks are synced to
+              const validCuts = newCutsSec.filter(c => c.from > newStartSec && c.to < newEndSec && c.to > c.from);
+              fs.writeFileSync(chunksStateFile, JSON.stringify({ start: newStartSec, end: newEndSec, cuts: validCuts }));
+            } else {
+              // All chunks fell inside cuts / outside bounds — remove file so subs regenerate
+              fs.unlinkSync(chunksFile);
+              try { fs.unlinkSync(chunksStateFile); } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+
       try {
         if (fs.existsSync(reelsDir)) {
           const stale = fs.readdirSync(reelsDir).filter(f => f.startsWith(`reel-${padded}`) && f.endsWith('.mp4'));

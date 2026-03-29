@@ -536,3 +536,28 @@ pre.logs { flex: 1; padding: 12px; overflow: auto; font-family: 'Fira Code', mon
 .tl-seg.tl-seg-playing { background: rgba(168, 85, 247, 0.15) !important; }
 .tl-seg.tl-seg-playing .tl-seg-ts { color: var(--accent) !important; }
 .tl-seg.tl-seg-cut .tl-seg-text { text-decoration: line-through; opacity: 0.5; }
+
+/* subtitle track */
+.tl-sub-track-wrap { padding: 0; }
+.tl-sub-track { position: relative; height: 40px; background: #080810; border-radius: 0 0 6px 6px; border: 1px solid #1a1a22; border-top: none; overflow: hidden; transition: height 0.15s; }
+.tl-sub-block { position: absolute; top: 2px; bottom: 2px; background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.25); border-radius: 3px; overflow: hidden; cursor: pointer; direction: rtl; font-size: 0.6rem; color: #888; padding: 0 5px; display: flex; align-items: center; white-space: nowrap; transition: background 0.15s, border-color 0.15s; }
+.tl-sub-block:hover { background: rgba(74,222,128,0.2); border-color: rgba(74,222,128,0.4); }
+.tl-sub-block.tl-sub-active { border-color: #4ade80; background: rgba(74,222,128,0.25); box-shadow: 0 0 6px rgba(74,222,128,0.15); }
+.tl-sub-block.tl-sub-playing { border-color: #4ade80; background: rgba(74,222,128,0.3); }
+.tl-sub-block.tl-sub-playing .tl-sub-text { color: #ddd; }
+.tl-sub-text { overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tl-sub-handle { position: absolute; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
+.tl-sub-handle.start { left: -1px; }
+.tl-sub-handle.end { right: -1px; }
+.tl-sub-handle:hover { background: rgba(74,222,128,0.3); }
+.tl-sub-snap-line { position: absolute; top: 0; bottom: 0; width: 1px; background: #4ade80; z-index: 5; pointer-events: none; opacity: 0.7; box-shadow: 0 0 4px rgba(74,222,128,0.5); }
+
+/* subtitle editor popover */
+.tl-sub-editor { background: #111; border: 1px solid rgba(74,222,128,0.3); border-radius: 6px; padding: 8px; margin-top: 4px; }
+.tl-sub-editor-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.tl-sub-editor-ts { font-size: 0.6rem; color: #666; font-family: 'Fira Code', monospace; }
+.tl-sub-editor-btn { background: none; border: 1px solid #333; color: #888; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 0.6rem; padding: 0; min-height: auto; display: flex; align-items: center; justify-content: center; }
+.tl-sub-editor-btn:hover { border-color: #666; color: #ccc; }
+.tl-sub-editor-text { width: 100%; background: #0a0a0a; border: 1px solid #222; color: #ddd; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; direction: rtl; resize: vertical; min-height: 40px; font-family: inherit; line-height: 1.5; }
+.tl-sub-editor-text:focus { border-color: rgba(74,222,128,0.4); outline: none; }
+.tl-sub-editor-footer { display: flex; justify-content: flex-end; margin-top: 6px; }

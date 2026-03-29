@@ -2,6 +2,8 @@ const {
   formatSRTTime,
   formatASSTime,
   closeSubtitleGaps,
+  remapChunksForCuts,
+  filterWordsForCuts,
   chunkWords,
   generateSRT,
   generateASS,
@@ -389,6 +391,115 @@ describe("chunkWords", () => {
   });
 });
 
+describe("remapChunksForCuts", () => {
+  test("no-op when boundaries and cuts are unchanged", () => {
+    const chunks = [
+      { text: "hello", start: 0, end: 2 },
+      { text: "world", start: 2, end: 4 },
+    ];
+    const result = remapChunksForCuts(chunks, 60, 120, [], 60, 120, []);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ text: "hello", start: 0, end: 2 });
+    expect(result[1]).toMatchObject({ text: "world", start: 2, end: 4 });
+  });
+
+  test("internal cut removes overlapping chunk and shifts later chunks", () => {
+    // Reel 60-120s, chunks at 0-20, 20-30, 30-50 (video-relative)
+    // Add cut from 80-90 (episode time) = 20-30 (reel-relative)
+    const chunks = [
+      { text: "before cut", start: 0, end: 20 },
+      { text: "in the cut", start: 20, end: 30 },
+      { text: "after cut", start: 30, end: 50 },
+    ];
+    const result = remapChunksForCuts(chunks, 60, 120, [], 60, 120, [{ from: 80, to: 90 }]);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ text: "before cut", start: 0, end: 20 });
+    // After chunk shifts left by 10s (cut duration)
+    expect(result[1].text).toBe("after cut");
+    expect(result[1].start).toBeCloseTo(20);
+    expect(result[1].end).toBeCloseTo(40);
+  });
+
+  test("boundary shrink at start removes early chunks and shifts", () => {
+    // Old reel 60-120s, new reel 70-120s (start moved 10s later)
+    const chunks = [
+      { text: "early", start: 0, end: 8 },
+      { text: "kept", start: 12, end: 20 },
+    ];
+    const result = remapChunksForCuts(chunks, 60, 120, [], 70, 120, []);
+    // "early" at episode 60-68 is outside new bounds (starts at 70)
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe("kept");
+    // Episode time 72-80, new reel starts at 70 → video time 2-10
+    expect(result[0].start).toBeCloseTo(2);
+    expect(result[0].end).toBeCloseTo(10);
+  });
+
+  test("boundary shrink at end removes late chunks", () => {
+    const chunks = [
+      { text: "kept", start: 0, end: 10 },
+      { text: "removed", start: 40, end: 50 },
+    ];
+    // Old reel 60-120s, new reel 60-105s (end moved 15s earlier)
+    const result = remapChunksForCuts(chunks, 60, 120, [], 60, 105, []);
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe("kept");
+  });
+
+  test("chunk spanning a cut boundary is dropped", () => {
+    // Chunk from 15-35 spans the cut at 20-30
+    const chunks = [
+      { text: "spans cut", start: 15, end: 35 },
+    ];
+    const result = remapChunksForCuts(chunks, 60, 120, [], 60, 120, [{ from: 80, to: 90 }]);
+    expect(result).toHaveLength(0);
+  });
+
+  test("multiple cuts shift chunks correctly", () => {
+    // Two cuts: 80-85 and 95-100 (episode time), reel 60-120
+    const chunks = [
+      { text: "a", start: 0, end: 15 },   // episode 60-75, before both cuts
+      { text: "b", start: 28, end: 33 },   // episode 88-93, between cuts
+      { text: "c", start: 42, end: 55 },   // episode 102-115, after both cuts
+    ];
+    const result = remapChunksForCuts(chunks, 60, 120, [], 60, 120, [{ from: 80, to: 85 }, { from: 95, to: 100 }]);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject({ text: "a", start: 0, end: 15 });
+    // "b" at episode 88-93: 5s cut before it (80-85) → shifts left by 5
+    expect(result[1].text).toBe("b");
+    expect(result[1].start).toBeCloseTo(23);
+    expect(result[1].end).toBeCloseTo(28);
+    // "c" at episode 102-115: 10s total cuts before it → shifts left by 10
+    expect(result[2].text).toBe("c");
+    expect(result[2].start).toBeCloseTo(32);
+    expect(result[2].end).toBeCloseTo(45);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(remapChunksForCuts([], 0, 60, [], 0, 60, [])).toEqual([]);
+    expect(remapChunksForCuts(null, 0, 60, [], 0, 60, [])).toEqual([]);
+  });
+
+  test("old cuts are undone before applying new cuts", () => {
+    // Old reel had cut 80-90, chunks are already in old-cut timeline
+    // Video: [60-80](0-20), [90-120](20-50) — chunk at video 25 = episode 95
+    // New: remove old cut, add new cut 100-110
+    const chunks = [
+      { text: "before", start: 0, end: 15 },  // episode 60-75
+      { text: "after", start: 25, end: 40 },   // episode 95-110 (after old cut)
+    ];
+    const result = remapChunksForCuts(
+      chunks,
+      60, 120, [{ from: 80, to: 90 }],   // old state
+      60, 120, [{ from: 100, to: 110 }]   // new state
+    );
+    // "before" at episode 60-75: no new cuts before it → stays at 0-15
+    expect(result[0]).toMatchObject({ text: "before", start: 0, end: 15 });
+    // "after" at episode 95-110: spans the NEW cut (100-110) → dropped
+    expect(result).toHaveLength(1);
+  });
+});
+
 describe("saved chunks merging with extended boundaries", () => {
   test("proofread chunks can be combined with new chunks for extended end", () => {
     // Simulate: proofread chunks cover 0-5s, reel extended to 8s
@@ -435,5 +546,48 @@ describe("saved chunks merging with extended boundaries", () => {
     expect(merged).toHaveLength(2);
     expect(merged[0].text).toBe("earlier words");
     expect(merged[1].text).toBe("proofread content");
+  });
+});
+
+describe("filterWordsForCuts", () => {
+  it("returns words unchanged when no cuts", () => {
+    const words = [
+      { start: 100, end: 101, word: "a" },
+      { start: 102, end: 103, word: "b" },
+    ];
+    const result = filterWordsForCuts(words, 100, 110, []);
+    expect(result).toEqual(words);
+  });
+
+  it("removes words inside cut zone and shifts words after cut", () => {
+    // Reel: 100-130, cut 110-115 (5s cut)
+    const words = [
+      { start: 100, end: 101, word: "before" },
+      { start: 112, end: 113, word: "cut-content" },
+      { start: 120, end: 121, word: "after" },
+    ];
+    const result = filterWordsForCuts(words, 100, 130, [{ from: 110, to: 115 }]);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ start: 100, end: 101, word: "before" }); // unchanged
+    expect(result[1]).toEqual({ start: 115, end: 116, word: "after" }); // shifted left by 5s
+  });
+
+  it("handles multiple cuts", () => {
+    // Reel: 100-150, cuts: 110-115 (5s), 130-135 (5s)
+    const words = [
+      { start: 100, end: 101, word: "a" },
+      { start: 112, end: 113, word: "cut1" },
+      { start: 120, end: 121, word: "b" },
+      { start: 132, end: 133, word: "cut2" },
+      { start: 140, end: 141, word: "c" },
+    ];
+    const result = filterWordsForCuts(words, 100, 150, [
+      { from: 110, to: 115 },
+      { from: 130, to: 135 },
+    ]);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual({ start: 100, end: 101, word: "a" }); // no shift
+    expect(result[1]).toEqual({ start: 115, end: 116, word: "b" }); // shift -5
+    expect(result[2]).toEqual({ start: 130, end: 131, word: "c" }); // shift -10
   });
 });
