@@ -176,9 +176,37 @@ function openLlmModal(data) {
     document.getElementById('llm-modal').classList.add('open');
 }
 
+var pendingResumeData = null;
+
 function closeLlmModal() {
     document.getElementById('llm-modal').classList.remove('open');
+    var promptArea = document.getElementById('llm-prompt-area');
+    var progressArea = document.getElementById('llm-progress-area');
+    if (promptArea) promptArea.style.display = '';
+    if (progressArea) progressArea.style.display = 'none';
+    pendingResumeData = null;
     pendingLlmData = null;
+}
+
+function showLlmProgressView(title) {
+    document.getElementById('llm-modal-title').textContent = title || '⚙️ Processing...';
+    document.getElementById('llm-prompt-area').style.display = 'none';
+    var progressArea = document.getElementById('llm-progress-area');
+    progressArea.style.display = 'block';
+    document.getElementById('llm-progress-log').textContent = '';
+}
+
+function appendProgressLog(text) {
+    var el = document.getElementById('llm-progress-log');
+    if (!el) return;
+    el.textContent += text;
+    el.scrollTop = el.scrollHeight;
+}
+
+function finishLlmProgress(code) {
+    pendingResumeData = null;
+    document.getElementById('llm-modal-title').textContent = code === 0 ? '✅ Done' : '❌ Failed';
+    setTimeout(closeLlmModal, 1800);
 }
 
 function copyLlmPrompt() {
@@ -223,8 +251,8 @@ async function submitLlmResponse() {
         });
         const data = await res.json();
         if (data.success) {
-            showToast('Response submitted — resuming pipeline', 'success');
-            closeLlmModal();
+            pendingResumeData = { slug: pendingLlmData.slug, reelId: pendingLlmData.reelId != null ? pendingLlmData.reelId : null };
+            showLlmProgressView('⚙️ ' + (pendingLlmData.step || 'Processing') + '...');
         } else {
             showToast('Error: ' + data.error, 'error');
         }

@@ -108,7 +108,10 @@ function renderReelDetail(ep, reelId) {
         var modular = document.getElementById('reel-detail-modular');
         if (modular) modular.classList.remove('portrait');
     } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug || previewEl.dataset.hideSubs !== String(hideSubtitles)) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + (hideSubtitles ? '&subs=off' : '') + '&t=' + Date.now();
+        var hasCuts = r.cuts && r.cuts.length > 0;
+        var videoUrl = hasCuts
+            ? '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now()
+            : '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + (hideSubtitles ? '&subs=off' : '') + '&t=' + Date.now();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.reelId = reelId;
         previewEl.dataset.slug = ep.slug;
@@ -482,6 +485,7 @@ function renderTrimEditor(ep, reel) {
     }).sort(function(a, b) { return a.from - b.from; });
     tlState.reelId = reel.id;
     tlState.slug = ep.slug;
+    tlState.usingRawVideo = reel.cuts && reel.cuts.length > 0;
     tlState.segments = [];
     tlState.selStartIdx = -1;
     tlState.selEndIdx = -1;
@@ -521,6 +525,7 @@ function renderTrimEditor(ep, reel) {
     tlRenderTicks();
     tlInitTrackEvents();
     tlStartPlayheadSync();
+    tlInitCutPlayback();
     tlLoadTranscript(ep);
 }
 
@@ -763,9 +768,35 @@ function tlPctToTime(pct) { return tlState.windowStart + pct * (tlState.windowEn
 function tlTimeToPct(sec) { var d = tlState.windowEnd - tlState.windowStart; return d > 0 ? (sec - tlState.windowStart) / d : 0; }
 
 function tlGetVideoOffset() {
+    if (tlState.usingRawVideo) return 0;
     var ep = episodes.find(function(e) { return e.slug === currentSlug; });
     var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
     return (r && r.cut && r.start) ? parseTrimTime(r.start) : 0;
+}
+
+function tlInitCutPlayback() {
+    var video = getReelVideo();
+    if (!video || !tlState.usingRawVideo) return;
+    video.addEventListener('loadedmetadata', function() {
+        video.currentTime = tlState.reelStart;
+    }, { once: true });
+    // If already loaded (cached), seek immediately
+    if (video.readyState >= 1) video.currentTime = tlState.reelStart;
+    video.addEventListener('timeupdate', function() {
+        var t = video.currentTime;
+        // Skip cut sections
+        for (var i = 0; i < tlState.cutsSec.length; i++) {
+            var c = tlState.cutsSec[i];
+            if (t >= c.from && t < c.to - 0.15) {
+                video.currentTime = c.to;
+                return;
+            }
+        }
+        // Pause at reel end
+        if (t >= tlState.reelEnd && !video.paused) {
+            video.pause();
+        }
+    });
 }
 
 function tlSeekVideo(timeSec) {
@@ -2569,6 +2600,13 @@ async function getMoreReels() {
 
 // ── Topic Reel ──────────────────────────────────────────────────────────
 
+function toggleAutoTrim(btn) {
+    var active = btn.getAttribute('data-active') === '1';
+    btn.setAttribute('data-active', active ? '0' : '1');
+    btn.style.color = active ? '#666' : '#34d399';
+    btn.style.borderColor = active ? '#666' : '#34d399';
+}
+
 async function getTopicReel() {
     if (!currentSlug) return;
     var topicInput = document.getElementById('clip-topic-input');
@@ -2579,11 +2617,13 @@ async function getTopicReel() {
         topic = topic.trim();
     }
     if (topicInput) topicInput.value = '';
+    var autoTrimBtn = document.getElementById('clip-auto-trim-toggle');
+    var autoTrim = autoTrimBtn && autoTrimBtn.getAttribute('data-active') === '1';
     try {
         const res = await fetch('/api/run-step', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ slug: currentSlug, step: 'analyze', topic: topic })
+            body: JSON.stringify({ slug: currentSlug, step: 'analyze', topic: topic, autoTrim: autoTrim })
         });
         const data = await res.json();
         if (!data.success) {

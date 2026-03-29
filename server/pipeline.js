@@ -97,7 +97,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod }) {
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim }) {
     const procKey = reelId ? `${slug}:${reelId}` : slug;
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -119,7 +119,7 @@ module.exports = function init(ctx) {
         else if (tMethod === "api") { args.push("--api"); io.emit("log", { slug, text: "Using Haimaker API for transcription...\n" }); }
         else { if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }
         break;
-      case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (topic) args.push("--topic", topic); else if (more) args.push("--more"); else if (force) args.push("--force"); if (resume) args.push("--resume"); break;
+      case "analyze": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug]; if (topic) args.push("--topic", topic); else if (more) args.push("--more"); else if (force) args.push("--force"); if (autoTrim && topic) args.push("--auto-trim"); if (resume) args.push("--resume"); break;
       case "trim": cmd = NODE_BIN; args = ["analyze.js", "--slug", slug, "--trim"]; if (reelId) args.push("--reel-id", reelId); if (resume) args.push("--resume"); break;
       case "analyze-clips": cmd = NODE_BIN; args = ["analyze-clips.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); break;
       case "generate": cmd = NODE_BIN; { const extraArgs = (mediaType !== "episode") ? ["--reel-only"] : []; const modelArgs = model ? ["--model", model] : []; args = ["generate.js", "--slug", slug, "--guest", guest, "--role", role, ...extraArgs, ...modelArgs]; if (reelId) args.push("--reel-id", reelId); if (youtubeOnly) args.push("--youtube-only"); if (force) args.push("--force"); if (resume) { args.push("--resume", "--resume-round", String(resumeRound || 0)); } } break;
