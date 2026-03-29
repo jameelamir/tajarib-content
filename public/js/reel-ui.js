@@ -446,7 +446,8 @@ var pendingCuts = [];
 var tlState = {
     windowStart: 0, windowEnd: 0, reelStart: 0, reelEnd: 0,
     cutsSec: [], segments: [], selStartIdx: -1, selEndIdx: -1,
-    dragging: null, reelId: null, slug: null, animFrame: null
+    dragging: null, reelId: null, slug: null, animFrame: null,
+    chunks: [], selectedChunkIdx: -1, chunksLoaded: false
 };
 var tlDragListeners = { move: null, up: null };
 
@@ -503,6 +504,9 @@ function renderTrimEditor(ep, reel) {
             '</div>' +
             '<div class="tl-ticks" id="tl-ticks"></div>' +
         '</div>' +
+        '<div class="tl-sub-track-wrap" style="padding: 0 0 2px;">' +
+            '<div class="tl-sub-track" id="tl-sub-track"></div>' +
+        '</div>' +
         '<div class="tl-toolbar">' +
             '<button onclick="tlSplit()" class="tl-btn tl-split-btn" title="Add a cut at the playhead position">&#9986; Split</button>' +
             '<span id="tl-playhead-time" class="tl-playhead-label">0:00</span>' +
@@ -522,6 +526,7 @@ function renderTrimEditor(ep, reel) {
     tlInitTrackEvents();
     tlStartPlayheadSync();
     tlLoadTranscript(ep);
+    tlLoadSubtitleChunks();
 }
 
 async function tlLoadTranscript(ep) {
@@ -762,6 +767,324 @@ function tlScrollToSelection() {
 function tlPctToTime(pct) { return tlState.windowStart + pct * (tlState.windowEnd - tlState.windowStart); }
 function tlTimeToPct(sec) { var d = tlState.windowEnd - tlState.windowStart; return d > 0 ? (sec - tlState.windowStart) / d : 0; }
 
+// ─── Video ↔ Episode time conversion (cut-aware) ────────────────────────────
+
+/** Build array of kept segments [{start, end}] in episode time (sorted). */
+function tlBuildKeptSegments() {
+    var rs = tlState.reelStart, re = tlState.reelEnd;
+    var cuts = tlState.cutsSec.filter(function(c) { return c.from > rs && c.to < re && c.to > c.from; });
+    cuts.sort(function(a, b) { return a.from - b.from; });
+    var segs = [], pos = rs;
+    for (var i = 0; i < cuts.length; i++) {
+        if (cuts[i].from > pos) segs.push({ start: pos, end: cuts[i].from });
+        pos = cuts[i].to;
+    }
+    if (pos < re) segs.push({ start: pos, end: re });
+    return segs;
+}
+
+/** Convert video-relative time (0-indexed, cuts removed) → episode time. */
+function tlVideoTimeToEpisodeTime(videoT) {
+    var segs = tlBuildKeptSegments();
+    var acc = 0;
+    for (var i = 0; i < segs.length; i++) {
+        var segDur = segs[i].end - segs[i].start;
+        if (videoT <= acc + segDur + 0.01) return segs[i].start + (videoT - acc);
+        acc += segDur;
+    }
+    return segs.length ? segs[segs.length - 1].end : tlState.reelStart + videoT;
+}
+
+/** Convert episode time → video-relative time (0-indexed, cuts removed). Returns null if in cut. */
+function tlEpisodeTimeToVideoTime(epT) {
+    var segs = tlBuildKeptSegments();
+    var acc = 0;
+    for (var i = 0; i < segs.length; i++) {
+        if (epT >= segs[i].start - 0.01 && epT <= segs[i].end + 0.01) {
+            return acc + Math.max(0, epT - segs[i].start);
+        }
+        acc += segs[i].end - segs[i].start;
+    }
+    return null; // in a cut zone
+}
+
+// ─── Subtitle Snap & Frame Alignment ─────────────────────────────────────────
+
+var TL_SUB_FPS = 30; // frame rate for alignment
+var TL_SUB_FRAME = 1 / TL_SUB_FPS;
+var TL_SUB_SNAP_PX = 10; // snap tolerance in pixels
+var tlSubSnapTarget = null; // {videoT} — sticky snap target during drag
+
+/** Round video time to nearest frame boundary. */
+function tlSubAlignFrame(videoT) {
+    return Math.round(videoT * TL_SUB_FPS) / TL_SUB_FPS;
+}
+
+/**
+ * Snap a video time to nearby subtitle edges, playhead, or cut boundaries.
+ * Returns { snapped: videoT, didSnap: bool }.
+ * skipIdx: chunk index to exclude from snap targets (the one being dragged).
+ */
+function tlSubSnap(videoT, skipIdx) {
+    var track = document.getElementById('tl-sub-track') || document.getElementById('tl-track');
+    if (!track) return { snapped: videoT, didSnap: false };
+    var trackWidth = track.getBoundingClientRect().width;
+    var totalDur = tlState.windowEnd - tlState.windowStart;
+    if (totalDur <= 0 || trackWidth <= 0) return { snapped: videoT, didSnap: false };
+
+    // Convert snap tolerance from pixels to video-seconds
+    var secPerPx = totalDur / trackWidth;
+    var toleranceSec = TL_SUB_SNAP_PX * secPerPx;
+    // But we need tolerance in video time, not episode time. Approximate:
+    var keptSegs = tlBuildKeptSegments();
+    var totalVideoDur = keptSegs.reduce(function(s, seg) { return s + seg.end - seg.start; }, 0);
+    var videoSecPerPx = totalVideoDur / (trackWidth * (totalVideoDur / totalDur));
+    // Simpler: just use the episode tolerance mapped roughly
+    var tol = toleranceSec * (totalVideoDur / totalDur);
+    if (tol < TL_SUB_FRAME) tol = TL_SUB_FRAME;
+
+    // Build snap targets (in video time)
+    var targets = [];
+    for (var i = 0; i < tlState.chunks.length; i++) {
+        if (i === skipIdx) continue;
+        targets.push(tlState.chunks[i].start);
+        targets.push(tlState.chunks[i].end);
+    }
+    // Playhead position
+    var video = getReelVideo();
+    if (video) targets.push(video.currentTime);
+    // Cut boundaries (converted to video time)
+    for (var c = 0; c < tlState.cutsSec.length; c++) {
+        var cutStart = tlEpisodeTimeToVideoTime(tlState.cutsSec[c].from);
+        var cutEnd = tlEpisodeTimeToVideoTime(tlState.cutsSec[c].to);
+        if (cutStart !== null) targets.push(cutStart);
+        if (cutEnd !== null) targets.push(cutEnd);
+    }
+    // Video start/end
+    targets.push(0);
+    if (totalVideoDur > 0) targets.push(totalVideoDur);
+
+    // Sticky snap: prefer the previously snapped target
+    var best = null, bestDist = Infinity;
+    for (var t = 0; t < targets.length; t++) {
+        var d = Math.abs(targets[t] - videoT);
+        if (d < bestDist) { bestDist = d; best = targets[t]; }
+    }
+
+    if (best !== null && bestDist <= tol) {
+        // Sticky: once snapped, keep snapping to same target until we leave 1.5x tolerance
+        if (tlSubSnapTarget !== null && Math.abs(tlSubSnapTarget - videoT) <= tol * 1.5) {
+            return { snapped: tlSubSnapTarget, didSnap: true };
+        }
+        tlSubSnapTarget = best;
+        return { snapped: best, didSnap: true };
+    }
+
+    tlSubSnapTarget = null;
+    return { snapped: videoT, didSnap: false };
+}
+
+// ─── Subtitle Track ─────────────────────────────────────────────────────────
+
+async function tlLoadSubtitleChunks() {
+    tlState.chunks = [];
+    tlState.chunksLoaded = false;
+    tlState.selectedChunkIdx = -1;
+    var padded = String(tlState.reelId).padStart(2, '0');
+    try {
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(tlState.slug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
+        if (res.ok) {
+            tlState.chunks = JSON.parse(await res.text());
+            tlState.chunksLoaded = true;
+            // Share the same array with the transcript editor
+            reelChunksData = tlState.chunks;
+        }
+    } catch (_) {}
+    tlRenderSubTrack();
+}
+
+function tlRenderSubTrack() {
+    var container = document.getElementById('tl-sub-track');
+    if (!container) return;
+    if (!tlState.chunks.length) {
+        container.innerHTML = '<div style="color:#333; font-size:0.55rem; text-align:center; line-height:24px;">No subtitles yet</div>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < tlState.chunks.length; i++) {
+        var chunk = tlState.chunks[i];
+        var epStart = tlVideoTimeToEpisodeTime(chunk.start);
+        var epEnd = tlVideoTimeToEpisodeTime(chunk.end);
+        var leftPct = tlTimeToPct(epStart) * 100;
+        var rightPct = tlTimeToPct(epEnd) * 100;
+        var widthPct = rightPct - leftPct;
+        if (widthPct < 0.1) continue;
+        var selected = i === tlState.selectedChunkIdx;
+        var cls = 'tl-sub-block' + (selected ? ' tl-sub-active' : '');
+        html += '<div class="' + cls + '" data-chunk-idx="' + i + '" style="left:' + leftPct + '%; width:' + widthPct + '%;">' +
+            '<div class="tl-sub-handle start" data-edge="start" data-chunk-idx="' + i + '"></div>' +
+            '<span class="tl-sub-text">' + escHtml(chunk.text) + '</span>' +
+            '<div class="tl-sub-handle end" data-edge="end" data-chunk-idx="' + i + '"></div>' +
+        '</div>';
+    }
+    // Show snap indicator line during drag
+    if (tlSubSnapTarget !== null && tlState.dragging &&
+        (tlState.dragging.type === 'sub-start' || tlState.dragging.type === 'sub-end')) {
+        var snapEpT = tlVideoTimeToEpisodeTime(tlSubSnapTarget);
+        var snapPct = tlTimeToPct(snapEpT) * 100;
+        html += '<div class="tl-sub-snap-line" style="left:' + snapPct + '%;"></div>';
+    }
+    container.innerHTML = html;
+    tlInitSubTrackEvents();
+}
+
+var tlSubTrackHeight = 40; // current height, adjustable via scroll wheel
+
+function tlInitSubTrackEvents() {
+    var track = document.getElementById('tl-sub-track');
+    if (!track) return;
+
+    // Scroll wheel to zoom subtitle track height
+    track.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? -8 : 8;
+        tlSubTrackHeight = Math.max(24, Math.min(160, tlSubTrackHeight + delta));
+        track.style.height = tlSubTrackHeight + 'px';
+        // Scale font size with height
+        var fontSize = Math.max(0.5, Math.min(0.85, tlSubTrackHeight / 55));
+        track.querySelectorAll('.tl-sub-block').forEach(function(b) { b.style.fontSize = fontSize + 'rem'; });
+    }, { passive: false });
+
+    // Tooltip on hover
+    track.addEventListener('mouseover', function(e) {
+        var block = e.target.closest('.tl-sub-block');
+        if (block) {
+            var idx = parseInt(block.dataset.chunkIdx);
+            var chunk = tlState.chunks[idx];
+            if (chunk) block.title = chunk.text;
+        }
+    });
+
+    track.addEventListener('pointerdown', function(e) {
+        var handle = e.target.closest('.tl-sub-handle');
+        if (handle) {
+            e.preventDefault();
+            e.stopPropagation();
+            var idx = parseInt(handle.dataset.chunkIdx);
+            var edge = handle.dataset.edge;
+            tlState.dragging = { type: 'sub-' + edge, chunkIdx: idx };
+            tlState.selectedChunkIdx = idx;
+            tlRenderSubTrack();
+            return;
+        }
+        var block = e.target.closest('.tl-sub-block');
+        if (block) {
+            e.preventDefault();
+            var idx = parseInt(block.dataset.chunkIdx);
+            tlState.selectedChunkIdx = idx;
+            // Seek video to chunk start
+            var chunk = tlState.chunks[idx];
+            if (chunk) {
+                var epT = tlVideoTimeToEpisodeTime(chunk.start);
+                tlSeekVideo(epT);
+            }
+            tlRenderSubTrack();
+            tlShowSubEditor(idx);
+            return;
+        }
+    });
+}
+
+function tlShowSubEditor(idx) {
+    var chunk = tlState.chunks[idx];
+    if (!chunk) return;
+    // Remove existing editor
+    var existing = document.getElementById('tl-sub-editor');
+    if (existing) existing.remove();
+
+    var track = document.getElementById('tl-sub-track');
+    if (!track) return;
+    var wrap = track.parentElement;
+
+    var startTs = formatTrimTime(tlVideoTimeToEpisodeTime(chunk.start));
+    var endTs = formatTrimTime(tlVideoTimeToEpisodeTime(chunk.end));
+
+    var editor = document.createElement('div');
+    editor.id = 'tl-sub-editor';
+    editor.className = 'tl-sub-editor';
+    editor.innerHTML =
+        '<div class="tl-sub-editor-header">' +
+            '<span class="tl-sub-editor-ts">' + startTs + ' — ' + endTs + '</span>' +
+            '<span style="flex:1;"></span>' +
+            '<button class="tl-sub-editor-btn" onclick="tlSubDelete(' + idx + ')" title="Delete this subtitle">&#128465;</button>' +
+            '<button class="tl-sub-editor-btn" onclick="tlSubSplit(' + idx + ')" title="Split at playhead">&#9986;</button>' +
+            '<button class="tl-sub-editor-btn" onclick="tlSubEditorClose()" title="Close">&#10005;</button>' +
+        '</div>' +
+        '<textarea class="tl-sub-editor-text" data-chunk-idx="' + idx + '" dir="rtl">' + escHtml(chunk.text) + '</textarea>' +
+        '<div class="tl-sub-editor-footer">' +
+            '<button class="primary" onclick="tlSubSaveAll()" style="font-size:0.65rem;">Save Subs</button>' +
+        '</div>';
+    wrap.after(editor);
+
+    var textarea = editor.querySelector('textarea');
+    textarea.focus();
+    textarea.addEventListener('input', function() {
+        tlState.chunks[idx].text = this.value;
+        tlRenderSubTrack();
+        rtRenderChunks(); // sync transcript editor
+    });
+}
+
+function tlSubEditorClose() {
+    var ed = document.getElementById('tl-sub-editor');
+    if (ed) ed.remove();
+    tlState.selectedChunkIdx = -1;
+    tlRenderSubTrack();
+}
+
+function tlSubDelete(idx) {
+    tlState.chunks.splice(idx, 1);
+    tlSubEditorClose();
+    rtRenderChunks(); // sync transcript editor
+}
+
+function tlSubSplit(idx) {
+    var video = getReelVideo();
+    if (!video) return;
+    var chunk = tlState.chunks[idx];
+    if (!chunk) return;
+    var videoT = tlSubAlignFrame(video.currentTime);
+    if (videoT <= chunk.start + TL_SUB_FRAME || videoT >= chunk.end - TL_SUB_FRAME) {
+        showToast('Move playhead inside this subtitle to split', 'error');
+        return;
+    }
+    var newChunk = { text: '', start: videoT, end: chunk.end };
+    chunk.end = videoT;
+    tlState.chunks.splice(idx + 1, 0, newChunk);
+    tlState.selectedChunkIdx = idx + 1;
+    tlSubEditorClose();
+    tlShowSubEditor(idx + 1);
+    rtRenderChunks(); // sync transcript editor
+}
+
+async function tlSubSaveAll() {
+    var padded = String(tlState.reelId).padStart(2, '0');
+    try {
+        await fetch('/api/file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                slug: tlState.slug,
+                file: 'reels/reel-' + padded + '-chunks.json',
+                content: JSON.stringify(tlState.chunks, null, 2)
+            })
+        });
+        showToast('Subtitles saved', 'success');
+    } catch (e) {
+        showToast('Failed to save subtitles', 'error');
+    }
+}
+
 function tlGetVideoOffset() {
     var ep = episodes.find(function(e) { return e.slug === currentSlug; });
     var r = ep && ep.reelStatuses.find(function(x) { return x.id === selectedReelId; });
@@ -864,6 +1187,7 @@ function tlInitTrackEvents() {
             tlUpdateTimeInputs();
             tlRenderSegments();
             tlUpdateTranscriptSelection();
+            tlRenderSubTrack();
         } else if (drag.type === 'bound-end') {
             var snapped = tlSnapToSegBoundary(timeSec, 'end');
             tlState.reelEnd = Math.max(tlState.reelStart + 1, Math.min(tlState.windowEnd, snapped));
@@ -873,6 +1197,7 @@ function tlInitTrackEvents() {
             tlUpdateTimeInputs();
             tlRenderSegments();
             tlUpdateTranscriptSelection();
+            tlRenderSubTrack();
         } else if (drag.type === 'cut-start' || drag.type === 'cut-end') {
             var cut = tlState.cutsSec[drag.cutIdx];
             if (!cut) return;
@@ -885,16 +1210,47 @@ function tlInitTrackEvents() {
                 cut.to = Math.round(Math.max(cut.from + 0.3, Math.min(hi, timeSec)) * 10) / 10;
             }
             tlRenderSegments();
+            tlRenderSubTrack();
+        } else if (drag.type === 'sub-start' || drag.type === 'sub-end') {
+            var chunk = tlState.chunks[drag.chunkIdx];
+            if (!chunk) return;
+            // Convert episode time (from pointer) → video time for the chunk edge
+            var videoT = tlEpisodeTimeToVideoTime(timeSec);
+            if (videoT === null) return; // pointer is in a cut zone
+            // Snap to nearby edges, then align to frame grid
+            var snap = tlSubSnap(videoT, drag.chunkIdx);
+            videoT = tlSubAlignFrame(snap.snapped);
+            if (drag.type === 'sub-start') {
+                var minStart = drag.chunkIdx > 0 ? tlState.chunks[drag.chunkIdx - 1].end : 0;
+                var newStart = Math.max(minStart, Math.min(chunk.end - TL_SUB_FRAME, videoT));
+                // Store pending value for visual preview without mutating data yet
+                drag.pendingValue = newStart;
+            } else {
+                var maxEnd = drag.chunkIdx < tlState.chunks.length - 1 ? tlState.chunks[drag.chunkIdx + 1].start : Infinity;
+                var newEnd = Math.max(chunk.start + TL_SUB_FRAME, Math.min(maxEnd, videoT));
+                drag.pendingValue = newEnd;
+            }
+            // Visual preview: temporarily apply for rendering, then revert
+            var origVal = drag.type === 'sub-start' ? chunk.start : chunk.end;
+            if (drag.type === 'sub-start') chunk.start = drag.pendingValue;
+            else chunk.end = drag.pendingValue;
+            tlRenderSubTrack();
+            // Keep the pending value applied — commit happens on mouse-up
         }
     }
 
     function onUp() {
         if (!tlState.dragging) return;
+        var wasSub = tlState.dragging.type === 'sub-start' || tlState.dragging.type === 'sub-end';
         var tr = document.getElementById('tl-track');
         if (tr) tr.classList.remove('scrubbing');
         document.querySelectorAll('.tl-handle.dragging').forEach(function(el) { el.classList.remove('dragging'); });
         tlSyncPendingCuts();
+        tlSubSnapTarget = null; // clear sticky snap
         tlState.dragging = null;
+        if (wasSub) {
+            rtRenderChunks(); // sync transcript editor with final position
+        }
     }
 
     tlDragListeners.move = onMove;
@@ -918,6 +1274,7 @@ function tlStartPlayheadSync() {
             ph.style.left = Math.max(0, Math.min(100, pct)) + '%';
             if (lbl) lbl.textContent = formatTrimTime(curSec);
             tlHighlightActiveSegment(curSec);
+            tlHighlightActiveSubBlock(video.currentTime);
         }
         tlState.animFrame = requestAnimationFrame(update);
     }
@@ -950,6 +1307,17 @@ function tlHighlightActiveSegment(timeSec) {
                 doc.scrollTop = segBottom - doc.clientHeight;
             }
         }
+    }
+}
+
+function tlHighlightActiveSubBlock(videoTime) {
+    var track = document.getElementById('tl-sub-track');
+    if (!track) return;
+    var blocks = track.querySelectorAll('.tl-sub-block');
+    for (var i = 0; i < blocks.length; i++) {
+        var chunk = tlState.chunks[i];
+        var playing = chunk && videoTime >= chunk.start - 0.05 && videoTime < chunk.end + 0.05;
+        blocks[i].classList.toggle('tl-sub-playing', playing);
     }
 }
 
@@ -2145,6 +2513,10 @@ async function loadReelTranscript(reelId) {
                 }
             } catch (_) {}
 
+            // Sync with timeline subtitle track
+            tlState.chunks = reelChunksData;
+            tlState.chunksLoaded = true;
+            tlRenderSubTrack();
             rtRenderChunks(contentEl);
             return;
         }
@@ -2157,6 +2529,10 @@ async function loadReelTranscript(reelId) {
         reelTranscriptData = JSON.parse(await res.text());
         var words = rtReelWordsFromTranscript(reelTranscriptData);
         reelChunksData = rtChunkWords(words);
+        // Sync with timeline subtitle track
+        tlState.chunks = reelChunksData;
+        tlState.chunksLoaded = true;
+        tlRenderSubTrack();
         rtRenderChunks(contentEl);
     } catch (err) {
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
@@ -2268,6 +2644,7 @@ function rtRenderChunks(containerEl) {
             var idx = parseInt(this.dataset.seg);
             if (reelChunksData[idx]) reelChunksData[idx].text = this.textContent.trim();
             this.classList.toggle('edited', this.textContent.trim() !== this.dataset.original);
+            tlRenderSubTrack(); // sync timeline subtitle blocks
         });
         el.addEventListener('keydown', function(e) {
             var idx = parseInt(this.dataset.seg);
@@ -2337,6 +2714,7 @@ function rtSplitChunk(chunkIdx, el) {
         { text: textAfter, start: splitTime, end: chunk.end }
     );
     rtRenderChunks();
+    tlRenderSubTrack(); // sync timeline
     var newEl = rtGetSegEl(chunkIdx + 1);
     if (newEl) { rtSetCursor(newEl, 0); rtScrollSegIntoView(newEl.closest('.tm-seg')); }
 }
@@ -2351,6 +2729,7 @@ function rtMergeChunkWithPrev(chunkIdx) {
     prev.end = curr.end;
     reelChunksData.splice(chunkIdx, 1);
     rtRenderChunks();
+    tlRenderSubTrack(); // sync timeline
     var el = rtGetSegEl(chunkIdx - 1);
     if (el) { rtSetCursor(el, prevLen + 1); rtScrollSegIntoView(el.closest('.tm-seg')); }
 }

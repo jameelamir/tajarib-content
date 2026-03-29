@@ -145,6 +145,105 @@ function closeSubtitleGaps(chunks) {
   }
 }
 
+/**
+ * Remap proofread subtitle chunks when reel boundaries or cuts change.
+ * Converts old-video-time → episode-time → new-video-time.
+ * Chunks that fall inside a new cut, outside new boundaries, or span a cut
+ * boundary are dropped (their text no longer matches the audio).
+ *
+ * @param {Array} chunks    [{text, start, end}, ...] in old-video-relative time
+ * @param {number} oldStart  previous reel start (episode seconds)
+ * @param {number} oldEnd    previous reel end   (episode seconds)
+ * @param {Array}  oldCuts   previous cuts [{from, to}] (episode seconds)
+ * @param {number} newStart  updated reel start  (episode seconds)
+ * @param {number} newEnd    updated reel end    (episode seconds)
+ * @param {Array}  newCuts   updated cuts [{from, to}] (episode seconds)
+ * @returns {Array} remapped chunks (fewer if some fell inside cuts / outside bounds)
+ */
+function remapChunksForCuts(chunks, oldStart, oldEnd, oldCuts, newStart, newEnd, newCuts) {
+  if (!chunks || !chunks.length) return [];
+
+  // Build kept-segment list: [{start, end}] in episode time
+  function buildSegments(reelStart, reelEnd, cuts) {
+    const sorted = (cuts || [])
+      .filter(c => c.from > reelStart && c.to < reelEnd && c.to > c.from)
+      .sort((a, b) => a.from - b.from);
+    const segs = [];
+    let cursor = reelStart;
+    for (const c of sorted) {
+      if (c.from > cursor) segs.push({ start: cursor, end: c.from });
+      cursor = c.to;
+    }
+    if (cursor < reelEnd) segs.push({ start: cursor, end: reelEnd });
+    return segs;
+  }
+
+  const oldSegs = buildSegments(oldStart, oldEnd, oldCuts);
+  const newSegs = buildSegments(newStart, newEnd, newCuts);
+
+  // old-video-time → episode-time
+  function oldVideoToEpisode(t) {
+    let offset = 0;
+    for (const seg of oldSegs) {
+      const dur = seg.end - seg.start;
+      if (t <= offset + dur + 0.001) {
+        return seg.start + (t - offset);
+      }
+      offset += dur;
+    }
+    return oldEnd;
+  }
+
+  // episode-time → { time, segIndex } in new video, or null if in cut / out of bounds
+  function episodeToNewVideo(epTime) {
+    let offset = 0;
+    for (let i = 0; i < newSegs.length; i++) {
+      const seg = newSegs[i];
+      if (epTime >= seg.start - 0.001 && epTime <= seg.end + 0.001) {
+        return { time: offset + Math.max(0, epTime - seg.start), segIndex: i };
+      }
+      offset += seg.end - seg.start;
+    }
+    return null;
+  }
+
+  const remapped = [];
+  for (const chunk of chunks) {
+    const epStart = oldVideoToEpisode(chunk.start);
+    const epEnd = oldVideoToEpisode(chunk.end);
+
+    const startInfo = episodeToNewVideo(epStart);
+    const endInfo = episodeToNewVideo(epEnd);
+
+    if (!startInfo || !endInfo) continue;              // endpoint in cut or out of bounds
+    if (startInfo.segIndex !== endInfo.segIndex) continue; // spans a cut boundary
+    if (endInfo.time <= startInfo.time + 0.01) continue;   // degenerate
+
+    remapped.push({ ...chunk, start: startInfo.time, end: endInfo.time });
+  }
+
+  return remapped;
+}
+
+/**
+ * Filter episode transcript words for a reel with cuts.
+ * Removes words that fall inside cut zones and shifts timestamps of words
+ * after each cut so that chunkWords() produces correct video-relative times.
+ */
+function filterWordsForCuts(words, reelStart, reelEnd, cuts) {
+  if (!cuts || !cuts.length) return words;
+  const sorted = cuts
+    .filter(c => c.from > reelStart && c.to < reelEnd && c.to > c.from)
+    .sort((a, b) => a.from - b.from);
+  if (!sorted.length) return words;
+  return words
+    .filter(w => !sorted.some(c => w.start >= c.from - 0.05 && w.start < c.to))
+    .map(w => {
+      const shift = sorted.filter(c => c.to <= w.start).reduce((sum, c) => sum + (c.to - c.from), 0);
+      return { ...w, start: w.start - shift, end: w.end - shift };
+    });
+}
+
 // Detect time-shift between saved (proofread) chunks and a fresh transcript.
 // When a reel's start boundary is extended earlier, the clip is re-cut and
 // re-transcribed with 0-indexed timestamps. The old chunks still carry timestamps
@@ -657,6 +756,59 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
         savedChunks = JSON.parse(fs.readFileSync(clipChunksPath, "utf8"));
       }
 
+      // Check if saved chunks are out of sync with the reel's current cuts/boundaries.
+      // We track what state the chunks were last synced to in a companion state file.
+      if (savedChunks && savedChunks.length) {
+        const stateFilePath = path.join(reelsDir, `reel-${reelId}-chunks-state.json`);
+        const currentCuts = (reel.cuts || [])
+          .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+          .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+        const currentState = { start: startSec, end: endSec, cuts: currentCuts };
+
+        let needsRemap = false;
+        let oldStart = startSec, oldEnd = endSec, oldCuts = [];
+
+        if (fs.existsSync(stateFilePath)) {
+          const stored = JSON.parse(fs.readFileSync(stateFilePath, "utf8"));
+          if (JSON.stringify(stored) !== JSON.stringify(currentState)) {
+            needsRemap = true;
+            oldStart = stored.start; oldEnd = stored.end; oldCuts = stored.cuts || [];
+          }
+        } else if (currentCuts.length) {
+          // No state file but reel has cuts — chunks are from before cuts were tracked
+          needsRemap = true;
+          oldCuts = [];
+        }
+
+        if (needsRemap) {
+          console.log(`   ⚠️  Chunks out of sync with reel cuts/boundaries — remapping`);
+          savedChunks = remapChunksForCuts(savedChunks, oldStart, oldEnd, oldCuts, startSec, endSec, currentCuts);
+          if (savedChunks.length) {
+            closeSubtitleGaps(savedChunks);
+            fs.writeFileSync(clipChunksPath, JSON.stringify(savedChunks, null, 2));
+            fs.writeFileSync(stateFilePath, JSON.stringify(currentState));
+            console.log(`   📝 Remapped: ${savedChunks.length} chunks adjusted for ${currentCuts.length} cut(s)`);
+          } else {
+            savedChunks = null;
+            try { fs.unlinkSync(clipChunksPath); } catch {}
+            try { fs.unlinkSync(stateFilePath); } catch {}
+            console.log(`   ⚠️  All proofread chunks fell inside cuts — regenerating from scratch`);
+          }
+        }
+      }
+
+      // Pre-compute reel cuts in seconds for word filtering
+      const reelCutsSec = (reel.cuts || [])
+        .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+        .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+
+      // Helper: get episode words for this reel, filtered for cuts with adjusted timestamps
+      function getEpisodeWords() {
+        let words = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+        if (reelCutsSec.length) words = filterWordsForCuts(words, startSec, endSec, reelCutsSec);
+        return words;
+      }
+
       if (noTranscribe) {
         // Use saved subtitle chunks if the user edited them in the transcript editor.
         // Also load words for the merge step below (clip transcript → episode fallback)
@@ -669,7 +821,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
             reelWords = reelWordsFromTranscript(clipT);
             wordStartOffset = 0;
           } else {
-            reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+            reelWords = getEpisodeWords();
           }
           console.log(`   📝 Using ${savedChunks.length} saved subtitle chunks`);
         } else if (fs.existsSync(clipTranscriptPath)) {
@@ -681,7 +833,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
           console.log(`   📝 Using edited reel transcript: ${reelWords.length} words`);
         } else {
           console.log(`   ⚠️  No reel transcript found, falling back to episode transcript`);
-          reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+          reelWords = getEpisodeWords();
         }
       } else if (force || isYouTubeTranscript) {
         const clipTranscriptPath = path.join(reelsDir, `reel-${reelId}-transcript.json`);
@@ -706,11 +858,11 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
             wordStartOffset = 0; // clip timestamps are already 0-indexed
           } else {
             console.log(`   ⚠️  Falling back to episode transcript words`);
-            reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+            reelWords = getEpisodeWords();
           }
         }
       } else {
-        reelWords = transcript.words.filter(w => w.start >= startSec && w.end <= endSec);
+        reelWords = getEpisodeWords();
       }
 
       // Merge: if proofread chunks exist AND we have fresh words (from any source),
@@ -738,7 +890,12 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
           }
         }
 
-        const reelDuration = endSec - startSec;
+        // Account for internal cuts when computing actual video duration
+        const mergeReelCuts = (reel.cuts || [])
+          .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+          .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+        const mergeCutDuration = mergeReelCuts.reduce((sum, c) => sum + (c.to - c.from), 0);
+        const reelDuration = endSec - startSec - mergeCutDuration;
         const chunksEnd = savedChunks.length ? Math.max(...savedChunks.map(c => c.end)) : 0;
         const chunksStart = savedChunks.length ? Math.min(...savedChunks.map(c => c.start)) : 0;
 
@@ -773,6 +930,12 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
           reelWords = []; // proofread + new are all in savedChunks now
           // Persist merged chunks so the transcript editor sees them too
           fs.writeFileSync(clipChunksPath, JSON.stringify(savedChunks, null, 2));
+          // Update state file so future runs know chunks match current reel state
+          const mergeStatePath = path.join(reelsDir, `reel-${reelId}-chunks-state.json`);
+          const mergeCutsForState = (reel.cuts || [])
+            .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+            .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+          fs.writeFileSync(mergeStatePath, JSON.stringify({ start: startSec, end: endSec, cuts: mergeCutsForState }));
           console.log(`   📝 Merged: ${savedChunks.length} total chunks (proofread + new)`);
         }
       }
@@ -851,7 +1014,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
   console.log(`\n✅ All done! Subtitled reels saved to: ${reelsDir}`);
 }
 
-module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, chunkWords, generateSRT, generateASS, reelWordsFromTranscript, MAX_GAP_FILL, TITLE_DURATION };
+module.exports = { formatSRTTime, formatASSTime, closeSubtitleGaps, remapChunksForCuts, filterWordsForCuts, chunkWords, generateSRT, generateASS, reelWordsFromTranscript, MAX_GAP_FILL, TITLE_DURATION };
 
 // CLI
 if (require.main === module) {
