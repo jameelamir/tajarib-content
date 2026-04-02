@@ -45,12 +45,32 @@ module.exports = function init(ctx) {
       if (text) segments.push({ id: segments.length, start, end, text });
     }
     const full_text = segments.map(s => s.text).join(' ');
+    // Synthesize word-level timestamps by linearly distributing words within each segment.
+    // This gives downstream code (cut, subtitles) fine-grained timing even for coarse SRTs.
+    const words = [];
+    for (const seg of segments) {
+      const segWords = seg.text.split(/\s+/).filter(Boolean);
+      if (!segWords.length) continue;
+      const segDur = seg.end - seg.start;
+      seg.words = [];
+      for (let i = 0; i < segWords.length; i++) {
+        const w = {
+          word: segWords[i],
+          start: +(seg.start + segDur * i / segWords.length).toFixed(3),
+          end: +(seg.start + segDur * (i + 1) / segWords.length).toFixed(3),
+          probability: 1.0,
+        };
+        seg.words.push(w);
+        words.push(w);
+      }
+    }
     return {
       model: 'uploaded-srt',
       full_text,
       segments,
+      words,
       segment_count: segments.length,
-      word_count: full_text.split(/\s+/).filter(Boolean).length,
+      word_count: words.length,
       duration_seconds: segments.length ? segments[segments.length - 1].end : 0,
     };
   }

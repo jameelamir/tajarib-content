@@ -96,9 +96,19 @@ async function cut(slug, videoPath, force = false, reelId = null) {
       try { if (fs.existsSync(stale)) { fs.unlinkSync(stale); console.log(`   🗑️  Removed stale ${reelPrefix}${suffix}`); } } catch {}
     }
 
-    const startSec = snapToWord(words, toSeconds(reel.start), "start");
-    const endSec = snapToWord(words, toSeconds(reel.end), "end");
-    const duration = endSec - startSec;
+    const rawStart = toSeconds(reel.start);
+    const rawEnd = toSeconds(reel.end);
+    let startSec = snapToWord(words, rawStart, "start");
+    let endSec = snapToWord(words, rawEnd, "end");
+    let duration = endSec - startSec;
+
+    // Safety: if snapping collapsed the duration (e.g. coarse SRT segments with no word
+    // timestamps), fall back to raw timestamps so FFmpeg still gets a valid range.
+    if (duration <= 0) {
+      startSec = rawStart;
+      endSec = rawEnd;
+      duration = endSec - startSec;
+    }
 
     if (startSec >= videoDuration) {
       console.log(`   ⏭️  Reel ${reel.id}: ${reel.start} is beyond video duration (${(videoDuration / 60).toFixed(1)} min), skipping`);

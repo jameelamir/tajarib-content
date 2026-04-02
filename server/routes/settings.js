@@ -18,7 +18,8 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
     const config = getTranscriptionConfig();
     res.writeHead(200, { "Content-Type": "application/json" });
     const effectiveDefault = config.defaultMethod || (config.groqApiKey ? "groq" : "local");
-    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey, defaultMethod: effectiveDefault, localModel: config.localModel || "large-v3" }));
+    const groqKeyHint = config.groqApiKey ? "gsk_..." + config.groqApiKey.slice(-4) : null;
+    res.end(JSON.stringify({ hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey, groqKeyHint, defaultMethod: effectiveDefault, localModel: config.localModel || "large-v3" }));
     return true;
   }
 
@@ -32,8 +33,10 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
       if (defaultMethod) config.defaultMethod = defaultMethod;
       if (localModel !== undefined) config.localModel = localModel || "large-v3";
       saveTranscriptionConfig(config);
+      const savedConfig = getTranscriptionConfig();
+      const groqKeyHint = savedConfig.groqApiKey ? "gsk_..." + savedConfig.groqApiKey.slice(-4) : null;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, hasApiKey: !!config.apiKey, hasGroqKey: !!config.groqApiKey }));
+      res.end(JSON.stringify({ success: true, hasApiKey: !!savedConfig.apiKey, hasGroqKey: !!savedConfig.groqApiKey, groqKeyHint }));
       io.emit("toast", { type: "success", message: "Transcription settings saved" });
     } catch (err) {
       res.writeHead(500, { "Content-Type": "application/json" });

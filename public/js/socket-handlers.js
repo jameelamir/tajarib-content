@@ -127,7 +127,7 @@ function setupSocketHandlers() {
         }
         refresh();
         if (data.step === 'cut' && data.code === 0 && currentSlug === data.slug) {
-            setTimeout(function() { selectedReelId = null; renderMain(currentSlug); }, 500);
+            setTimeout(function() { renderMain(currentSlug); }, 500);
         }
         // Auto-refresh video preview when a reel processing step completes
         if (data.code === 0 && currentSlug === data.slug && selectedReelId) {

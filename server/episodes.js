@@ -19,10 +19,11 @@ module.exports = function init(ctx) {
     const globalConfig = loadJSON(GLOBAL_TRANSCRIPTION_CONFIG);
     const mainAgentConfig = loadJSON("/root/.openclaw/agents/main/agent/models.json");
     const apiKey = mainAgentConfig?.providers?.haimaker?.apiKey;
+    const groqApiKey = process.env.GROQ_API_KEY || globalConfig?.groqApiKey || null;
     return {
       apiKey: apiKey || globalConfig?.apiKey || null,
-      groqApiKey: globalConfig?.groqApiKey || null,
-      defaultMethod: globalConfig?.defaultMethod || (globalConfig?.groqApiKey ? "groq" : "local"),
+      groqApiKey,
+      defaultMethod: globalConfig?.defaultMethod || (groqApiKey ? "groq" : "local"),
       localModel: globalConfig?.localModel || "large-v3"
     };
   }
