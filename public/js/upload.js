@@ -12,7 +12,8 @@ async function loadGuestHistory() {
 function populateGuestSelect() {
     const select = document.getElementById('upload-guest-select');
     select.innerHTML = '<option value="">-- Select or type new --</option>';
-    guestHistory.sort((a, b) => b.used - a.used).forEach(g => {
+    // Only show guests that have actually been used (exclude prospect-only entries)
+    guestHistory.filter(g => g.used > 0 || g.lastUsed).sort((a, b) => b.used - a.used).forEach(g => {
         const option = document.createElement('option');
         option.value = g.name;
         option.textContent = g.name + (g.role ? ' (' + g.role + ')' : '');

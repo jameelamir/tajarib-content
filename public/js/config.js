@@ -1,7 +1,7 @@
 // ── Configuration: Transcription, LLM, Prompts, Settings, Models ─────────────
 
 // Transcription Config
-let transcriptionConfig = { hasApiKey: false, hasGroqKey: false, defaultMethod: 'local' };
+let transcriptionConfig = { hasApiKey: false, hasGroqKey: false, groqKeyHint: null, defaultMethod: 'local' };
 
 async function loadTranscriptionConfig() {
     try {
@@ -47,7 +47,16 @@ function updateTranscriptionUI() {
 
 function populateTranscriptionFields() {
     const groqKeyEl = document.getElementById('transcription-groq-key');
-    if (groqKeyEl) groqKeyEl.value = '';
+    if (groqKeyEl) {
+        groqKeyEl.value = '';
+        if (transcriptionConfig.hasGroqKey) {
+            groqKeyEl.placeholder = transcriptionConfig.groqKeyHint
+                ? 'Key saved (' + transcriptionConfig.groqKeyHint + ') — enter new to replace'
+                : 'Key saved — enter new to replace';
+        } else {
+            groqKeyEl.placeholder = 'gsk_... (required for Groq transcription)';
+        }
+    }
     const methodEl = document.getElementById('transcription-default-method');
     if (methodEl) methodEl.value = transcriptionConfig.defaultMethod || 'local';
     const statusEl = document.getElementById('api-key-status');
@@ -68,6 +77,22 @@ async function saveTranscriptionConfig() {
     const defaultMethod = document.getElementById('transcription-default-method').value;
     const statusDiv = document.getElementById('api-key-status');
 
+    // Validate: if Groq selected and no key exists or entered, warn
+    if (defaultMethod === 'groq' && !transcriptionConfig.hasGroqKey && !groqApiKey) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = '#7f1d1d';
+        statusDiv.style.color = '#fca5a5';
+        statusDiv.textContent = '✗ Enter a Groq API key first — get one from console.groq.com';
+        return;
+    }
+    if (defaultMethod === 'api' && !transcriptionConfig.hasApiKey && !apiKey) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = '#7f1d1d';
+        statusDiv.style.color = '#fca5a5';
+        statusDiv.textContent = '✗ Enter an API key first';
+        return;
+    }
+
     const payload = { defaultMethod };
     if (apiKey) payload.apiKey = apiKey;
     if (groqApiKey) payload.groqApiKey = groqApiKey;
@@ -83,8 +108,10 @@ async function saveTranscriptionConfig() {
         if (data.success) {
             transcriptionConfig.hasApiKey = data.hasApiKey;
             transcriptionConfig.hasGroqKey = data.hasGroqKey;
+            if (data.groqKeyHint) transcriptionConfig.groqKeyHint = data.groqKeyHint;
             transcriptionConfig.defaultMethod = defaultMethod;
             updateTranscriptionUI();
+            populateTranscriptionFields();
 
             // Also update the default in upload modal
             const radio = document.querySelector(`input[name="transcribe-method"][value="${defaultMethod}"]`);

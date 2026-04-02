@@ -624,19 +624,21 @@ async function loadGuestHistory() {
 function populateGuestSelect() {
     const select = document.getElementById('upload-guest-select');
     select.innerHTML = '<option value="">-- Select or type new --</option>';
-    guestHistory.sort((a, b) => b.used - a.used).forEach(g => {
+    // Only show guests that have actually been used (exclude prospect-only entries)
+    const usedGuests = guestHistory.filter(g => g.used > 0 || g.lastUsed).sort((a, b) => b.used - a.used);
+    usedGuests.forEach(g => {
         const option = document.createElement('option');
         option.value = g.name;
         option.textContent = g.name + (g.role ? ' (' + g.role + ')' : '');
         option.dataset.role = g.role;
         select.appendChild(option);
     });
-    
+
     // Also populate MP3 guest select
     const mp3Select = document.getElementById('mp3-guest-select');
     if (mp3Select) {
         mp3Select.innerHTML = '<option value="">-- Select or type new --</option>';
-        guestHistory.sort((a, b) => b.used - a.used).forEach(g => {
+        usedGuests.forEach(g => {
             const option = document.createElement('option');
             option.value = g.name;
             option.textContent = g.name + (g.role ? ' (' + g.role + ')' : '');
