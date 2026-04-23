@@ -177,11 +177,11 @@ function renderReelDetail(ep, reelId) {
     // Reel transcript editor — show if reel transcript exists
     var transcriptEditorEl = document.getElementById('reel-transcript-editor');
     if (transcriptEditorEl) {
-        // Skip rebuild if the editor already has loaded content (preserves unsaved edits)
+        // Preserve the loaded editor only when it belongs to the current reel
         var existingContent = document.getElementById('reel-transcript-content');
         var hasLoadedEditor = existingContent && existingContent.style.display !== 'none' && existingContent.querySelector('#rt-seg-list');
-        if (hasLoadedEditor) {
-            // Editor is active — don't touch it
+        var loadedForCurrentReel = String(reelTranscriptReelId) === String(reelId);
+        if (hasLoadedEditor && loadedForCurrentReel) {
             transcriptEditorEl.style.display = '';
         } else if (r.subtitled || r.cut || r.cropped) {
             transcriptEditorEl.style.display = '';
