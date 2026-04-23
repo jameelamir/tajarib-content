@@ -3084,7 +3084,9 @@ async function toggleReelStep(reelId, kind) {
             throw new Error(data.error);
         }
         var label = kind === 'subs' ? 'Subtitles' : 'Overlay';
-        showToast(label + ' ' + (next ? 'will be in final' : 'skipped in final') + ' for reel ' + reelId, 'success');
+        var msg = label + ' ' + (next ? 'will be in final' : 'skipped in final') + ' for reel ' + reelId;
+        if (data.invalidated) msg += ' — click Finalize to re-render';
+        showToast(msg, 'success');
         refresh();
     } catch (err) {
         showToast(err.message, 'error');
