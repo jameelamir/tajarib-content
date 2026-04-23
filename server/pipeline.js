@@ -9,6 +9,20 @@ module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, NODE_BIN,
     activeProcesses, activeSteps, loadJSON, loadMeta, saveMeta, handlePostTranscription, getTranscriptionConfig } = ctx;
 
+  function readReelToggleFlags(slug, reelId) {
+    try {
+      const analysis = loadJSON(path.join(EPISODES_DIR, slug, "analysis.json"));
+      const padded = String(reelId).padStart(2, "0");
+      const reel = analysis?.reels?.find(r => String(r.id).padStart(2, "0") === padded);
+      return {
+        subsEnabled: reel ? reel.subsEnabled !== false : true,
+        overlayEnabled: reel ? reel.overlayEnabled !== false : true
+      };
+    } catch (_) {
+      return { subsEnabled: true, overlayEnabled: true };
+    }
+  }
+
   function spawnReelStep(slug, reelId, step, opts = {}) {
     return new Promise((resolve) => {
       const dir = path.join(EPISODES_DIR, slug);
@@ -17,7 +31,11 @@ module.exports = function init(ctx) {
         case "subtitle": args = ["subtitle.js", "--slug", slug, "--reel-id", reelId, "--force"]; if (opts.subtitleStyle) args.push("--subtitle-style", opts.subtitleStyle); break;
         case "overlay": {
           const hasConfig = fs.existsSync(path.join(dir, "overlay-config.json"));
-          args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all", "--reel-id", reelId, "--force"]; break;
+          args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all", "--reel-id", reelId, "--force"];
+          const flags = readReelToggleFlags(slug, reelId);
+          if (!flags.subsEnabled) args.push("--skip-subs");
+          if (!flags.overlayEnabled) args.push("--no-overlay");
+          break;
         }
         case "crop":
           args = ["crop.js", "--slug", slug, "--reel-id", reelId, "--force"];
@@ -128,7 +146,19 @@ module.exports = function init(ctx) {
         cmd = NODE_BIN; args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break;
       case "crop": cmd = NODE_BIN; args = ["crop.js", "--slug", slug]; if (ratio) args.push("--ratio", ratio); if (faceTrack) args.push("--face-track"); if (reelId) args.push("--reel-id", reelId); if (preferSide) args.push("--prefer-side", preferSide); if (force) args.push("--force"); break;
       case "subtitle": cmd = NODE_BIN; args = ["subtitle.js", "--slug", slug]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); if (burnOnly) args.push("--burn-only"); if (noTranscribe) args.push("--no-transcribe"); if (subtitleStyle) args.push("--subtitle-style", subtitleStyle); break;
-      case "overlay": { cmd = NODE_BIN; const hasConfig = fs.existsSync(path.join(dir, "overlay-config.json")); args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all"]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break; }
+      case "overlay": {
+        cmd = NODE_BIN;
+        const hasConfig = fs.existsSync(path.join(dir, "overlay-config.json"));
+        args = ["overlay.js", "--slug", slug, hasConfig ? "--config" : "--all"];
+        if (reelId) args.push("--reel-id", reelId);
+        if (force) args.push("--force");
+        if (reelId) {
+          const flags = readReelToggleFlags(slug, reelId);
+          if (!flags.subsEnabled) args.push("--skip-subs");
+          if (!flags.overlayEnabled) args.push("--no-overlay");
+        }
+        break;
+      }
       case "compose": cmd = NODE_BIN; args = ["compose.js", "--slug", slug]; if (force) args.push("--force"); if (resume) args.push("--resume"); if (!fs.existsSync(path.join(dir, "switches.json"))) args.push("--ai-switch"); break;
       default: io.emit("toast", { type: "error", message: `Unknown step: ${step}` }); return;
     }

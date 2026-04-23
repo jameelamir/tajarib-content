@@ -388,15 +388,23 @@ function buildReelActions(ep, reel) {
             '<input type="checkbox" id="reel-face-track" style="accent-color:var(--accent); width:12px; height:12px;" checked>Face' +
         '</label>'
     });
+    var subsEnabled = reel.subsEnabled !== false;
+    var overlayEnabled = reel.overlayEnabled !== false;
+    var burnToggle = function(kind, enabled) {
+        return '<button onclick="event.stopPropagation(); toggleReelStep(\'' + reelId + '\', \'' + kind + '\')" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer; color:' + (enabled ? 'var(--accent)' : '#666') + ';" title="' + (enabled ? 'Will be in final — click to skip' : 'Skipped in final — click to include') + '">' +
+            (enabled ? '&#10003; In final' : '&#10005; Skip') + '</button>';
+    };
     steps.push({ id: 'subtitle', label: 'Sub', done: reel.subtitled, extra:
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
         '</select>' +
+        burnToggle('subs', subsEnabled) +
         (reel.subtitled ? '<button onclick="event.stopPropagation(); toggleSubtitles()" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer; opacity:' + (hideSubtitles ? '0.5' : '1') + ';" title="' + (hideSubtitles ? 'Show subtitles in preview' : 'Hide subtitles in preview') + '">' +
-            (hideSubtitles ? '&#9676; Off' : '&#9679; On') + '</button>' : '')
+            (hideSubtitles ? '&#9676; Preview off' : '&#9679; Preview on') + '</button>' : '')
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
-        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
+        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>' +
+        burnToggle('overlay', overlayEnabled)
     });
 
     // Find next undone step
@@ -3051,6 +3059,35 @@ async function toggleDoneReel(reelId) {
         }
     } catch (err) {
         showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function toggleReelStep(reelId, kind) {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep) return;
+    var r = ep.reelStatuses && ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    if (!r) return;
+    var field = kind === 'subs' ? 'subsEnabled' : 'overlayEnabled';
+    var current = r[field] !== false;
+    var next = !current;
+    r[field] = next;
+    try {
+        var res = await fetch('/api/toggle-reel-step', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug: currentSlug, reelId: reelId, step: kind, enabled: next})
+        });
+        var data = await res.json();
+        if (!data.success) {
+            r[field] = current;
+            throw new Error(data.error);
+        }
+        var label = kind === 'subs' ? 'Subtitles' : 'Overlay';
+        showToast(label + ' ' + (next ? 'will be in final' : 'skipped in final') + ' for reel ' + reelId, 'success');
+        refresh();
+    } catch (err) {
+        showToast(err.message, 'error');
     }
 }
 

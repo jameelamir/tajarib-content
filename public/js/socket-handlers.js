@@ -28,10 +28,11 @@ function finalizeReel(reelId) {
     if (!ep) return;
     var r = ep.reelStatuses.find(function(x) { return x.id === reelId; });
     if (!r) return;
-    // Build list of remaining steps: crop → subtitle → overlay
+    var subsEnabled = r.subsEnabled !== false;
+    // Build list of remaining steps: crop → subtitle (if enabled) → overlay
     var remaining = [];
     if (!r.cropped) remaining.push('crop');
-    if (!r.subtitled) remaining.push('subtitle');
+    if (subsEnabled && !r.subtitled) remaining.push('subtitle');
     if (!r.final) remaining.push('overlay');
     if (remaining.length === 0) {
         showToast('Reel ' + reelId + ' is already finalized', 'success');
@@ -51,8 +52,9 @@ async function finalizeAll() {
     // But since only one process can run per slug, we chain all reels sequentially
     var allSteps = [];
     reels.forEach(function(r) {
+        var subsEnabled = r.subsEnabled !== false;
         if (!r.cropped) allSteps.push({ reelId: r.id, step: 'crop' });
-        if (!r.subtitled) allSteps.push({ reelId: r.id, step: 'subtitle' });
+        if (subsEnabled && !r.subtitled) allSteps.push({ reelId: r.id, step: 'subtitle' });
         if (!r.final) allSteps.push({ reelId: r.id, step: 'overlay' });
     });
     if (allSteps.length === 0) { showToast('All reels already finalized', 'success'); return; }

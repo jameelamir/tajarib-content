@@ -109,6 +109,27 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/toggle-reel-step") {
+    const body = await readBody(req);
+    try {
+      const { slug, reelId, step, enabled } = JSON.parse(body);
+      if (!slug || !reelId) throw new Error("slug + reelId required");
+      if (step !== "subs" && step !== "overlay") throw new Error("step must be 'subs' or 'overlay'");
+      const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+      const analysis = loadJSON(analysisPath);
+      if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+      const padded = String(reelId).padStart(2, "0");
+      const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+      if (!reel) throw new Error("Reel not found in analysis");
+      const field = step === "subs" ? "subsEnabled" : "overlayEnabled";
+      reel[field] = !!enabled;
+      saveJSON(analysisPath, analysis);
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/done-reel") {
     const body = await readBody(req);
     try {

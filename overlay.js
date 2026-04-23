@@ -273,7 +273,7 @@ async function overlay(slug, options) {
       const subtitled = path.join(reelsDir, `reel-${id}-subtitled.mp4`);
       const cropped = path.join(reelsDir, `reel-${id}-cropped.mp4`);
       const raw = path.join(reelsDir, `reel-${id}.mp4`);
-      const input = fs.existsSync(subtitled) ? subtitled :
+      const input = (!options.skipSubs && fs.existsSync(subtitled)) ? subtitled :
                     fs.existsSync(cropped) ? cropped : raw;
       videos.push({ input, output: path.join(reelsDir, `reel-${id}-final.mp4`), label: `reel-${id}` });
     }
@@ -316,6 +316,12 @@ async function overlay(slug, options) {
   for (const video of videos) {
     if (fs.existsSync(video.output) && !options.force) {
       console.log(`⏭️  ${video.label}: already has overlay (use --force to overwrite)`);
+      continue;
+    }
+
+    if (options.noOverlay) {
+      console.log(`📋 ${video.label}: overlay disabled — copying ${path.basename(video.input)} → ${path.basename(video.output)}`);
+      fs.copyFileSync(video.input, video.output);
       continue;
     }
 
@@ -625,6 +631,8 @@ const force = args.includes("--force");
 const all = args.includes("--all");
 const useConfig = args.includes("--config");
 const reelId = get("--reel-id");
+const skipSubs = args.includes("--skip-subs");
+const noOverlay = args.includes("--no-overlay");
 
 const options = {
   lowerThird: all || args.includes("--lower-third"),
@@ -632,11 +640,13 @@ const options = {
   logo: all || args.includes("--logo"),
   useConfig,
   force,
-  reelId
+  reelId,
+  skipSubs,
+  noOverlay
 };
 
 if (!slug) {
-  console.error("Usage: node overlay.js --slug <slug> [--config] [--all] [--lower-third] [--sponsor] [--logo] [--force]");
+  console.error("Usage: node overlay.js --slug <slug> [--config] [--all] [--lower-third] [--sponsor] [--logo] [--force] [--skip-subs] [--no-overlay]");
   process.exit(1);
 }
 
