@@ -99,7 +99,9 @@ module.exports = function init(ctx) {
             done: doneReels.has(id),
             hook: reelInfo.hook || reelInfo.title || "",
             duration: reelInfo.duration || null, start: reelInfo.start || null, end: reelInfo.end || null,
-            cuts: reelInfo.cuts || []
+            cuts: reelInfo.cuts || [],
+            subsEnabled: reelInfo.subsEnabled !== false,
+            overlayEnabled: reelInfo.overlayEnabled !== false
           });
         }
 
