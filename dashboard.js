@@ -22,12 +22,14 @@ const prompts = require("./prompts");
 const PORT = process.env.PORT || 7430;
 const WORKSPACE_DIR = __dirname;
 const SHARED_DIR = path.resolve(WORKSPACE_DIR, "..");
-const EPISODES_DIR = fs.existsSync(SHARED_DIR) && SHARED_DIR !== WORKSPACE_DIR
-  ? path.join(SHARED_DIR, "episodes")
-  : path.join(WORKSPACE_DIR, "episodes");
-const UPLOADS_DIR = path.join(WORKSPACE_DIR, "uploads");
+const EPISODES_DIR = process.env.EPISODES_DIR
+  ? process.env.EPISODES_DIR
+  : (fs.existsSync(SHARED_DIR) && SHARED_DIR !== WORKSPACE_DIR
+      ? path.join(SHARED_DIR, "episodes")
+      : path.join(WORKSPACE_DIR, "episodes"));
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(WORKSPACE_DIR, "uploads");
 const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
-const SHARED_GUESTS_FILE = SHARED_DIR !== WORKSPACE_DIR ? path.join(SHARED_DIR, "guests.json") : null;
+const SHARED_GUESTS_FILE = !process.env.EPISODES_DIR && SHARED_DIR !== WORKSPACE_DIR ? path.join(SHARED_DIR, "guests.json") : null;
 const { GLOBAL_CONFIG_DIR } = require("./server/global-config");
 const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 

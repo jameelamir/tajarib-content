@@ -5,6 +5,16 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
+function moveFile(src, dest) {
+  try {
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if (err.code !== "EXDEV") throw err;
+    fs.copyFileSync(src, dest);
+    fs.unlinkSync(src);
+  }
+}
+
 module.exports = async function uploadRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     addGuestToHistory, startTranscription, tryFetchYouTubeTranscript, handlePostTranscription,
@@ -43,13 +53,13 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
           const spkExt = path.extname(speakerFile.originalFilename || "").toLowerCase() || ".mp4";
           const gstExt = path.extname(guestFile.originalFilename || "").toLowerCase() || ".mp4";
           const speakerPath = path.join(epDir, `speaker${spkExt}`), guestPath = path.join(epDir, `guest${gstExt}`);
-          fs.renameSync(speakerFile.filepath, speakerPath); fs.renameSync(guestFile.filepath, guestPath);
+          moveFile(speakerFile.filepath, speakerPath); moveFile(guestFile.filepath, guestPath);
           finalPath = speakerPath; metaExtra = { multiTrack: true, tracks: { speaker: speakerPath, guest: guestPath } };
           io.emit("log", { slug, text: `\n📁 Multi-track uploaded: speaker + guest\n` });
         } else {
           const ext = path.extname(videoFile.originalFilename || videoFile.newFilename || "").toLowerCase() || ".mp4";
           finalPath = path.join(epDir, `raw${ext}`);
-          fs.renameSync(videoFile.filepath, finalPath);
+          moveFile(videoFile.filepath, finalPath);
           io.emit("log", { slug, text: `\n📁 Uploaded: ${videoFile.originalFilename || videoFile.newFilename}\n` });
         }
 
