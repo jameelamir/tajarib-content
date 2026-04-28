@@ -100,6 +100,7 @@ function reelWordsFromTranscript(clipT) {
     const textWords = seg.text.trim().split(/\s+/).filter(Boolean);
     if (!textWords.length) continue;
     const segWords = seg.words || [];
+    const firstIdx = result.length;
     if (segWords.length === textWords.length) {
       result.push(...segWords);
     } else {
@@ -121,6 +122,11 @@ function reelWordsFromTranscript(clipT) {
           });
         }
       });
+    }
+    // Mark this segment's first word so chunkWords never merges across the
+    // boundary — Whisper segments are already coherent units of speech.
+    if (result.length > firstIdx) {
+      result[firstIdx] = { ...result[firstIdx], _segStart: true };
     }
   }
   return result;
@@ -320,17 +326,55 @@ function wrapRTLIfMixed(text) {
 // Sentence-ending punctuation — break subtitle chunks at these boundaries
 const SENTENCE_END_RE = /[.!?؟…]+$/;
 
+// Mid-sentence punctuation — preferred break point once the chunk has enough words
+const SOFT_BREAK_RE = /[،,;:]+$/;
+
 // Silence gap threshold — a pause this long between words signals a natural break
 const PAUSE_BREAK_SEC = 0.4;
 
+// Soft limits: chunker tries to break here, but extends if doing so would leave
+// a connector/preposition stranded at the end of the line.
+const SOFT_WORD_LIMIT = 6;
+const SOFT_DUR_LIMIT = 2.0;
+
+// Hard ceilings: chunker breaks unconditionally past these.
+const HARD_WORD_LIMIT = 9;
+const HARD_DUR_LIMIT = 3.0;
+
+// Arabic words that should not END a subtitle line — they bind to whatever
+// follows (prepositions, particles, conjunctions, demonstratives, relatives).
+// Breaking after one of these orphans the connector and reads awkwardly.
+const NON_FINAL_AR = new Set([
+  "في","من","على","عن","إلى","حتى","بعد","قبل","عند","أمام","خلف","تحت","فوق","بين","لدى","نحو","ضد","مع",
+  "و","أو","أم","ثم","ف","ل","ب","ك","لكن","لكنه","لكنها","لأن","لأنّ","لأنه","لأنها","لكي","كي","إذ","إذا","إن","أن","أنّ","إنّ",
+  "الذي","التي","الذين","اللاتي","اللواتي","ما","لا","لم","لن","قد","لقد","هل","كل","بعض","غير","سوى",
+  "هذا","هذه","ذلك","تلك","هؤلاء","أولئك","أيها","أيتها"
+]);
+
+const STRIP_DIACRITICS_RE = /[ً-ٰٟـ]/g;
+const STRIP_PUNCT_RE = /[.,،;:!?؟…\-]/g;
+function normalizeWord(s) {
+  return s.replace(STRIP_DIACRITICS_RE, "").replace(STRIP_PUNCT_RE, "").trim();
+}
+
 // Group words into subtitle chunks, respecting natural speech boundaries.
-// Rules (in priority order):
-//   1. Always break after a word that ends a sentence (. ! ? ؟ …)
-//   2. Break before a word preceded by a silence gap >= PAUSE_BREAK_SEC
-//   3. Break when chunk reaches 6 words or 2 seconds
+// Break priority (first match wins, evaluated after each word is appended):
+//   1. Pause gap >= PAUSE_BREAK_SEC before this word → flush current chunk first
+//   2. Whisper segment boundary (`_segStart`) before this word → flush
+//   3. Sentence-ending punctuation → flush
+//   4. Mid-sentence punctuation (، , ; :) once chunk has >=2 words → flush
+//   5. Hard ceiling (9 words or 3s) → flush
+//   6. Soft ceiling (6 words or 2s) AND last word isn't a connector → flush
 function chunkWords(words, startOffset = 0) {
   const chunks = [];
   let current = { words: [], start: null, end: null };
+
+  function flush() {
+    if (current.words.length) {
+      chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
+    }
+    current = { words: [], start: null, end: null };
+  }
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
@@ -339,13 +383,10 @@ function chunkWords(words, startOffset = 0) {
 
     if (adjustedStart < 0) continue;
 
-    // Check for silence gap BEFORE this word — flush previous chunk first
     if (current.words.length > 0) {
       const gap = adjustedStart - current.end;
-      if (gap >= PAUSE_BREAK_SEC) {
-        chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
-        current = { words: [], start: null, end: null };
-      }
+      if (gap >= PAUSE_BREAK_SEC) flush();
+      else if (w._segStart) flush();
     }
 
     if (current.start === null) current.start = adjustedStart;
@@ -354,17 +395,20 @@ function chunkWords(words, startOffset = 0) {
     current.end = adjustedEnd;
 
     const isSentenceEnd = SENTENCE_END_RE.test(trimmed);
-    const hitLimit = current.words.length >= 6 || (current.end - current.start) >= 2;
+    const isSoftBreak = SOFT_BREAK_RE.test(trimmed);
+    const wordCount = current.words.length;
+    const dur = current.end - current.start;
+    const overSoft = wordCount >= SOFT_WORD_LIMIT || dur >= SOFT_DUR_LIMIT;
+    const overHard = wordCount >= HARD_WORD_LIMIT || dur >= HARD_DUR_LIMIT;
+    const lastIsConnector = NON_FINAL_AR.has(normalizeWord(trimmed));
 
-    if (isSentenceEnd || hitLimit) {
-      chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
-      current = { words: [], start: null, end: null };
-    }
+    if (isSentenceEnd) flush();
+    else if (isSoftBreak && wordCount >= 2) flush();
+    else if (overHard) flush();
+    else if (overSoft && !lastIsConnector) flush();
   }
 
-  if (current.words.length > 0) {
-    chunks.push({ text: current.words.join(" "), start: current.start, end: current.end });
-  }
+  if (current.words.length > 0) flush();
 
   closeSubtitleGaps(chunks);
   return chunks;
@@ -558,12 +602,14 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
       const segDur = (seg.end || 0) - (seg.start || 0);
       const wordDur = tokens.length > 0 ? segDur / tokens.length : segDur;
       for (let i = 0; i < tokens.length; i++) {
-        transcript.words.push({
+        const word = {
           word: tokens[i],
           start: seg.start + i * wordDur,
           end: seg.start + (i + 1) * wordDur,
           probability: 0.5
-        });
+        };
+        if (i === 0) word._segStart = true;
+        transcript.words.push(word);
       }
     }
     console.log(`   ✅ Synthesized ${transcript.words.length} word timestamps from segments`);
