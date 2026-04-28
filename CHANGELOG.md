@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7] - 2026-04-28
+
+### Changed
+- Reel pipeline: the Sub step now shows a single inline action button ("In final" / "Skip") alongside the Highlight/Background dropdown, matching the Overlay step's pattern. Removed the redundant "Preview on / Preview off" toggle and its dead supporting code (`toggleSubtitles`, `hideSubtitles`, `&subs=off` URL plumbing).
+
 ## [1.0.6] - 2026-04-28
 
 ### Fixed
