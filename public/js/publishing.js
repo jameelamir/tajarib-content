@@ -14,9 +14,11 @@ function setBufferMode(mode) {
     bufferMode = mode;
     localStorage.setItem('tajarib-buffer-mode', mode);
     ['addToQueue', 'shareNow', 'customScheduled'].forEach(function(m) {
-        document.getElementById('buf-mode-' + m).classList.toggle('active', m === mode);
+        var btn = document.getElementById('buf-mode-' + m);
+        if (btn) btn.classList.toggle('active', m === mode);
     });
-    document.getElementById('buf-mode-desc').textContent = bufferModeDescs[mode] || '';
+    var desc = document.getElementById('buf-mode-desc');
+    if (desc) desc.textContent = bufferModeDescs[mode] || '';
 }
 
 function setPublishMethod(method) {
