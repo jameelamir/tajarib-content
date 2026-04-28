@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-7430}:7430"
+    environment:
+      - EPISODES_DIR=/app/episodes
+      - UPLOADS_DIR=/app/uploads
     env_file:
       - .env
     volumes:
