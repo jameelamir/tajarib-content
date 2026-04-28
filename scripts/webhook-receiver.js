@@ -47,6 +47,16 @@ function run(cmd, args, opts = {}) {
   });
 }
 
+function capture(cmd, args) {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args, { cwd: REPO_DIR });
+    let out = "";
+    p.stdout.on("data", (d) => { out += d.toString(); });
+    p.on("close", () => resolve(out.trim()));
+    p.on("error", () => resolve(""));
+  });
+}
+
 async function deploy() {
   if (deploying) { console.log("[webhook] deploy already in progress, skipping"); return; }
   deploying = true;
@@ -56,12 +66,17 @@ async function deploy() {
     if (code !== 0) throw new Error("git fetch failed");
     code = await run("git", ["reset", "--hard", `origin/${BRANCH}`]);
     if (code !== 0) throw new Error("git reset failed");
+    // Capture SHA + build time so the dashboard version chip reflects what's
+    // actually running.
+    const sha = await capture("git", ["rev-parse", "--short", "HEAD"]);
+    const buildTime = new Date().toISOString();
+    const buildEnv = { ...process.env, GIT_SHA: sha || "dev", BUILD_TIME: buildTime };
     // Build all images, but only recreate the app container — recreating
     // ourselves would kill this script mid-deploy. Webhook updates require
     // a manual `docker compose up -d --build webhook` from the host.
-    code = await run("docker", ["compose", "build", "app"]);
+    code = await run("docker", ["compose", "build", "app"], { env: buildEnv });
     if (code !== 0) throw new Error("docker compose build failed");
-    code = await run("docker", ["compose", "up", "-d", "--no-deps", "app"]);
+    code = await run("docker", ["compose", "up", "-d", "--no-deps", "app"], { env: buildEnv });
     if (code !== 0) throw new Error("docker compose up failed");
     console.log("[webhook] deploy complete");
   } catch (err) {

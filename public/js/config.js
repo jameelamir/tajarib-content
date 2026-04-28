@@ -1,5 +1,30 @@
 // ── Configuration: Transcription, LLM, Prompts, Settings, Models ─────────────
 
+async function loadVersionChip() {
+    const el = document.getElementById('version-chip');
+    if (!el) return;
+    try {
+        const res = await fetch('/api/version');
+        const { version, sha, builtAt } = await res.json();
+        const label = sha && sha !== 'dev' ? `v${version} · ${sha}` : `v${version}`;
+        el.textContent = label;
+        let builtLine = '';
+        if (builtAt && builtAt !== 'dev') {
+            const ts = new Date(builtAt);
+            const ageMin = Math.round((Date.now() - ts.getTime()) / 60000);
+            const ageStr = ageMin < 60 ? `${ageMin}m ago` : ageMin < 1440 ? `${Math.round(ageMin/60)}h ago` : `${Math.round(ageMin/1440)}d ago`;
+            builtLine = `\nBuilt ${ts.toISOString().slice(0,16).replace('T',' ')} UTC (${ageStr})`;
+            const fresh = ageMin < 60;
+            el.style.color = fresh ? '#4ade80' : '#888';
+            el.style.borderColor = fresh ? '#1b3d22' : '#2a2a2a';
+        }
+        el.title = `Tajarib v${version}${sha && sha !== 'dev' ? `\nCommit ${sha}` : ''}${builtLine}`;
+    } catch (e) {
+        el.textContent = 'v?';
+        el.title = 'Version unavailable';
+    }
+}
+
 // Transcription Config
 let transcriptionConfig = { hasApiKey: false, hasGroqKey: false, groqKeyHint: null, defaultMethod: 'local' };
 

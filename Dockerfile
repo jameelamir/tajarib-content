@@ -23,6 +23,10 @@ RUN npm install --omit=dev
 
 COPY . .
 
+ARG GIT_SHA=dev
+ARG BUILD_TIME=dev
+RUN printf '{"sha":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$BUILD_TIME" > /app/.version.json
+
 EXPOSE 7430
 
 CMD ["node", "dashboard.js"]

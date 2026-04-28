@@ -5,8 +5,9 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = function init(ctx) {
-  const { WORKSPACE_DIR, BUFFER_CONFIG_FILE, loadJSON, saveJSON } = ctx;
-  const STORAGE_CONFIG_FILE = path.join(WORKSPACE_DIR, "storage-config.json");
+  const { BUFFER_CONFIG_FILE, loadJSON, saveJSON } = ctx;
+  const { GLOBAL_CONFIG_DIR } = require("./global-config");
+  const STORAGE_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "storage-config.json");
 
   function getStorageConfig() {
     return loadJSON(STORAGE_CONFIG_FILE) || { quotaGB: 100 };

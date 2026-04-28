@@ -16,9 +16,13 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       if (!slug || !step) throw new Error("slug + step required");
       const meta = loadMeta(slug);
       const mediaType = meta.mediaType || "episode";
-      if (mediaType === "reel_full" && !['generate', 'transcribe'].includes(step)) throw new Error(`Step '${step}' not applicable for fully-produced reel.`);
-      if (mediaType === "reel_cut" && step === "cut") throw new Error("Cut step not applicable — reel is already cut");
-      if (mediaType === "reel_cut" && step === "analyze") throw new Error("Analyze step not applicable for pre-cut reels");
+      // For reel uploads (already-cut or fully-produced), block only steps that
+      // can't apply to a single self-contained reel. Subtitle/crop/overlay are
+      // allowed so the user can re-process or add subs to a "done" reel.
+      const reelOnlyBlockedSteps = ['cut', 'analyze', 'analyze-clips', 'trim', 'process-reels'];
+      if ((mediaType === "reel_full" || mediaType === "reel_cut") && reelOnlyBlockedSteps.includes(step)) {
+        throw new Error(`Step '${step}' not applicable for an uploaded reel.`);
+      }
       if (step === "compose" && !meta.multiTrack) throw new Error("Compose step requires a multi-track episode");
       if (step === "generate" && (!meta.guest || !meta.role)) throw new Error("Guest name and role required for generation");
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));

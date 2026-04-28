@@ -7,8 +7,9 @@ const path = require("path");
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
 
 module.exports = function init(ctx) {
-  const { WORKSPACE_DIR, UPLOADS_DIR, loadJSON, saveJSON } = ctx;
-  const UPLOADS_STATE_FILE = path.join(WORKSPACE_DIR, ".uploads-state.json");
+  const { UPLOADS_DIR, loadJSON, saveJSON } = ctx;
+  const { GLOBAL_CONFIG_DIR } = require("./global-config");
+  const UPLOADS_STATE_FILE = path.join(GLOBAL_CONFIG_DIR, ".uploads-state.json");
 
   function loadUploadsState() {
     return loadJSON(UPLOADS_STATE_FILE) || {};

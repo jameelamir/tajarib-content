@@ -7,6 +7,7 @@ async function init() {
     await loadGuestHistory();
     await loadTranscriptionConfig();
     await loadGenKeyStatus();
+    loadVersionChip();
     console.log('✅ loadGuestHistory done, calling refresh...');
     await refresh();
     console.log('✅ refresh done, episodes:', episodes.length);

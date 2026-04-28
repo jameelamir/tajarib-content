@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2026-04-28
+
+### Changed
+- Unified persistent storage under a single data root (`/opt/tajarib-data/` on the VPS, mounted as `/data`). Repo is now code-only and disposable; episodes/uploads/configs/guests live outside the git tree and survive every redeploy.
+- Global config dir is configurable via `TAJARIB_CONFIG_DIR` (defaults to `~/.tajarib` for local dev).
+- `guests.json` is now read/written from the persistent config dir; the in-repo file is treated as a one-time seed for fresh installs.
+- `profiles.json` lookup now prefers the persistent config dir.
+
+### Fixed
+- SUB button on uploaded reels (`reel_full` / `reel_cut`): no longer rejects with "not applicable" when the reel has no transcript. Subtitle/crop/overlay are now allowed for reel uploads, and the existing auto-transcribe-then-subtitle chain handles the missing-transcript case.
+
+### Added
+- `/api/version` endpoint exposing running version, short commit SHA, and build timestamp.
+- Version chip in the dashboard sidebar header (turns green when the running build is fresh).
+- Webhook deploys now stamp each build with the current SHA + UTC timestamp via Docker build args.
+
 ## [1.0.1] - 2026-03-23
 
 ### Fixed

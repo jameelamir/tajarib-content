@@ -28,9 +28,10 @@ const EPISODES_DIR = process.env.EPISODES_DIR
       ? path.join(SHARED_DIR, "episodes")
       : path.join(WORKSPACE_DIR, "episodes"));
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(WORKSPACE_DIR, "uploads");
-const GUESTS_FILE = path.join(WORKSPACE_DIR, "guests.json");
-const SHARED_GUESTS_FILE = !process.env.EPISODES_DIR && SHARED_DIR !== WORKSPACE_DIR ? path.join(SHARED_DIR, "guests.json") : null;
-const { GLOBAL_CONFIG_DIR } = require("./server/global-config");
+const { GLOBAL_CONFIG_DIR, GLOBAL_GUESTS_FILE, seedIfMissing } = require("./server/global-config");
+const GUESTS_FILE = GLOBAL_GUESTS_FILE;
+const SHARED_GUESTS_FILE = null;
+seedIfMissing(GUESTS_FILE, path.join(WORKSPACE_DIR, "guests.json"));
 const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 
 [EPISODES_DIR, UPLOADS_DIR].forEach(d => {
