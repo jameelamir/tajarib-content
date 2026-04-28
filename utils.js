@@ -6,9 +6,11 @@ const fs = require("fs");
 const path = require("path");
 
 const SHARED_DIR = path.resolve(__dirname, "..");
-const EPISODES_DIR = fs.existsSync(SHARED_DIR) && SHARED_DIR !== __dirname
-  ? path.join(SHARED_DIR, "episodes")
-  : path.join(__dirname, "episodes");
+const EPISODES_DIR = process.env.EPISODES_DIR
+  ? process.env.EPISODES_DIR
+  : (fs.existsSync(SHARED_DIR) && SHARED_DIR !== __dirname
+      ? path.join(SHARED_DIR, "episodes")
+      : path.join(__dirname, "episodes"));
 
 /**
  * Parse a timestamp string (MM:SS or HH:MM:SS) into seconds.
