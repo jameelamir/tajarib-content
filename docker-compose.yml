@@ -26,6 +26,8 @@ services:
     restart: unless-stopped
     ports:
       - "${WEBHOOK_PORT:-9000}:9000"
+    environment:
+      - COMPOSE_PROJECT_NAME=tajarib
     env_file:
       - .env
     volumes:
