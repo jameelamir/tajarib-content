@@ -107,15 +107,14 @@ function renderReelDetail(ep, reelId) {
         // Reset portrait layout since there's no video
         var modular = document.getElementById('reel-detail-modular');
         if (modular) modular.classList.remove('portrait');
-    } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug || previewEl.dataset.hideSubs !== String(hideSubtitles)) {
+    } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
         var hasCuts = r.cuts && r.cuts.length > 0;
         var videoUrl = hasCuts
             ? '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now()
-            : '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + (hideSubtitles ? '&subs=off' : '') + '&t=' + Date.now();
+            : '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.reelId = reelId;
         previewEl.dataset.slug = ep.slug;
-        previewEl.dataset.hideSubs = String(hideSubtitles);
         // Detect portrait video and switch to side-by-side layout
         var vid = previewEl.querySelector('video');
         if (vid) vid.addEventListener('loadedmetadata', function() {
@@ -398,9 +397,7 @@ function buildReelActions(ep, reel) {
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
         '</select>' +
-        burnToggle('subs', subsEnabled) +
-        (reel.subtitled ? '<button onclick="event.stopPropagation(); toggleSubtitles()" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer; opacity:' + (hideSubtitles ? '0.5' : '1') + ';" title="' + (hideSubtitles ? 'Show subtitles in preview' : 'Hide subtitles in preview') + '">' +
-            (hideSubtitles ? '&#9676; Preview off' : '&#9679; Preview on') + '</button>' : '')
+        burnToggle('subs', subsEnabled)
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
         '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>' +
@@ -2913,15 +2910,6 @@ async function saveReelCaption(reelId) {
 }
 
 // ─── Run Reel Step ───────────────────────────────────────────────────────────
-
-function toggleSubtitles() {
-    hideSubtitles = !hideSubtitles;
-    // Force video reload by clearing cached reel id
-    var previewEl = document.getElementById('reel-preview');
-    if (previewEl) previewEl.dataset.hideSubs = '';
-    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
-    if (ep && selectedReelId) renderReelDetail(ep, selectedReelId);
-}
 
 async function runReelStep(reelId, step) {
     if (!currentSlug) return;
