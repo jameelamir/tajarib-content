@@ -11,7 +11,7 @@ module.exports = function init(ctx) {
   function startTranscription(slug, finalPath, transcribeMethod) {
     io.emit("log", { slug, text: `▶ Starting transcription (${transcribeMethod})...\n` });
     io.emit("process-start", { slug, step: "transcribe" });
-    const args = ["-u", "transcribe.py", finalPath, "--slug", slug];
+    const args = ["-u", "transcribe.py", finalPath, "--slug", slug, "--output", path.join(EPISODES_DIR, slug, "transcript.json")];
     if (transcribeMethod === "groq") args.push("--groq");
     else if (transcribeMethod === "api") args.push("--api");
     else { const tcfg = getTranscriptionConfig(); if (tcfg.localModel && tcfg.localModel !== "large-v3") args.push("--model", tcfg.localModel); }

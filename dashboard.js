@@ -39,7 +39,8 @@ const BUFFER_CONFIG_FILE = path.join(GLOBAL_CONFIG_DIR, "buffer-config.json");
 process.on("uncaughtException", (err) => { console.error("[UNCAUGHT]", err.message, err.stack?.split("\n")[1]); });
 process.on("unhandledRejection", (err) => { console.error("[UNHANDLED REJECTION]", err?.message || err); });
 
-const PYTHON_BIN = path.join(WORKSPACE_DIR, ".venv", "bin", "python3");
+const VENV_PYTHON = path.join(WORKSPACE_DIR, ".venv", "bin", "python3");
+const PYTHON_BIN = fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : "python3";
 const NODE_BIN = process.execPath;
 
 // ─── Server + Shared State ───────────────────────────────────────────────────
