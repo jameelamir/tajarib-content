@@ -389,6 +389,50 @@ describe("chunkWords", () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].text).toBe("keep");
   });
+
+  test("does not break a chunk on a trailing Arabic preposition", () => {
+    // 6 words ending in "في" — soft limit hits but connector keeps it open
+    const words = [
+      { word: "الفريق", start: 0, end: 0.4 },
+      { word: "لعب", start: 0.4, end: 0.8 },
+      { word: "مباراة", start: 0.8, end: 1.2 },
+      { word: "كبيرة", start: 1.2, end: 1.6 },
+      { word: "جداً", start: 1.6, end: 1.8 },
+      { word: "في", start: 1.8, end: 1.95 },
+      { word: "الرياض", start: 1.95, end: 2.3 },
+    ];
+    const chunks = chunkWords(words, 0);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toBe("الفريق لعب مباراة كبيرة جداً في الرياض");
+  });
+
+  test("breaks at Arabic comma once chunk is established", () => {
+    const words = [
+      { word: "نعم", start: 0, end: 0.3 },
+      { word: "بالتأكيد،", start: 0.3, end: 0.9 },
+      { word: "هذا", start: 0.9, end: 1.1 },
+      { word: "صحيح", start: 1.1, end: 1.5 },
+    ];
+    const chunks = chunkWords(words, 0);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].text).toBe("نعم بالتأكيد،");
+    expect(chunks[1].text).toBe("هذا صحيح");
+  });
+
+  test("respects Whisper segment boundaries via _segStart marker", () => {
+    // No pause and short total duration would normally merge these — segment
+    // boundary forces the split.
+    const words = [
+      { word: "hello", start: 0, end: 0.4 },
+      { word: "world", start: 0.4, end: 0.8 },
+      { word: "next", start: 0.8, end: 1.2, _segStart: true },
+      { word: "thing", start: 1.2, end: 1.6 },
+    ];
+    const chunks = chunkWords(words, 0);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].text).toBe("hello world");
+    expect(chunks[1].text).toBe("next thing");
+  });
 });
 
 describe("remapChunksForCuts", () => {

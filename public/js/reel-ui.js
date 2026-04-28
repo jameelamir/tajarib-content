@@ -2395,6 +2395,7 @@ function rtReelWordsFromTranscript(t) {
         var textWords = seg.text.trim().split(/\s+/).filter(Boolean);
         if (!textWords.length) continue;
         var segWords = seg.words || [];
+        var firstIdx = result.length;
         if (segWords.length === textWords.length) {
             for (var j = 0; j < segWords.length; j++) result.push(segWords[j]);
         } else {
@@ -2409,43 +2410,81 @@ function rtReelWordsFromTranscript(t) {
                 }
             });
         }
+        // Tag the first word of this Whisper segment so rtChunkWords never
+        // merges across the boundary.
+        if (result.length > firstIdx) {
+            var first = result[firstIdx];
+            result[firstIdx] = { word: first.word, start: first.start, end: first.end, probability: first.probability, _segStart: true };
+        }
     }
     return result;
 }
 
-// Mirrors subtitle.js chunkWords — groups words into subtitle chunks using
-// the same pause/sentence/length rules.
+// Mirrors subtitle.js chunkWords — keep these two implementations in sync.
 var RT_PAUSE_BREAK_SEC = 0.4;
 var RT_SENTENCE_END_RE = /[.!?؟…]+$/;
+var RT_SOFT_BREAK_RE = /[،,;:]+$/;
+var RT_SOFT_WORD_LIMIT = 6;
+var RT_SOFT_DUR_LIMIT = 2.0;
+var RT_HARD_WORD_LIMIT = 9;
+var RT_HARD_DUR_LIMIT = 3.0;
+var RT_NON_FINAL_AR = (function() {
+    var s = {};
+    var arr = [
+        "في","من","على","عن","إلى","حتى","بعد","قبل","عند","أمام","خلف","تحت","فوق","بين","لدى","نحو","ضد","مع",
+        "و","أو","أم","ثم","ف","ل","ب","ك","لكن","لكنه","لكنها","لأن","لأنّ","لأنه","لأنها","لكي","كي","إذ","إذا","إن","أن","أنّ","إنّ",
+        "الذي","التي","الذين","اللاتي","اللواتي","ما","لا","لم","لن","قد","لقد","هل","كل","بعض","غير","سوى",
+        "هذا","هذه","ذلك","تلك","هؤلاء","أولئك","أيها","أيتها"
+    ];
+    for (var i = 0; i < arr.length; i++) s[arr[i]] = true;
+    return s;
+})();
+var RT_STRIP_DIACRITICS_RE = /[ً-ٰٟـ]/g;
+var RT_STRIP_PUNCT_RE = /[.,،;:!?؟…\-]/g;
+function rtNormalizeWord(s) {
+    return s.replace(RT_STRIP_DIACRITICS_RE, '').replace(RT_STRIP_PUNCT_RE, '').trim();
+}
+
 function rtChunkWords(words) {
     var chunks = [];
     var current = { words: [], start: null, end: null };
+    function flush() {
+        if (current.words.length) {
+            chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
+        }
+        current = { words: [], start: null, end: null };
+    }
     for (var i = 0; i < words.length; i++) {
         var w = words[i];
         if (w.start < 0) continue;
         if (current.words.length > 0) {
             var gap = w.start - current.end;
-            if (gap >= RT_PAUSE_BREAK_SEC) {
-                chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
-                current = { words: [], start: null, end: null };
-            }
+            if (gap >= RT_PAUSE_BREAK_SEC) flush();
+            else if (w._segStart) flush();
         }
         if (current.start === null) current.start = w.start;
         var trimmed = w.word.trim();
         current.words.push(trimmed);
         current.end = w.end;
+
         var isSentenceEnd = RT_SENTENCE_END_RE.test(trimmed);
-        var hitLimit = current.words.length >= 6 || (current.end - current.start) >= 2;
-        if (isSentenceEnd || hitLimit) {
-            chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
-            current = { words: [], start: null, end: null };
-        }
+        var isSoftBreak = RT_SOFT_BREAK_RE.test(trimmed);
+        var wordCount = current.words.length;
+        var dur = current.end - current.start;
+        var overSoft = wordCount >= RT_SOFT_WORD_LIMIT || dur >= RT_SOFT_DUR_LIMIT;
+        var overHard = wordCount >= RT_HARD_WORD_LIMIT || dur >= RT_HARD_DUR_LIMIT;
+        var lastIsConnector = !!RT_NON_FINAL_AR[rtNormalizeWord(trimmed)];
+
+        if (isSentenceEnd) flush();
+        else if (isSoftBreak && wordCount >= 2) flush();
+        else if (overHard) flush();
+        else if (overSoft && !lastIsConnector) flush();
     }
-    if (current.words.length > 0) chunks.push({ text: current.words.join(' '), start: current.start, end: current.end });
+    if (current.words.length > 0) flush();
     // Close gaps (MAX_GAP_FILL = 3s, same as subtitle.js)
-    for (var j = 0; j < chunks.length - 1; j++) {
-        var g = chunks[j + 1].start - chunks[j].end;
-        if (g > 0 && g <= 3) chunks[j].end = chunks[j + 1].start;
+    for (var k = 0; k < chunks.length - 1; k++) {
+        var g = chunks[k + 1].start - chunks[k].end;
+        if (g > 0 && g <= 3) chunks[k].end = chunks[k + 1].start;
     }
     return chunks;
 }
