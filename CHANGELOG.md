@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-04-28
+
+### Fixed
+- CLI scripts (`subtitle.js`, `analyze.js`, `crop.js`, `overlay.js`, `generate.js`, `cut.js`, `compose.js`, `analyze-clips.js`) now honor the `EPISODES_DIR` env var via `utils.js`. Previously the dashboard read/wrote `/data/episodes` (the mounted persistent volume) but spawned child processes fell back to `/episodes` inside the container, so Sub/Re-sub on uploaded reels reported "No transcript.json found" even when the transcript existed.
+
 ## [1.0.4] - 2026-04-28
 
 ### Changed
