@@ -11,7 +11,11 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { execSync, execFileSync, spawnSync } = require("child_process");
+
+// Unique per-process token so concurrent subtitle burns don't collide on /tmp paths.
+const TMP_TAG = `${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 const { toSeconds, EPISODES_DIR } = require("./utils");
 const { GLOBAL_TRANSCRIPTION_CONFIG } = require("./server/global-config");
 const PYTHON_BIN = fs.existsSync(path.join(__dirname, ".venv", "bin", "python3"))
@@ -667,15 +671,15 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
 
     // Burn subtitles with gradient overlay (same as per-reel)
     console.log(`   🔥 Burning subtitles with ffmpeg...`);
-    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-full.ass`);
-    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-full.mp4`);
+    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-full-${TMP_TAG}.ass`);
+    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-full-${TMP_TAG}.mp4`);
     fs.copyFileSync(subtitlePath, tmpSub);
     const escapedSubtitle = tmpSub.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
 
     // Generate gradient overlay (same as per-reel)
     const gradW = videoDims.width;
     const gradH = videoDims.height;
-    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-full.png`);
+    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-full-${TMP_TAG}.png`);
     execFileSync("ffmpeg", [
       "-y", "-f", "lavfi", "-i",
       `color=black:size=${gradW}x${gradH}:d=1,format=rgba,geq=r=0:g=0:b=0:a='if(gt(Y,H*0.4),min(166,(Y-H*0.4)/(H*0.6)*166),0)'`,
@@ -970,8 +974,8 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     console.log(`   🔥 Burning subtitles with ffmpeg...`);
 
     // Copy subtitle file to /tmp to avoid special characters in path (!, spaces, etc.)
-    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-${reelId}.ass`);
-    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-${reelId}.mp4`);
+    const tmpSub = path.join(os.tmpdir(), `tajarib-sub-${reelId}-${TMP_TAG}.ass`);
+    const tmpOut = path.join(os.tmpdir(), `tajarib-subtitled-${reelId}-${TMP_TAG}.mp4`);
     fs.copyFileSync(subtitlePath, tmpSub);
 
     // Escape temp subtitle path for FFmpeg (only : and \ need escaping)
@@ -982,7 +986,7 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     const videoDimsForGrad = getVideoDimensions(videoPath);
     const gradW = videoDimsForGrad.width;
     const gradH = videoDimsForGrad.height;
-    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-${reelId}.png`);
+    const tmpGrad = path.join(os.tmpdir(), `tajarib-grad-${reelId}-${TMP_TAG}.png`);
     // Alpha ramps from 0 at 40% height to ~130 (out of 255) at bottom = ~50% darken
     execFileSync("ffmpeg", [
       "-y", "-f", "lavfi", "-i",
