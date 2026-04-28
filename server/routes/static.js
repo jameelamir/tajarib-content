@@ -14,11 +14,21 @@ module.exports = async function staticRoute(req, res, url, ctx) {
   // API routes are handled by other modules
   if (url.pathname.startsWith("/api/")) return false;
 
+  // No-cache headers for HTML / JS / CSS so users always pick up the latest
+  // build after a deploy. Without this, browsers happily serve stale upload.js
+  // / config.js for hours, which masks new fixes (and produces "the warning is
+  // still there" reports right after a deploy).
+  const noCacheHeaders = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+  };
+
   // Main page
   if (req.method === "GET" && url.pathname === "/") {
     const indexPath = path.join(ctx.WORKSPACE_DIR, "index.html");
     if (fs.existsSync(indexPath)) {
-      res.writeHead(200, { "Content-Type": "text/html" });
+      res.writeHead(200, { "Content-Type": "text/html", ...noCacheHeaders });
       res.end(fs.readFileSync(indexPath, "utf8"));
     } else {
       res.writeHead(500, { "Content-Type": "text/plain" });
@@ -37,7 +47,8 @@ module.exports = async function staticRoute(req, res, url, ctx) {
         '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.css': 'text/css',
         '.js': 'application/javascript'
       }[ext] || 'application/octet-stream';
-      res.writeHead(200, { "Content-Type": contentType });
+      const isCode = ext === '.js' || ext === '.css';
+      res.writeHead(200, { "Content-Type": contentType, ...(isCode ? noCacheHeaders : {}) });
       res.end(fs.readFileSync(filePath));
       return true;
     }

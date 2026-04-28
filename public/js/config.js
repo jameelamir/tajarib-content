@@ -14,9 +14,19 @@ async function loadVersionChip() {
             const ageMin = Math.round((Date.now() - ts.getTime()) / 60000);
             const ageStr = ageMin < 60 ? `${ageMin}m ago` : ageMin < 1440 ? `${Math.round(ageMin/60)}h ago` : `${Math.round(ageMin/1440)}d ago`;
             builtLine = `\nBuilt ${ts.toISOString().slice(0,16).replace('T',' ')} UTC (${ageStr})`;
-            const fresh = ageMin < 60;
-            el.style.color = fresh ? '#4ade80' : '#888';
-            el.style.borderColor = fresh ? '#1b3d22' : '#2a2a2a';
+            if (ageMin < 60) {
+                el.style.color = '#86efac';
+                el.style.background = '#0e2418';
+                el.style.borderColor = '#1b6b3a';
+            } else if (ageMin < 1440) {
+                el.style.color = '#a5b4fc';
+                el.style.background = '#1a1d3a';
+                el.style.borderColor = '#3a3f6e';
+            } else {
+                el.style.color = '#9ca3af';
+                el.style.background = '#1a1a1a';
+                el.style.borderColor = '#333';
+            }
         }
         el.title = `Tajarib v${version}${sha && sha !== 'dev' ? `\nCommit ${sha}` : ''}${builtLine}`;
     } catch (e) {
