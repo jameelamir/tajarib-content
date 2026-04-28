@@ -103,6 +103,20 @@ module.exports = function init(ctx) {
   function runStep(params) {
     const { slug, step, reelId } = params;
     const procKey = reelId ? `${slug}:${reelId}` : slug;
+
+    // Auto-transcribe before subtitle if no transcript exists yet.
+    // Queue the subtitle under the slug-level procKey so the post-transcribe
+    // queue drain (in _runStep's close handler) picks it up.
+    if (step === "subtitle" && !params._autoChained) {
+      const transcriptPath = path.join(EPISODES_DIR, slug, "transcript.json");
+      if (!fs.existsSync(transcriptPath)) {
+        io.emit("log", { slug, reelId: reelId || null, text: `\n📝 No transcript yet — running transcribe first, then subtitle\n` });
+        if (!stepQueue[slug]) stepQueue[slug] = [];
+        stepQueue[slug].push({ ...params, _autoChained: true });
+        return runStep({ slug, step: "transcribe", force: false });
+      }
+    }
+
     if (activeProcesses[procKey]) {
       // Queue instead of rejecting
       if (!stepQueue[procKey]) stepQueue[procKey] = [];
@@ -116,7 +130,7 @@ module.exports = function init(ctx) {
   }
 
   function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim }) {
-    const procKey = reelId ? `${slug}:${reelId}` : slug;
+    let procKey = reelId ? `${slug}:${reelId}` : slug;
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
     let videoFile = "raw.mp4";
@@ -126,7 +140,7 @@ module.exports = function init(ctx) {
     switch (step) {
       case "transcribe":
         if (!found) { io.emit("toast", { type: "error", message: `No video/audio in ${slug}/` }); return; }
-        cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join("episodes", slug, videoFile), "--slug", slug];
+        cmd = PYTHON_BIN; args = ["-u", "transcribe.py", path.join(dir, videoFile), "--slug", slug, "--output", path.join(dir, "transcript.json")];
         if (force) args.push("--force");
         const tcfg = getTranscriptionConfig();
         let tMethod = transcribeMethod || tcfg.defaultMethod || (tcfg.groqApiKey ? "groq" : "local");
@@ -216,13 +230,27 @@ module.exports = function init(ctx) {
       if (step === "crop" && code === 0 && ratio) saveMeta(slug, { cropRatio: ratio });
       io.emit("process-end", { slug, step, code, reelId: _rid });
       io.emit("status-update", {});
-      if (step === "transcribe" && code === 0) await handlePostTranscription(slug);
+      if (step === "transcribe" && code === 0) {
+        const newSlug = await handlePostTranscription(slug);
+        // If the AI-title flow renamed the episode, remap any queued steps
+        // (and the procKey we're about to drain) from the old slug to the new.
+        if (newSlug && newSlug !== slug) {
+          for (const key of Object.keys(stepQueue)) {
+            if (key === slug || key.startsWith(slug + ":")) {
+              const remappedKey = key === slug ? newSlug : newSlug + key.slice(slug.length);
+              stepQueue[remappedKey] = stepQueue[key].map(p => ({ ...p, slug: newSlug }));
+              delete stepQueue[key];
+            }
+          }
+          procKey = reelId ? `${newSlug}:${reelId}` : newSlug;
+        }
+      }
 
       // Drain queue — run next queued step for this procKey
       if (stepQueue[procKey] && stepQueue[procKey].length > 0) {
         const next = stepQueue[procKey].shift();
         if (stepQueue[procKey].length === 0) delete stepQueue[procKey];
-        io.emit("log", { slug, reelId: _rid, text: `\n▶ Running queued step: ${next.step}\n` });
+        io.emit("log", { slug: next.slug, reelId: _rid, text: `\n▶ Running queued step: ${next.step}\n` });
         _runStep(next);
       }
     });
