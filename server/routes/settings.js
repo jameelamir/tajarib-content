@@ -58,6 +58,18 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/version") {
+    let version = "unknown", sha = "dev", builtAt = "dev";
+    try { version = JSON.parse(fs.readFileSync(path.join(ctx.WORKSPACE_DIR, "package.json"), "utf8")).version || version; } catch (_) {}
+    try {
+      const v = JSON.parse(fs.readFileSync(path.join(ctx.WORKSPACE_DIR, ".version.json"), "utf8"));
+      sha = v.sha || sha; builtAt = v.builtAt || builtAt;
+    } catch (_) {}
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ version, sha, builtAt }));
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/llm-config") {
     const body = await readBody(req);
     try {

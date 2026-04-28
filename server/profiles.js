@@ -9,7 +9,9 @@ const path = require("path");
 
 module.exports = function init(ctx) {
   const { WORKSPACE_DIR } = ctx;
+  const { GLOBAL_CONFIG_DIR } = require("./global-config");
   const CANDIDATES = [
+    path.join(GLOBAL_CONFIG_DIR, "profiles.json"),
     path.join(WORKSPACE_DIR, "config", "profiles.json"),
     path.join(WORKSPACE_DIR, "profiles.json"),
   ];

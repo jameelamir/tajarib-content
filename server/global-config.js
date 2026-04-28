@@ -1,20 +1,27 @@
 /**
- * Global config paths — shared across all workspaces.
- * Stored in ~/.tajarib/ so API keys and settings persist.
+ * Global config paths.
+ * Honours TAJARIB_CONFIG_DIR (set by docker-compose to the unified data root)
+ * and falls back to ~/.tajarib for local dev so single-user installs keep working.
  */
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
 
-const GLOBAL_CONFIG_DIR = path.join(os.homedir(), ".tajarib");
+const GLOBAL_CONFIG_DIR = process.env.TAJARIB_CONFIG_DIR || path.join(os.homedir(), ".tajarib");
 
-// Ensure directory exists on first require
 if (!fs.existsSync(GLOBAL_CONFIG_DIR)) {
   fs.mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true });
 }
 
 const GLOBAL_TRANSCRIPTION_CONFIG = path.join(GLOBAL_CONFIG_DIR, "transcription-config.json");
 const GLOBAL_AUTH_PATH = path.join(GLOBAL_CONFIG_DIR, "auth.json");
+const GLOBAL_GUESTS_FILE = path.join(GLOBAL_CONFIG_DIR, "guests.json");
+
+function seedIfMissing(targetPath, sourcePath) {
+  if (fs.existsSync(targetPath)) return;
+  if (!fs.existsSync(sourcePath)) return;
+  try { fs.copyFileSync(sourcePath, targetPath); } catch (_) {}
+}
 
 /**
  * Check if a value looks like a valid API key (alphanumeric, 10+ chars).
@@ -56,4 +63,4 @@ function migrateIfNeeded(localPath, globalPath) {
   } catch (_) {}
 }
 
-module.exports = { GLOBAL_CONFIG_DIR, GLOBAL_TRANSCRIPTION_CONFIG, GLOBAL_AUTH_PATH, migrateIfNeeded };
+module.exports = { GLOBAL_CONFIG_DIR, GLOBAL_TRANSCRIPTION_CONFIG, GLOBAL_AUTH_PATH, GLOBAL_GUESTS_FILE, migrateIfNeeded, seedIfMissing };

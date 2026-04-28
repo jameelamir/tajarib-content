@@ -1,21 +1,23 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+        BUILD_TIME: ${BUILD_TIME:-dev}
     image: tajarib-app
     container_name: tajarib-app
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-7430}:7430"
     environment:
-      - EPISODES_DIR=/app/episodes
-      - UPLOADS_DIR=/app/uploads
+      - EPISODES_DIR=/data/episodes
+      - UPLOADS_DIR=/data/uploads
+      - TAJARIB_CONFIG_DIR=/data/config
     env_file:
       - .env
     volumes:
-      - ./episodes:/app/episodes
-      - ./uploads:/app/uploads
-      - ./config:/app/config
-      - ./config/tajarib:/root/.tajarib
+      - ${DATA_DIR:-/opt/tajarib-data}:/data
 
   webhook:
     build:
