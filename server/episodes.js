@@ -45,11 +45,20 @@ module.exports = function init(ctx) {
     saveJSON(GLOBAL_TRANSCRIPTION_CONFIG, existing);
   }
 
-  function getEpisodes() {
+  function getEpisodes(opts = {}) {
     if (!fs.existsSync(EPISODES_DIR)) return [];
+    const { profile = null, scope = "all" } = opts;
 
     return fs.readdirSync(EPISODES_DIR)
       .filter(f => fs.statSync(path.join(EPISODES_DIR, f)).isDirectory())
+      .filter(slug => {
+        if (!profile || scope === "all") return true;
+        const meta = loadMeta(slug);
+        const owner = meta.owner || null;
+        if (scope === "mine") return owner === profile || !owner;
+        if (scope === "theirs") return owner && owner !== profile;
+        return true;
+      })
       .map(slug => {
         const dir = path.join(EPISODES_DIR, slug);
         const meta = loadMeta(slug);
@@ -110,6 +119,7 @@ module.exports = function init(ctx) {
         return {
           slug, mediaType, rawVideo, videoSize,
           guest: meta.guest || "", role: meta.role || "",
+          owner: meta.owner || null,
           multiTrack: meta.multiTrack || false,
           steps: {
             transcribed: transcript, analyzed: analysis, reelsSelected: true,

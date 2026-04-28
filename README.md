@@ -19,6 +19,15 @@ node dashboard.js
 
 Dashboard runs at `http://localhost:7430`
 
+## Deploy to a VPS
+
+For a hosted multi-user setup with auto-deploy on push to `main`, see [docs/DEPLOY.md](docs/DEPLOY.md).
+
+```bash
+ssh root@your-vps
+curl -fsSL https://raw.githubusercontent.com/jameelamir/tajarib-content/main/scripts/install-vps.sh | bash
+```
+
 ## File Structure
 
 ```

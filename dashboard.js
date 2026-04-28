@@ -59,6 +59,7 @@ const ctx = {
 // ─── Initialize Modules (order matters — later modules depend on earlier ones) ─
 
 Object.assign(ctx, require("./server/helpers")(ctx));
+Object.assign(ctx, require("./server/profiles")(ctx));
 Object.assign(ctx, require("./server/storage")(ctx));
 Object.assign(ctx, require("./server/ai-services")(ctx));
 Object.assign(ctx, require("./server/episodes")(ctx));

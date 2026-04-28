@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    image: tajarib-app
+    container_name: tajarib-app
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-7430}:7430"
+    env_file:
+      - .env
+    volumes:
+      - ./episodes:/app/episodes
+      - ./uploads:/app/uploads
+      - ./config:/app/config
+      - ./config/tajarib:/root/.tajarib
+
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    image: tajarib-webhook
+    container_name: tajarib-webhook
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-9000}:9000"
+    env_file:
+      - .env
+    volumes:
+      - .:/repo
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /repo

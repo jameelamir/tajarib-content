@@ -23,6 +23,11 @@ buffer-config.json
 transcription-config.json
 storage-config.json
 .uploads-state.json
+.env
+config/
+
+# Multi-user profiles (deploy-specific)
+profiles.json
 
 # Backups (keep only latest)
 *-backup.js
