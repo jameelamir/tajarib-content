@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.6] - 2026-04-28
+
+### Fixed
+- `subtitle.js` no longer fails with "Source video not found" when `meta.rawVideo` carries a stale absolute path baked in by an older container layout (e.g. `/app/episodes/...` from before the move to `/data/episodes/...`). It now prefers `meta.rawVideo` when the file actually exists, falls back to the same basename inside the current episode dir, and finally scans for any `raw.*` file. Unblocks Sub on uploaded reels whose meta was written under the old path.
+
 ## [1.0.5] - 2026-04-28
 
 ### Fixed

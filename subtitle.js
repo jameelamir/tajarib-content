@@ -592,12 +592,26 @@ async function subtitle(slug, force = false, titleCard = false, reelId = null, b
     console.log(`📝 Per-reel mode: processing only reel ${targetId}`);
   }
 
-  // Get source video path
-  let sourceVideo = path.join(dir, "raw.mov");
+  // Resolve source video. meta.rawVideo can carry a stale absolute path baked
+  // in by an older container layout (e.g. /app/episodes/... before EPISODES_DIR
+  // moved to /data/episodes/...), so only honor it when the file actually
+  // exists; otherwise re-resolve the basename inside the current episode dir,
+  // and finally scan for any raw.* file.
+  let sourceVideo = null;
   if (fs.existsSync(metaPath)) {
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-    if (meta.rawVideo) sourceVideo = meta.rawVideo;
+    if (meta.rawVideo && fs.existsSync(meta.rawVideo)) {
+      sourceVideo = meta.rawVideo;
+    } else if (meta.rawVideo) {
+      const candidate = path.join(dir, path.basename(meta.rawVideo));
+      if (fs.existsSync(candidate)) sourceVideo = candidate;
+    }
   }
+  if (!sourceVideo && fs.existsSync(dir)) {
+    const raw = fs.readdirSync(dir).find(f => /^raw\.(mp4|mkv|mov|avi)$/i.test(f));
+    if (raw) sourceVideo = path.join(dir, raw);
+  }
+  if (!sourceVideo) sourceVideo = path.join(dir, "raw.mp4");
 
   if (reels.length === 0) {
     // No reels from analysis — treat the full video as a single reel
