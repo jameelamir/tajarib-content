@@ -56,7 +56,12 @@ async function deploy() {
     if (code !== 0) throw new Error("git fetch failed");
     code = await run("git", ["reset", "--hard", `origin/${BRANCH}`]);
     if (code !== 0) throw new Error("git reset failed");
-    code = await run("docker", ["compose", "up", "-d", "--build"]);
+    // Build all images, but only recreate the app container — recreating
+    // ourselves would kill this script mid-deploy. Webhook updates require
+    // a manual `docker compose up -d --build webhook` from the host.
+    code = await run("docker", ["compose", "build", "app"]);
+    if (code !== 0) throw new Error("docker compose build failed");
+    code = await run("docker", ["compose", "up", "-d", "--no-deps", "app"]);
     if (code !== 0) throw new Error("docker compose up failed");
     console.log("[webhook] deploy complete");
   } catch (err) {
