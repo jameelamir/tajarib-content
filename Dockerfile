@@ -23,6 +23,12 @@ RUN npm install --omit=dev
 
 COPY . .
 
+# Register bundled fonts with fontconfig so libass (ASS subtitle filter) can
+# resolve "SomarSans-Bold" by name when burning subtitles.
+RUN mkdir -p /usr/share/fonts/opentype/somar \
+    && cp /app/fonts/*.otf /usr/share/fonts/opentype/somar/ \
+    && fc-cache -f
+
 ARG GIT_SHA=dev
 ARG BUILD_TIME=dev
 RUN printf '{"sha":"%s","builtAt":"%s"}\n' "$GIT_SHA" "$BUILD_TIME" > /app/.version.json
