@@ -5,11 +5,19 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = async function episodesRoutes(req, res, url, ctx) {
-  const { io, WORKSPACE_DIR, EPISODES_DIR, loadJSON, saveJSON, loadMeta, saveMeta, addGuestToHistory, getEpisodes, activeProcesses, logs, readBody } = ctx;
+  const { io, WORKSPACE_DIR, EPISODES_DIR, loadJSON, saveJSON, loadMeta, saveMeta, addGuestToHistory, getEpisodes, activeProcesses, logs, readBody, loadProfiles, getProfileFromReq, getScopeFromReq } = ctx;
+
+  if (req.method === "GET" && url.pathname === "/api/profiles") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(loadProfiles()));
+    return true;
+  }
 
   if (req.method === "GET" && url.pathname === "/api/episodes") {
+    const profile = getProfileFromReq(req);
+    const scope = getScopeFromReq(req);
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(getEpisodes()));
+    res.end(JSON.stringify(getEpisodes({ profile, scope })));
     return true;
   }
 

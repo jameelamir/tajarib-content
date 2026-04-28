@@ -3,6 +3,7 @@
 // Initialize
 async function init() {
     console.log('🚀 init() starting...');
+    await setupProfiles();
     await loadGuestHistory();
     await loadTranscriptionConfig();
     await loadGenKeyStatus();

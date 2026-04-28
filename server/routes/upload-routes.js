@@ -9,7 +9,8 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     addGuestToHistory, startTranscription, tryFetchYouTubeTranscript, handlePostTranscription,
     getStorageConfig, calcDirSize, loadUploadsState, saveUploadsState, cleanupUploadState, CHUNK_SIZE,
-    formidable, activeProcesses, readBody } = ctx;
+    formidable, activeProcesses, readBody, getProfileFromReq } = ctx;
+  const owner = getProfileFromReq(req);
 
   if (req.method === "POST" && url.pathname === "/api/upload") {
     const form = formidable({ uploadDir: UPLOADS_DIR, keepExtensions: true, maxFileSize: 25 * 1024 * 1024 * 1024 });
@@ -52,7 +53,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
           io.emit("log", { slug, text: `\n📁 Uploaded: ${videoFile.originalFilename || videoFile.newFilename}\n` });
         }
 
-        saveMeta(slug, { mediaType, originalFilename: multiTrack ? "multi-track" : (videoFile.originalFilename || videoFile.newFilename), createdAt: new Date().toISOString(), rawVideo: finalPath, guest, role, transcribeMethod, ...(pendingAiTitle && { pendingAiTitle: true }), ...metaExtra });
+        saveMeta(slug, { mediaType, originalFilename: multiTrack ? "multi-track" : (videoFile.originalFilename || videoFile.newFilename), createdAt: new Date().toISOString(), rawVideo: finalPath, guest, role, transcribeMethod, ...(owner && { owner }), ...(pendingAiTitle && { pendingAiTitle: true }), ...metaExtra });
         if (guest) addGuestToHistory(guest, role);
 
         if (srtFile) {
@@ -99,7 +100,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
         delete activeProcesses[slug];
         if (code !== 0 || !fs.existsSync(outPath)) { io.emit("log", { slug, text: `\n❌ Download failed (exit ${code})\n` }); io.emit("download-progress", { slug, percent: 0, status: "error" }); try { fs.rmSync(epDir, { recursive: true }); } catch {} return; }
         io.emit("log", { slug, text: `\n✅ Download complete\n` }); io.emit("download-progress", { slug, percent: 100, status: "done" });
-        saveMeta(slug, { mediaType: mediaType || "episode", originalFilename: videoUrl, sourceUrl: videoUrl, createdAt: new Date().toISOString(), rawVideo: outPath, guest: guest || "", role: role || "", transcribeMethod: transcribeMethod || "local", ...(pendingAiTitle && { pendingAiTitle: true }) });
+        saveMeta(slug, { mediaType: mediaType || "episode", originalFilename: videoUrl, sourceUrl: videoUrl, createdAt: new Date().toISOString(), rawVideo: outPath, guest: guest || "", role: role || "", transcribeMethod: transcribeMethod || "local", ...(owner && { owner }), ...(pendingAiTitle && { pendingAiTitle: true }) });
         if (guest) addGuestToHistory(guest, role);
         io.emit("status-update", {});
         const gotYouTubeTranscript = await tryFetchYouTubeTranscript(slug, videoUrl);
@@ -121,7 +122,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
       const pendingAiTitle = !rawSlug;
       const safeSlug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : rawSlug.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
       const state = loadUploadsState();
-      state[uploadId] = { filename, fileSize, slug: safeSlug, guest, role, mediaType: mediaType || "episode", transcribeMethod: transcribeMethod || "local", pendingAiTitle, chunksReceived: [], totalChunks: Math.ceil(fileSize / CHUNK_SIZE), createdAt: new Date().toISOString(), status: "pending" };
+      state[uploadId] = { filename, fileSize, slug: safeSlug, guest, role, mediaType: mediaType || "episode", transcribeMethod: transcribeMethod || "local", pendingAiTitle, owner: owner || null, chunksReceived: [], totalChunks: Math.ceil(fileSize / CHUNK_SIZE), createdAt: new Date().toISOString(), status: "pending" };
       saveUploadsState(state);
       fs.mkdirSync(path.join(UPLOADS_DIR, `.chunks-${uploadId}`), { recursive: true });
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, uploadId, chunkSize: CHUNK_SIZE, totalChunks: state[uploadId].totalChunks }));
@@ -159,7 +160,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
       for (let i = 0; i < upload.totalChunks; i++) { const chunkData = fs.readFileSync(path.join(chunkDir, `chunk-${i}`)); if (!ws.write(chunkData)) await new Promise(resolve => ws.once("drain", resolve)); }
       ws.end(); await new Promise((resolve, reject) => { ws.on("finish", resolve); ws.on("error", reject); });
       if (upload.guest) addGuestToHistory(upload.guest, upload.role || "");
-      saveMeta(safeSlug, { mediaType: upload.mediaType, originalFilename: upload.filename, createdAt: new Date().toISOString(), rawVideo: dest, transcribeMethod: upload.transcribeMethod, ...(upload.guest && { guest: upload.guest }), ...(upload.role && { role: upload.role }), ...(upload.pendingAiTitle && { pendingAiTitle: true }) });
+      saveMeta(safeSlug, { mediaType: upload.mediaType, originalFilename: upload.filename, createdAt: new Date().toISOString(), rawVideo: dest, transcribeMethod: upload.transcribeMethod, ...(upload.guest && { guest: upload.guest }), ...(upload.role && { role: upload.role }), ...(upload.owner && { owner: upload.owner }), ...(upload.pendingAiTitle && { pendingAiTitle: true }) });
       cleanupUploadState(uploadId);
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, slug: safeSlug }));
       io.emit("toast", { type: "success", message: `Upload complete → ${safeSlug}` }); io.emit("status-update", {});

@@ -25,6 +25,9 @@
         </div>
     </div>
 
+    <!-- Profile bar (multi-user only — hidden when profiles.json absent) -->
+    <div id="profile-bar" style="display:none; gap:6px; align-items:center; padding:6px 12px 0; flex-wrap:wrap;"></div>
+
     <!-- Default Media Type -->
     <div class="media-default-row">
         <div class="media-default-btn" id="media-default-btn" onclick="cycleMediaType()">
@@ -585,6 +588,7 @@
 
 <script src="/js/state.js"></script>
 <script src="/js/utils.js"></script>
+<script src="/js/profiles.js"></script>
 <script src="/js/config.js"></script>
 <script src="/js/storage.js"></script>
 <script src="/js/upload.js"></script>
