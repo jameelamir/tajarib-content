@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2026-04-28
+
+### Changed
+- Version chip in the sidebar header is now monospace, larger, and color-coded by build age (green <60min, indigo <24h, grey older). Easier to glance at after a deploy.
+- Static-file route now sends `Cache-Control: no-cache` for HTML/JS/CSS so browsers always pick up the latest build immediately after a deploy. Eliminates the "stale upload.js still showing the old Groq warning" class of bug.
+
 ## [1.0.3] - 2026-04-28
 
 ### Changed
