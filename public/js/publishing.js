@@ -215,17 +215,15 @@ function copyLlmPrompt() {
     const sys = document.getElementById('llm-system').textContent;
     const usr = document.getElementById('llm-user').textContent;
     const full = `System Prompt:\n${sys}\n\n---\n\nUser Message:\n${usr}`;
-    navigator.clipboard.writeText(full).then(() => showToast('Full prompt copied!', 'success'));
+    copyToClipboard(full, 'Full prompt copied!');
 }
 
 function copyLlmSystem() {
-    navigator.clipboard.writeText(document.getElementById('llm-system').textContent)
-        .then(() => showToast('System prompt copied', 'success'));
+    copyToClipboard(document.getElementById('llm-system').textContent, 'System prompt copied');
 }
 
 function copyLlmUser() {
-    navigator.clipboard.writeText(document.getElementById('llm-user').textContent)
-        .then(() => showToast('User message copied', 'success'));
+    copyToClipboard(document.getElementById('llm-user').textContent, 'User message copied');
 }
 
 async function submitLlmResponse() {

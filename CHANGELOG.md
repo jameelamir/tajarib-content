@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.8] - 2026-04-29
+
+### Fixed
+- "Copy Full Prompt" (and Copy System / Copy User) buttons in the LLM modal now actually write to the clipboard on the production dashboard. The site is served over plain HTTP, where `navigator.clipboard` is undefined; the buttons called it directly with no fallback so the click silently did nothing. Routed all three through `copyToClipboard()` in `utils.js`, which now gates the modern API on `window.isSecureContext` and falls back to a `document.execCommand('copy')` textarea — and surfaces an error toast instead of lying about success when the fallback fails.
+
 ## [1.0.7] - 2026-04-28
 
 ### Changed

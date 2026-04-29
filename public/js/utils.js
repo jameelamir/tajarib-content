@@ -4,19 +4,28 @@ function escHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(function() {
-        showToast('Copied!', 'success');
-    }).catch(function() {
-        // Fallback
+function copyToClipboard(text, message) {
+    var msg = message || 'Copied!';
+    function fallback() {
         var ta = document.createElement('textarea');
         ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
         document.body.appendChild(ta);
+        ta.focus();
         ta.select();
-        document.execCommand('copy');
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
         document.body.removeChild(ta);
-        showToast('Copied!', 'success');
-    });
+        showToast(ok ? msg : 'Copy failed — select & copy manually', ok ? 'success' : 'error');
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+            .then(function() { showToast(msg, 'success'); })
+            .catch(fallback);
+    } else {
+        fallback();
+    }
 }
 
 function formatBytes(bytes) {
