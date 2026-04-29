@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.9] - 2026-04-29
+## [1.0.10] - 2026-04-29
 
 ### Added
 - Reel pipeline: new "↑ SRT" button next to the Sub step lets you upload an SRT file to replace a reel's existing transcript. The SRT is parsed into clip-time chunks, written to `reel-XX-chunks.json` with a matching state file (so the chunker doesn't try to remap them), and stale `-subtitled.mp4` / `-final.mp4` outputs are removed so the next Sub re-burns from the uploaded subtitles.
+
+## [1.0.9] - 2026-04-29
+
+### Added
+- Inline AI-revise feedback row under the reel caption editor (both per-reel detail view and standalone reel-full view). Type a note like "make it shorter" or "lead with the hook" and hit ↩ Revise — the LLM rewrites the caption in place. Reuses the same `feedbackRow()` / `/api/feedback` plumbing already wired up for YouTube titles and episode content blocks, so it works in manual LLM mode too.
 
 ## [1.0.8] - 2026-04-29
 

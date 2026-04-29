@@ -152,12 +152,15 @@ function renderReelDetail(ep, reelId) {
             var captionBtn = '<button class="' + (r.generated ? '' : 'primary') + '" onclick="runReelStep(\'' + reelId + '\', \'generate\')" style="font-size:0.7rem;">' +
                 (r.generated ? '↻ Generate' : '▶ Generate') + '</button>';
             if (reelContent) {
+                var reelIdx = ep.content.reels.indexOf(reelContent);
                 captionEl.innerHTML =
                     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                         captionBtn +
                     '</div>' +
                     '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
+                    feedbackRow('reels.' + reelIdx + '.caption', 'reel-caption-text') +
+                    '<div class="content-hint" id="hint-reel-caption-text"></div>' +
                     '<div style="display:flex; gap:6px; margin-top:6px;">' +
                         '<button onclick="saveReelCaption(\'' + reelId + '\')" style="font-size:0.7rem;">Save</button>' +
                         '<button onclick="copyToClipboard(document.getElementById(\'reel-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
@@ -166,7 +169,7 @@ function renderReelDetail(ep, reelId) {
             } else {
                 captionEl.innerHTML =
                     '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                         captionBtn +
                     '</div>';
             }
@@ -249,10 +252,12 @@ function renderReelFullView(ep) {
         if (!existingTextarea) {
             captionEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                     '<button onclick="runStep(\'generate\')" style="font-size:0.7rem;">↻ Generate</button>' +
                 '</div>' +
                 '<textarea id="rf-caption-text" class="content-textarea" rows="4" dir="rtl" style="text-align:right; font-size:0.8rem;" placeholder="No caption yet — run Caption to generate">' + escHtml(caption) + '</textarea>' +
+                feedbackRow('reels.0.caption', 'rf-caption-text') +
+                '<div class="content-hint" id="hint-rf-caption-text"></div>' +
                 '<div style="display:flex; gap:6px; margin-top:6px;">' +
                     '<button onclick="saveStandaloneCaption()" style="font-size:0.7rem;">Save</button>' +
                     '<button onclick="copyToClipboard(document.getElementById(\'rf-caption-text\').value)" style="font-size:0.7rem;">Copy</button>' +
@@ -265,7 +270,7 @@ function renderReelFullView(ep) {
         if (!existingTextarea) {
             captionEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                     '<button class="primary" onclick="runStep(\'generate\')" style="font-size:0.7rem;">▶ Generate</button>' +
                 '</div>';
         }
