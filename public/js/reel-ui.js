@@ -397,6 +397,7 @@ function buildReelActions(ep, reel) {
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
         '</select>' +
+        '<button onclick="event.stopPropagation(); uploadReelSrt(\'' + reelId + '\')" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer;" title="Upload SRT to replace this reel\'s transcript">&#8593; SRT</button>' +
         burnToggle('subs', subsEnabled)
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
@@ -2991,6 +2992,39 @@ async function runReelStep(reelId, step) {
     } catch (err) {
         showToast(err.message, 'error');
     }
+}
+
+// ── Upload SRT to replace reel transcript ──────────────────────────────
+
+function uploadReelSrt(reelId) {
+    if (!currentSlug) return;
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.srt,text/plain';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.onchange = async function() {
+        var file = input.files && input.files[0];
+        if (!file) { input.remove(); return; }
+        var fd = new FormData();
+        fd.append('slug', currentSlug);
+        fd.append('reelId', reelId);
+        fd.append('srt', file);
+        try {
+            var res = await fetch('/api/upload-reel-srt', { method: 'POST', body: fd });
+            var data = await res.json();
+            if (data.success) {
+                showToast('SRT uploaded — ' + data.chunkCount + ' chunks. Re-run Sub to burn.', 'success');
+            } else {
+                showToast('Upload failed: ' + (data.error || 'unknown'), 'error');
+            }
+        } catch (err) {
+            showToast('Upload failed: ' + err.message, 'error');
+        } finally {
+            input.remove();
+        }
+    };
+    input.click();
 }
 
 // ── Get More Reels ──────────────────────────────────────────────────────
