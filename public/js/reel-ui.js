@@ -325,7 +325,8 @@ function buildStandaloneActions(ep) {
     steps.push({ id: 'subtitle', label: 'Sub', done: ep.steps.subtitled, extra:
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
-        '</select>'
+        '</select>' +
+        '<button onclick="event.stopPropagation(); uploadReelSrt()" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer;" title="Upload SRT to replace this reel\'s transcript">&#8593; SRT</button>'
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: ep.steps.overlaid, extra:
         '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
@@ -3042,7 +3043,7 @@ function uploadReelSrt(reelId) {
         if (!file) { input.remove(); return; }
         var fd = new FormData();
         fd.append('slug', currentSlug);
-        fd.append('reelId', reelId);
+        if (reelId) fd.append('reelId', reelId);
         fd.append('srt', file);
         try {
             var res = await fetch('/api/upload-reel-srt', { method: 'POST', body: fd });

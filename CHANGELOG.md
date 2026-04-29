@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.13] - 2026-04-29
+
+### Added
+- Reel-upload pipeline (single uploaded reel, e.g. `war1`): `↑ SRT` button now also appears on the standalone Sub step. Uploaded SRT writes to `full-chunks.json` and clears `full-subtitled.mp4` / `full-final.mp4` so the next Sub re-burns. v1.0.10 only added the button to extracted reels; this fills in the missing case.
+
 ## [1.0.12] - 2026-04-29
 
 ### Added
