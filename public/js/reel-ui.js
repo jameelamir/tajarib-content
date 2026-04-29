@@ -155,7 +155,7 @@ function renderReelDetail(ep, reelId) {
                 var reelIdx = ep.content.reels.indexOf(reelContent);
                 captionEl.innerHTML =
                     '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                         captionBtn +
                     '</div>' +
                     '<textarea id="reel-caption-text" class="content-textarea" rows="4" style="direction:rtl; font-size:0.8rem;" placeholder="No caption yet — type one or run Caption">' + escHtml(reelContent.caption || '') + '</textarea>' +
@@ -169,7 +169,7 @@ function renderReelDetail(ep, reelId) {
             } else {
                 captionEl.innerHTML =
                     '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                        '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                         captionBtn +
                     '</div>';
             }
@@ -252,7 +252,7 @@ function renderReelFullView(ep) {
         if (!existingTextarea) {
             captionEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                     '<button onclick="runStep(\'generate\')" style="font-size:0.7rem;">↻ Generate</button>' +
                 '</div>' +
                 '<textarea id="rf-caption-text" class="content-textarea" rows="4" dir="rtl" style="text-align:right; font-size:0.8rem;" placeholder="No caption yet — run Caption to generate">' + escHtml(caption) + '</textarea>' +
@@ -270,7 +270,7 @@ function renderReelFullView(ep) {
         if (!existingTextarea) {
             captionEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption</div>' +
+                    '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Caption (social media)</div>' +
                     '<button class="primary" onclick="runStep(\'generate\')" style="font-size:0.7rem;">▶ Generate</button>' +
                 '</div>';
         }
