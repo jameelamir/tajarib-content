@@ -99,52 +99,66 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
         const slug = field(fields.slug);
         const reelId = field(fields.reelId);
         const srtFile = files.srt?.[0] || files.srt;
-        if (!slug || !reelId) throw new Error("slug + reelId required");
+        if (!slug) throw new Error("slug required");
         if (!srtFile) throw new Error("No SRT file provided");
 
-        const padded = String(reelId).padStart(2, "0");
-        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
-        const analysis = loadJSON(analysisPath);
-        if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
-        const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
-        if (!reel) throw new Error("Reel not found in analysis");
+        const epDir = path.join(EPISODES_DIR, slug);
+        if (!fs.existsSync(epDir)) throw new Error("Episode not found");
 
         const srtContent = fs.readFileSync(srtFile.filepath, "utf-8");
         const parsed = parseSrt(srtContent);
         if (!parsed.segments.length) throw new Error("SRT contains no subtitle blocks — check file format");
-
         const chunks = parsed.segments.map(s => ({ start: s.start, end: s.end, text: s.text }));
 
-        const reelsDir = path.join(EPISODES_DIR, slug, "reels");
-        fs.mkdirSync(reelsDir, { recursive: true });
-        const chunksFile = path.join(reelsDir, `reel-${padded}-chunks.json`);
-        const chunksStateFile = path.join(reelsDir, `reel-${padded}-chunks-state.json`);
-        fs.writeFileSync(chunksFile, JSON.stringify(chunks, null, 2));
+        if (reelId) {
+          // Per-reel inside an episode
+          const padded = String(reelId).padStart(2, "0");
+          const analysisPath = path.join(epDir, "analysis.json");
+          const analysis = loadJSON(analysisPath);
+          if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+          const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+          if (!reel) throw new Error("Reel not found in analysis");
 
-        // Mark chunks as in-sync with current reel boundaries so subtitle.js skips remap
-        const startSec = toSeconds(reel.start);
-        const endSec = toSeconds(reel.end);
-        const cuts = (reel.cuts || [])
-          .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
-          .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
-        fs.writeFileSync(chunksStateFile, JSON.stringify({ start: startSec, end: endSec, cuts }));
+          const reelsDir = path.join(epDir, "reels");
+          fs.mkdirSync(reelsDir, { recursive: true });
+          const chunksFile = path.join(reelsDir, `reel-${padded}-chunks.json`);
+          const chunksStateFile = path.join(reelsDir, `reel-${padded}-chunks-state.json`);
+          fs.writeFileSync(chunksFile, JSON.stringify(chunks, null, 2));
 
-        // Also drop any stale clip transcript so subtitle.js doesn't blend old words back in
-        const clipTranscriptPath = path.join(reelsDir, `reel-${padded}-transcript.json`);
-        try { if (fs.existsSync(clipTranscriptPath)) fs.unlinkSync(clipTranscriptPath); } catch (_) {}
+          const startSec = toSeconds(reel.start);
+          const endSec = toSeconds(reel.end);
+          const cuts = (reel.cuts || [])
+            .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+            .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+          fs.writeFileSync(chunksStateFile, JSON.stringify({ start: startSec, end: endSec, cuts }));
 
-        // Invalidate burnt videos so the next Sub/Finalize uses the new chunks
-        try {
-          const subFile = path.join(reelsDir, `reel-${padded}-subtitled.mp4`);
-          const finalFile = path.join(reelsDir, `reel-${padded}-final.mp4`);
-          if (fs.existsSync(subFile)) fs.unlinkSync(subFile);
-          if (fs.existsSync(finalFile)) fs.unlinkSync(finalFile);
-        } catch (_) {}
+          const clipTranscriptPath = path.join(reelsDir, `reel-${padded}-transcript.json`);
+          try { if (fs.existsSync(clipTranscriptPath)) fs.unlinkSync(clipTranscriptPath); } catch (_) {}
+
+          try {
+            const subFile = path.join(reelsDir, `reel-${padded}-subtitled.mp4`);
+            const finalFile = path.join(reelsDir, `reel-${padded}-final.mp4`);
+            if (fs.existsSync(subFile)) fs.unlinkSync(subFile);
+            if (fs.existsSync(finalFile)) fs.unlinkSync(finalFile);
+          } catch (_) {}
+
+          io.emit("log", { slug, text: `\n📄 SRT uploaded for reel ${padded} — ${chunks.length} chunks (re-run Sub to burn)\n` });
+        } else {
+          // Standalone reel-upload — chunks live as full-chunks.json in the episode dir
+          fs.writeFileSync(path.join(epDir, "full-chunks.json"), JSON.stringify(chunks, null, 2));
+          try {
+            const subFile = path.join(epDir, "full-subtitled.mp4");
+            const finalFile = path.join(epDir, "full-final.mp4");
+            if (fs.existsSync(subFile)) fs.unlinkSync(subFile);
+            if (fs.existsSync(finalFile)) fs.unlinkSync(finalFile);
+          } catch (_) {}
+
+          io.emit("log", { slug, text: `\n📄 SRT uploaded — ${chunks.length} chunks (re-run Sub to burn)\n` });
+        }
 
         cleanup();
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true, chunkCount: chunks.length }));
-        io.emit("log", { slug, text: `\n📄 SRT uploaded for reel ${padded} — ${chunks.length} chunks (re-run Sub to burn)\n` });
         io.emit("status-update", {});
       } catch (e) {
         cleanup();
