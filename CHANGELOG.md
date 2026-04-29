@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.10] - 2026-04-29
+
+### Added
+- Reel pipeline: new "↑ SRT" button next to the Sub step lets you upload an SRT file to replace a reel's existing transcript. The SRT is parsed into clip-time chunks, written to `reel-XX-chunks.json` with a matching state file (so the chunker doesn't try to remap them), and stale `-subtitled.mp4` / `-final.mp4` outputs are removed so the next Sub re-burns from the uploaded subtitles.
+
 ## [1.0.9] - 2026-04-29
 
 ### Added

@@ -7,7 +7,7 @@ const { toSeconds } = require("../../utils");
 const { remapChunksForCuts, closeSubtitleGaps } = require("../../subtitle");
 
 module.exports = async function reelRoutes(req, res, url, ctx) {
-  const { io, EPISODES_DIR, loadJSON, saveJSON, loadMeta, saveMeta, readBody } = ctx;
+  const { io, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, readBody, parseSrt, formidable } = ctx;
 
   if (req.method === "POST" && url.pathname === "/api/save-reel-caption") {
     const body = await readBody(req);
@@ -86,6 +86,72 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
       io.emit("status-update", {});
     } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/upload-reel-srt") {
+    const form = formidable({ uploadDir: UPLOADS_DIR, keepExtensions: true, maxFileSize: 10 * 1024 * 1024 });
+    form.parse(req, (err, fields, files) => {
+      const cleanup = () => { try { const f = files?.srt?.[0] || files?.srt; if (f?.filepath && fs.existsSync(f.filepath)) fs.unlinkSync(f.filepath); } catch (_) {} };
+      if (err) { cleanup(); res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); return; }
+      try {
+        const field = (v) => { const x = Array.isArray(v) ? v[0] : v; return x != null ? String(x) : ""; };
+        const slug = field(fields.slug);
+        const reelId = field(fields.reelId);
+        const srtFile = files.srt?.[0] || files.srt;
+        if (!slug || !reelId) throw new Error("slug + reelId required");
+        if (!srtFile) throw new Error("No SRT file provided");
+
+        const padded = String(reelId).padStart(2, "0");
+        const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+        const analysis = loadJSON(analysisPath);
+        if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+        const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+        if (!reel) throw new Error("Reel not found in analysis");
+
+        const srtContent = fs.readFileSync(srtFile.filepath, "utf-8");
+        const parsed = parseSrt(srtContent);
+        if (!parsed.segments.length) throw new Error("SRT contains no subtitle blocks — check file format");
+
+        const chunks = parsed.segments.map(s => ({ start: s.start, end: s.end, text: s.text }));
+
+        const reelsDir = path.join(EPISODES_DIR, slug, "reels");
+        fs.mkdirSync(reelsDir, { recursive: true });
+        const chunksFile = path.join(reelsDir, `reel-${padded}-chunks.json`);
+        const chunksStateFile = path.join(reelsDir, `reel-${padded}-chunks-state.json`);
+        fs.writeFileSync(chunksFile, JSON.stringify(chunks, null, 2));
+
+        // Mark chunks as in-sync with current reel boundaries so subtitle.js skips remap
+        const startSec = toSeconds(reel.start);
+        const endSec = toSeconds(reel.end);
+        const cuts = (reel.cuts || [])
+          .map(c => ({ from: toSeconds(c.from), to: toSeconds(c.to) }))
+          .filter(c => c.from > startSec && c.to < endSec && c.to > c.from);
+        fs.writeFileSync(chunksStateFile, JSON.stringify({ start: startSec, end: endSec, cuts }));
+
+        // Also drop any stale clip transcript so subtitle.js doesn't blend old words back in
+        const clipTranscriptPath = path.join(reelsDir, `reel-${padded}-transcript.json`);
+        try { if (fs.existsSync(clipTranscriptPath)) fs.unlinkSync(clipTranscriptPath); } catch (_) {}
+
+        // Invalidate burnt videos so the next Sub/Finalize uses the new chunks
+        try {
+          const subFile = path.join(reelsDir, `reel-${padded}-subtitled.mp4`);
+          const finalFile = path.join(reelsDir, `reel-${padded}-final.mp4`);
+          if (fs.existsSync(subFile)) fs.unlinkSync(subFile);
+          if (fs.existsSync(finalFile)) fs.unlinkSync(finalFile);
+        } catch (_) {}
+
+        cleanup();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, chunkCount: chunks.length }));
+        io.emit("log", { slug, text: `\n📄 SRT uploaded for reel ${padded} — ${chunks.length} chunks (re-run Sub to burn)\n` });
+        io.emit("status-update", {});
+      } catch (e) {
+        cleanup();
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
     return true;
   }
 
