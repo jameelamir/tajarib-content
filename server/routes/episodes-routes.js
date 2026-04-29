@@ -106,6 +106,49 @@ module.exports = async function episodesRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/hide-episode") {
+    const body = await readBody(req);
+    try {
+      const { slug } = JSON.parse(body);
+      if (!slug) throw new Error("slug required");
+      const meta = loadMeta(slug);
+      const wasHidden = !!meta.hidden;
+      saveMeta(slug, { hidden: !wasHidden });
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, hidden: !wasHidden }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/done-episode") {
+    const body = await readBody(req);
+    try {
+      const { slug } = JSON.parse(body);
+      if (!slug) throw new Error("slug required");
+      const meta = loadMeta(slug);
+      const wasDone = !!meta.done;
+      saveMeta(slug, { done: !wasDone });
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, done: !wasDone }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/set-episode-owner") {
+    const body = await readBody(req);
+    try {
+      const { slug, owner } = JSON.parse(body);
+      if (!slug) throw new Error("slug required");
+      const trimmed = owner && String(owner).trim();
+      const next = trimmed ? String(trimmed) : null;
+      if (next && !/^[a-zA-Z0-9_-]{1,32}$/.test(next)) throw new Error("invalid owner");
+      saveMeta(slug, { owner: next });
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, owner: next }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/manual-caption") {
     const body = await readBody(req);
     try {

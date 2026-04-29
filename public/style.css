@@ -146,6 +146,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .sidebar-reel-btn-done-active { border-color: #4ade80; color: #4ade80; opacity: 1; }
 .sidebar-reel-btn-done-active:hover { border-color: #4ade80; color: #4ade80; }
 .sidebar-reel.done-reel .sidebar-reel-title { text-decoration: line-through; color: #666; }
+.ep-item-actions { display: inline-flex; gap: 2px; margin-left: 6px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
+.ep-item:hover .ep-item-actions, .ep-item.active .ep-item-actions { opacity: 1; }
+.ep-owner-chip { display: inline-block; padding: 1px 6px; font-size: 0.6rem; background: rgba(124, 58, 237, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #a855f7; border-radius: 3px; text-transform: capitalize; margin-left: 6px; }
+.ep-item.ep-done { background: rgba(74, 222, 128, 0.04); }
 
 .reel-detail-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .reel-detail-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #555; font-size: var(--fs-md); gap: 8px; }
