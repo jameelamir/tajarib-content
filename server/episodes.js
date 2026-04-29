@@ -120,6 +120,8 @@ module.exports = function init(ctx) {
           slug, mediaType, rawVideo, videoSize,
           guest: meta.guest || "", role: meta.role || "",
           owner: meta.owner || null,
+          hidden: !!meta.hidden,
+          done: !!meta.done,
           multiTrack: meta.multiTrack || false,
           steps: {
             transcribed: transcript, analyzed: analysis, reelsSelected: true,
