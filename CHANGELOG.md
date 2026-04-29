@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.12] - 2026-04-29
+
+### Added
+- Reel pipeline: new "⬇ Download" button in the meta actions row (next to Trim/Done/Hide/Delete) downloads the reel MP4 with a friendly `<slug>-reel-<id>.mp4` filename. Button is hidden until the reel has at least one rendered stage (cut/cropped/subtitled/final). Backed by `?download=1` on `/api/video`, which sets `Content-Disposition: attachment` with a sanitized filename.
+
 ## [1.0.11] - 2026-04-29
 
 ### Changed

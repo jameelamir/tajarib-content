@@ -467,8 +467,10 @@ function buildReelActions(ep, reel) {
             '&#9889; Finalize</button>';
     }
 
-    // Meta actions (trim/done/hide/delete) pushed to the right
+    // Meta actions (download/trim/done/hide/delete) pushed to the right
+    var hasVideo = reel.cut || reel.cropped || reel.subtitled || reel.final;
     html += '<div class="pipe-meta">' +
+        (hasVideo ? '<button onclick="downloadReel(\'' + reelId + '\')" style="color:#60a5fa;" title="Download reel MP4">&#11015; Download</button>' : '') +
         '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
         '<button onclick="toggleDoneReel(\'' + reelId + '\')"' + (reel.done ? ' style="color:#4ade80; border-color:#4ade80;"' : '') + ' title="' + (reel.done ? 'Mark undone' : 'Mark done') + '">' +
         '&#10003; ' + (reel.done ? 'Done' : 'Mark Done') + '</button>' +
@@ -3184,6 +3186,16 @@ async function toggleReelStep(reelId, kind) {
     } catch (err) {
         showToast(err.message, 'error');
     }
+}
+
+function downloadReel(reelId) {
+    if (!currentSlug) return;
+    var a = document.createElement('a');
+    a.href = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(reelId) + '&download=1';
+    a.download = currentSlug + '-reel-' + reelId + '.mp4';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 async function toggleHideReel(reelId) {

@@ -79,14 +79,18 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
     if (!fs.existsSync(videoPath)) { res.writeHead(404); res.end("Video not found"); return true; }
     const stat = fs.statSync(videoPath);
     if (stat.size === 0) { res.writeHead(204); res.end(); return true; }
+    const wantDownload = url.searchParams.get("download") === "1";
+    const safeName = (s) => String(s).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+    const downloadName = reelParam ? `${safeName(slug)}-reel-${safeName(reelParam)}.mp4` : `${safeName(slug)}.mp4`;
+    const dispositionHeader = wantDownload ? { "Content-Disposition": `attachment; filename="${downloadName}"` } : {};
     const range = req.headers.range;
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10), end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4", "Cache-Control": "no-store" });
+      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...dispositionHeader });
       fs.createReadStream(videoPath, { start, end }).pipe(res);
     } else {
-      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4", "Cache-Control": "no-store" });
+      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...dispositionHeader });
       fs.createReadStream(videoPath).pipe(res);
     }
     return true;
