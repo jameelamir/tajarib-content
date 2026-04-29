@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.9] - 2026-04-29
+
+### Added
+- Inline AI-revise feedback row under the reel caption editor (both per-reel detail view and standalone reel-full view). Type a note like "make it shorter" or "lead with the hook" and hit ↩ Revise — the LLM rewrites the caption in place. Reuses the same `feedbackRow()` / `/api/feedback` plumbing already wired up for YouTube titles and episode content blocks, so it works in manual LLM mode too.
+
 ## [1.0.8] - 2026-04-29
 
 ### Fixed
