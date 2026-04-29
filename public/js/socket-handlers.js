@@ -218,11 +218,21 @@ function setupSocketHandlers() {
     });
 
     socket.on('llm-prompt', (data) => {
+        if (!ownsPromptSlug(data.slug)) {
+            console.log('📋 LLM prompt ignored (not owned by this client):', data.slug, data.step);
+            return;
+        }
         console.log('📋 LLM prompt received:', data.step);
         pendingLlmData = data;
         openLlmModal(data);
     });
     socket.on('episode-renamed', ({oldSlug, newSlug}) => {
+        // Carry the prompt-ownership claim across the rename so we still
+        // get the modal after AI auto-titling renames a temp- slug.
+        if (oldSlug && myPromptSlugs.has(oldSlug)) {
+            claimPromptSlug(newSlug);
+            dropPromptSlug(oldSlug);
+        }
         // If we're viewing the old slug, switch to the new one
         if (currentSlug === oldSlug) {
             currentSlug = newSlug;
