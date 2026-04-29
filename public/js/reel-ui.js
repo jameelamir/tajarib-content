@@ -2,9 +2,10 @@
 
 function renderReelList(ep) {
     var listEl = document.getElementById('reel-list');
-    var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
-    var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
-    document.getElementById('reel-list-count').textContent = visibleReels.length + ' reels' + (hiddenCount > 0 ? ' (' + hiddenCount + ' hidden)' : '');
+    var activeReels = ep.reelStatuses.filter(function(r) { return !r.hidden && !r.done; });
+    var doneReels = ep.reelStatuses.filter(function(r) { return !r.hidden && r.done; });
+    var hiddenReels = ep.reelStatuses.filter(function(r) { return r.hidden; });
+    document.getElementById('reel-list-count').textContent = ep.reelStatuses.length + ' reels' + (hiddenReels.length > 0 ? ' (' + hiddenReels.length + ' hidden)' : '');
 
     // Bulk actions
     var bulkEl = document.getElementById('reel-list-bulk');
@@ -14,10 +15,9 @@ function renderReelList(ep) {
         '<button onclick="runStep(\'crop\')">Crop All</button>' +
         '<button onclick="runStep(\'subtitle\')">Sub All</button>' +
         '<button onclick="runStep(\'overlay\')">Overlay All</button>' +
-        '<button onclick="finalizeAll()" style="color:#f59e0b; font-weight:600;">Finalize All</button>' +
-        (hiddenCount > 0 ? '<button onclick="showHiddenReels=!showHiddenReels; var ep=episodes.find(function(e){return e.slug===currentSlug;}); if(ep) renderReelList(ep);" style="font-size:0.65rem; opacity:0.6;">' + (showHiddenReels ? 'Hide Hidden' : 'Show Hidden') + '</button>' : '');
+        '<button onclick="finalizeAll()" style="color:#f59e0b; font-weight:600;">Finalize All</button>';
 
-    listEl.innerHTML = visibleReels.map(function(r) {
+    function renderListItem(r) {
         var isActive = selectedReelId === r.id;
         var chipDefs = [
             {key: 'cut', label: 'CUT'},
@@ -36,10 +36,13 @@ function renderReelList(ep) {
             return '<span class="reel-chip ' + cls + '">' + c.label + '</span>';
         }).join('');
 
-        return '<div class="reel-list-item ' + (isActive ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + '" onclick="selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
+        return '<div class="reel-list-item ' + (isActive ? 'active' : '') + (r.hidden ? ' hidden-reel' : '') + (r.done ? ' done-reel' : '') + '" onclick="selectReel(\'' + r.id + '\')" style="' + (r.hidden ? 'opacity:0.4;' : '') + '">' +
             '<div class="reel-list-item-header">' +
                 '<div class="reel-list-item-title">Reel ' + r.id + (r.hidden ? ' (hidden)' : '') + '</div>' +
                 '<div class="reel-list-item-actions" onclick="event.stopPropagation()">' +
+                    '<button class="reel-item-btn' + (r.done ? ' reel-item-btn-done-active' : '') + '" onclick="toggleDoneReel(\'' + r.id + '\')" title="' + (r.done ? 'Mark undone' : 'Mark done') + '">' +
+                        '&#10003;' +
+                    '</button>' +
                     '<button class="reel-item-btn" onclick="toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show reel' : 'Hide reel') + '">' +
                         (r.hidden ? '&#128065;' : '&#128064;') +
                     '</button>' +
@@ -51,7 +54,29 @@ function renderReelList(ep) {
             (r.hook ? '<div class="reel-list-item-hook">' + r.hook + '</div>' : '') +
             '<div class="reel-list-item-chips">' + chips + '</div>' +
         '</div>';
-    }).join('');
+    }
+
+    var activeHtml = activeReels.map(renderListItem).join('');
+    var doneHtml = '';
+    if (doneReels.length > 0) {
+        doneHtml = '<div class="reel-folder-header' + (showDoneReels ? ' open' : '') + '" onclick="showDoneReels=!showDoneReels; var e=episodes.find(function(x){return x.slug===currentSlug;}); if(e) { renderReelList(e); renderSidebar(); }">' +
+            '<span class="reel-folder-chevron">' + (showDoneReels ? '▾' : '▸') + '</span>' +
+            '<span class="reel-folder-label">Done</span>' +
+            '<span class="reel-folder-count">' + doneReels.length + '</span>' +
+        '</div>';
+        if (showDoneReels) doneHtml += doneReels.map(renderListItem).join('');
+    }
+    var hiddenHtml = '';
+    if (hiddenReels.length > 0) {
+        hiddenHtml = '<div class="reel-folder-header' + (showHiddenReels ? ' open' : '') + '" onclick="showHiddenReels=!showHiddenReels; var e=episodes.find(function(x){return x.slug===currentSlug;}); if(e) { renderReelList(e); renderSidebar(); }">' +
+            '<span class="reel-folder-chevron">' + (showHiddenReels ? '▾' : '▸') + '</span>' +
+            '<span class="reel-folder-label">Hidden</span>' +
+            '<span class="reel-folder-count">' + hiddenReels.length + '</span>' +
+        '</div>';
+        if (showHiddenReels) hiddenHtml += hiddenReels.map(renderListItem).join('');
+    }
+
+    listEl.innerHTML = activeHtml + doneHtml + hiddenHtml;
 }
 
 function selectReel(reelId) {
@@ -442,9 +467,11 @@ function buildReelActions(ep, reel) {
             '&#9889; Finalize</button>';
     }
 
-    // Meta actions (trim/hide/delete) pushed to the right
+    // Meta actions (trim/done/hide/delete) pushed to the right
     html += '<div class="pipe-meta">' +
         '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
+        '<button onclick="toggleDoneReel(\'' + reelId + '\')"' + (reel.done ? ' style="color:#4ade80; border-color:#4ade80;"' : '') + ' title="' + (reel.done ? 'Mark undone' : 'Mark done') + '">' +
+        '&#10003; ' + (reel.done ? 'Done' : 'Mark Done') + '</button>' +
         '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
         (reel.hidden ? 'Show' : 'Hide') + '</button>' +
         '<button onclick="deleteReel(\'' + reelId + '\')" style="color:#f87171;" title="Delete reel files">&#128465;</button>' +

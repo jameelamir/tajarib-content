@@ -50,8 +50,9 @@ function renderSidebar() {
 
         // Embed reels under active episode
         if (currentSlug === ep.slug && ep.reelStatuses && ep.reelStatuses.length > 0) {
-            var hiddenCount = ep.reelStatuses.filter(function(r) { return r.hidden; }).length;
-            var visibleReels = showHiddenReels ? ep.reelStatuses : ep.reelStatuses.filter(function(r) { return !r.hidden; });
+            var activeReels = ep.reelStatuses.filter(function(r) { return !r.hidden && !r.done; });
+            var doneReels = ep.reelStatuses.filter(function(r) { return !r.hidden && r.done; });
+            var hiddenReels = ep.reelStatuses.filter(function(r) { return r.hidden; });
 
             var topicBtnHtml = (ep.mediaType === 'episode' && ep.steps.transcribed) ?
                 '<input type="text" id="clip-topic-input" placeholder="topic..." onclick="event.stopPropagation()" onkeydown="if(event.key===\'Enter\'){event.stopPropagation();getTopicReel()}" style="background:#111; border:1px solid #34d399; color:#ddd; padding:2px 6px; border-radius:4px; font-size:0.6rem; width:70px; min-width:0;">' +
@@ -67,10 +68,9 @@ function renderSidebar() {
                 '<button onclick="event.stopPropagation(); runStep(\'subtitle\')">Sub All</button>' +
                 '<button onclick="event.stopPropagation(); runStep(\'overlay\')">Ovr All</button>' +
                 '<button onclick="event.stopPropagation(); finalizeAll()" style="color:#f59e0b;">Finalize</button>' +
-                (hiddenCount > 0 ? '<button onclick="event.stopPropagation(); showHiddenReels=!showHiddenReels; renderSidebar();" style="opacity:0.5;">' + (showHiddenReels ? 'Hide' : 'Show ' + hiddenCount) + '</button>' : '') +
             '</div>';
 
-            var reelsHtml = visibleReels.map(function(r) {
+            function renderSidebarReel(r) {
                 var dotDefs = [
                     {key: 'cut', title: 'Cut'},
                     {key: 'generated', title: 'Caption'},
@@ -97,9 +97,29 @@ function renderSidebar() {
                         '<button class="sidebar-reel-btn sidebar-reel-btn-del" onclick="event.stopPropagation(); deleteReel(\'' + r.id + '\')" title="Delete">×</button>' +
                     '</span>' +
                 '</div>';
-            }).join('');
+            }
 
-            epHtml += '<div class="ep-reels-section">' + toolbarHtml + reelsHtml + '</div>';
+            var activeHtml = activeReels.map(renderSidebarReel).join('');
+            var doneHtml = '';
+            if (doneReels.length > 0) {
+                doneHtml = '<div class="reel-folder-header' + (showDoneReels ? ' open' : '') + '" onclick="event.stopPropagation(); showDoneReels=!showDoneReels; renderSidebar();">' +
+                    '<span class="reel-folder-chevron">' + (showDoneReels ? '▾' : '▸') + '</span>' +
+                    '<span class="reel-folder-label">Done</span>' +
+                    '<span class="reel-folder-count">' + doneReels.length + '</span>' +
+                '</div>';
+                if (showDoneReels) doneHtml += doneReels.map(renderSidebarReel).join('');
+            }
+            var hiddenHtml = '';
+            if (hiddenReels.length > 0) {
+                hiddenHtml = '<div class="reel-folder-header' + (showHiddenReels ? ' open' : '') + '" onclick="event.stopPropagation(); showHiddenReels=!showHiddenReels; renderSidebar();">' +
+                    '<span class="reel-folder-chevron">' + (showHiddenReels ? '▾' : '▸') + '</span>' +
+                    '<span class="reel-folder-label">Hidden</span>' +
+                    '<span class="reel-folder-count">' + hiddenReels.length + '</span>' +
+                '</div>';
+                if (showHiddenReels) hiddenHtml += hiddenReels.map(renderSidebarReel).join('');
+            }
+
+            epHtml += '<div class="ep-reels-section">' + toolbarHtml + activeHtml + doneHtml + hiddenHtml + '</div>';
         }
 
         return epHtml;
@@ -480,7 +500,8 @@ async function changeMediaType(slug, newType) {
     }
 }
 
-var showHiddenReels = false;
+var showHiddenReels = false;  // expand the Hidden folder
+var showDoneReels = false;    // expand the Done folder
 
 function renderClipsList(ep) {
     var listEl = document.getElementById('clips-list');

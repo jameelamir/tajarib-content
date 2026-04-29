@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.11] - 2026-04-29
+
+### Changed
+- Reel list views (sidebar under active episode + middle reel-list column) now group reels into Active / Done / Hidden sections. Done and Hidden are collapsible folders at the bottom — click the header to expand. Marking a reel done or hidden moves it into its folder regardless of cut/cropped/subtitled/final state.
+- Middle reel-list column gained the missing Done (✓) button per row, matching the sidebar.
+- Reel detail view (pipeline action bar) gained a "Mark Done" / "Done" button next to Hide.
+
 ## [1.0.10] - 2026-04-29
 
 ### Added
