@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.17] - 2026-04-29
+
+### Changed
+- Moved the **↑ SRT** upload button into the Reel Transcript section, paired with the existing **↓ SRT** download button. Removed it from the Sub-step pipeline row (where it competed with the style dropdown and In-final toggle). Upload and download now sit side-by-side in the same place — a natural "swap transcript" pair, and the editor refreshes inline to show the uploaded SRT.
+
 ## [1.0.16] - 2026-04-29
 
 ### Added

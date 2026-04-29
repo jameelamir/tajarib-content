@@ -328,8 +328,7 @@ function buildStandaloneActions(ep) {
     steps.push({ id: 'subtitle', label: 'Sub', done: ep.steps.subtitled, extra:
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
-        '</select>' +
-        '<button onclick="event.stopPropagation(); uploadReelSrt()" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer;" title="Upload SRT to replace this reel\'s transcript">&#8593; SRT</button>'
+        '</select>'
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: ep.steps.overlaid, extra:
         '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>'
@@ -442,7 +441,6 @@ function buildReelActions(ep, reel) {
         '<select id="reel-subtitle-style" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="animated" style="background:#111;">Highlight</option><option value="static" style="background:#111;">Background</option>' +
         '</select>' +
-        '<button onclick="event.stopPropagation(); uploadReelSrt(\'' + reelId + '\')" class="pipe-inline-select" style="font-size:0.58rem; cursor:pointer;" title="Upload SRT to replace this reel\'s transcript">&#8593; SRT</button>' +
         burnToggle('subs', subsEnabled)
     });
     steps.push({ id: 'overlay', label: 'Overlay', done: reel.final, extra:
@@ -2754,9 +2752,11 @@ function rtRenderChunks(containerEl) {
         '</div>';
     }
     html += '</div>';
+    var uploadArg = (reelTranscriptReelId && reelTranscriptReelId !== '__standalone__') ? "'" + reelTranscriptReelId + "'" : '';
     html += '<div style="display:flex; gap:6px;">' +
         '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-sub</button>' +
-        '<button onclick="downloadReelSRT()" style="font-size:0.7rem;">↓ SRT</button>' +
+        '<button onclick="uploadReelSrt(' + uploadArg + ')" style="font-size:0.7rem;" title="Upload SRT to replace transcript">↑ SRT</button>' +
+        '<button onclick="downloadReelSRT()" style="font-size:0.7rem;" title="Download current chunks as SRT">↓ SRT</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 
