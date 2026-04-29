@@ -40,6 +40,9 @@ function renderReelList(ep) {
             '<div class="reel-list-item-header">' +
                 '<div class="reel-list-item-title">Reel ' + r.id + (r.hidden ? ' (hidden)' : '') + '</div>' +
                 '<div class="reel-list-item-actions" onclick="event.stopPropagation()">' +
+                    '<button class="reel-item-btn" onclick="renameReelPrompt(\'' + r.id + '\')" title="Rename reel">' +
+                        '&#9998;' +
+                    '</button>' +
                     '<button class="reel-item-btn' + (r.done ? ' reel-item-btn-done-active' : '') + '" onclick="toggleDoneReel(\'' + r.id + '\')" title="' + (r.done ? 'Mark undone' : 'Mark done') + '">' +
                         '&#10003;' +
                     '</button>' +
@@ -3233,6 +3236,31 @@ async function toggleHideReel(reelId) {
         } else {
             throw new Error(data.error);
         }
+    } catch (err) {
+        showToast('Failed: ' + err.message, 'error');
+    }
+}
+
+async function renameReelPrompt(reelId) {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep) return;
+    var r = ep.reelStatuses && ep.reelStatuses.find(function(x) { return x.id === reelId; });
+    var current = (r && r.hook) || '';
+    var input = prompt('Rename reel ' + reelId + ' (hook):', current);
+    if (input == null) return;
+    var trimmed = input.trim();
+    if (trimmed === current) return;
+    try {
+        const res = await fetch('/api/rename-reel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, reelId: reelId, hook: trimmed })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Rename failed');
+        showToast('Reel ' + reelId + ' renamed', 'success');
+        refresh();
     } catch (err) {
         showToast('Failed: ' + err.message, 'error');
     }

@@ -152,5 +152,24 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/rename-episode") {
+    const body = await readBody(req);
+    try {
+      const { slug, newSlug } = JSON.parse(body);
+      if (!slug || !newSlug) throw new Error("slug + newSlug required");
+      const sanitized = String(newSlug).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      if (!sanitized) throw new Error("New name must contain letters or numbers");
+      if (sanitized === slug) { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, oldSlug: slug, newSlug: slug })); return true; }
+      if (fs.existsSync(path.join(EPISODES_DIR, sanitized))) throw new Error(`Episode "${sanitized}" already exists`);
+      const finalSlug = renameEpisode(slug, sanitized);
+      io.emit("log", { slug: finalSlug, text: `✅ Episode renamed: ${slug} → ${finalSlug}\n` });
+      io.emit("episode-renamed", { oldSlug: slug, newSlug: finalSlug });
+      io.emit("status-update", {});
+      io.emit("toast", { type: "success", message: `Renamed: ${finalSlug}` });
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, oldSlug: slug, newSlug: finalSlug }));
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
   return false;
 };

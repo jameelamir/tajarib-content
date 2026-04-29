@@ -92,6 +92,7 @@ function renderSidebar() {
                     (r.hook ? '<span class="sidebar-reel-hook">' + r.hook + '</span>' : '') +
                     '<span class="sidebar-reel-dots">' + dots + '</span>' +
                     '<span class="sidebar-reel-actions">' +
+                        '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); renameReelPrompt(\'' + r.id + '\')" title="Rename">✎</button>' +
                         '<button class="sidebar-reel-btn' + (r.done ? ' sidebar-reel-btn-done-active' : '') + '" onclick="event.stopPropagation(); toggleDoneReel(\'' + r.id + '\')" title="' + (r.done ? 'Mark undone' : 'Mark done') + '">✓</button>' +
                         '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideReel(\'' + r.id + '\')" title="' + (r.hidden ? 'Show' : 'Hide') + '">' + (r.hidden ? '👁' : '−') + '</button>' +
                         '<button class="sidebar-reel-btn sidebar-reel-btn-del" onclick="event.stopPropagation(); deleteReel(\'' + r.id + '\')" title="Delete">×</button>' +
@@ -263,7 +264,16 @@ function renderMain(slug) {
     ep.isRunning = isSlugRunning(ep.slug);
 
     // Header
-    document.getElementById('ep-title').textContent = slug;
+    var epTitleEl = document.getElementById('ep-title');
+    epTitleEl.innerHTML = '';
+    epTitleEl.appendChild(document.createTextNode(slug));
+    var renameBtn = document.createElement('button');
+    renameBtn.className = 'text-btn';
+    renameBtn.textContent = 'Rename';
+    renameBtn.style.marginLeft = '10px';
+    renameBtn.style.fontSize = '0.7rem';
+    renameBtn.onclick = function() { renameEpisodePrompt(slug); };
+    epTitleEl.appendChild(renameBtn);
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
     document.getElementById('ep-meta').innerHTML =
@@ -960,6 +970,25 @@ async function saveJsonEditor() {
         showToast('Saved ' + currentFile, 'success');
     } catch(e) {
         alert('Invalid JSON: ' + e.message);
+    }
+}
+
+async function renameEpisodePrompt(slug) {
+    var input = prompt('Rename episode "' + slug + '" to:', slug);
+    if (input == null) return;
+    var trimmed = input.trim();
+    if (!trimmed || trimmed === slug) return;
+    try {
+        const res = await fetch('/api/rename-episode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: slug, newSlug: trimmed })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Rename failed');
+        showToast('Renamed: ' + data.newSlug, 'success');
+    } catch (err) {
+        showToast('Rename failed: ' + err.message, 'error');
     }
 }
 

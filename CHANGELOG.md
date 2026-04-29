@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.16] - 2026-04-29
+## [1.0.17] - 2026-04-29
 
 ### Changed
 - Moved the **↑ SRT** upload button into the Reel Transcript section, paired with the existing **↓ SRT** download button. Removed it from the Sub-step pipeline row (where it competed with the style dropdown and In-final toggle). Upload and download now sit side-by-side in the same place — a natural "swap transcript" pair, and the editor refreshes inline to show the uploaded SRT.
+
+## [1.0.16] - 2026-04-29
+
+### Added
+- Rename option for reels and episodes. Episode header gets a "Rename" button next to the title that prompts for a new slug, sanitizes it (lowercased, alphanumeric + hyphens), checks for collisions, and renames the directory via the existing `renameEpisode()` plumbing — open clients switch over via the `episode-renamed` socket event. Reels get a ✎ button in both the sidebar row and middle reel-list row that prompts for a new hook; the new `/api/rename-reel` endpoint writes it to `analysis.json` (and `content.json` if present).
 
 ## [1.0.15] - 2026-04-29
 
