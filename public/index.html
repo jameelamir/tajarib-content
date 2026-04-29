@@ -1804,6 +1804,13 @@ async function confirmPublish() {
         return;
     }
 
+    const pin = prompt('Enter PIN to publish:');
+    if (pin === null) return;
+    if (pin !== '0000') {
+        showToast('Incorrect PIN', 'error');
+        return;
+    }
+
     let useZapier = false;
     const bufferChannelIds = [];
     checkboxes.forEach(function(cb) {
