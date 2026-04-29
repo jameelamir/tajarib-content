@@ -24,7 +24,7 @@ function renderSidebar() {
         return;
     }
 
-    list.innerHTML = episodes.map(ep => {
+    function renderEpItem(ep) {
         const sizeMb = ep.videoSize ? (ep.videoSize / 1024 / 1024).toFixed(0) + 'MB' : '';
         const typeClass = ep.mediaType;
         const typeLabel = ep.mediaType === 'episode' ? 'EP' : ep.mediaType === 'reel_full' ? 'RF' : 'RC';
@@ -38,13 +38,21 @@ function renderSidebar() {
             analyzeBtn = '<button class="' + cls + '" onclick="event.stopPropagation(); currentSlug=\'' + ep.slug + '\'; runStep(\'analyze\')">' + label + '</button>';
         }
 
-        var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + '" onclick="selectEp(\'' + ep.slug + '\')">' +
+        var ownerBadge = ep.owner ? '<span class="ep-owner-chip" title="Owner">' + escHtml(ep.owner) + '</span>' : '';
+        var epActions =
+            '<span class="ep-item-actions" onclick="event.stopPropagation()">' +
+                '<button class="sidebar-reel-btn' + (ep.done ? ' sidebar-reel-btn-done-active' : '') + '" onclick="event.stopPropagation(); toggleDoneEpisode(\'' + ep.slug + '\')" title="' + (ep.done ? 'Mark undone' : 'Mark done') + '">✓</button>' +
+                '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideEpisode(\'' + ep.slug + '\')" title="' + (ep.hidden ? 'Show' : 'Hide') + '">' + (ep.hidden ? '👁' : '−') + '</button>' +
+            '</span>';
+
+        var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + (ep.hidden ? ' ep-hidden' : '') + (ep.done ? ' ep-done' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" style="' + (ep.hidden ? 'opacity:0.5;' : '') + '">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
                 '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + ep.slug + '</span>' +
                 analyzeBtn +
+                epActions +
             '</div>' +
-            (sizeMb ? '<div class="ep-info"><span>' + sizeMb + '</span></div>' : '') +
+            (sizeMb || ownerBadge ? '<div class="ep-info">' + (sizeMb ? '<span>' + sizeMb + '</span>' : '') + ownerBadge + '</div>' : '') +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
 
@@ -124,7 +132,30 @@ function renderSidebar() {
         }
 
         return epHtml;
-    }).join('');
+    }
+
+    var activeEps = episodes.filter(function(ep) { return !ep.hidden && !ep.done; });
+    var doneEps = episodes.filter(function(ep) { return !ep.hidden && ep.done; });
+    var hiddenEps = episodes.filter(function(ep) { return ep.hidden; });
+
+    var html = activeEps.map(renderEpItem).join('');
+    if (doneEps.length > 0) {
+        html += '<div class="reel-folder-header' + (showDoneEpisodes ? ' open' : '') + '" onclick="showDoneEpisodes=!showDoneEpisodes; renderSidebar();">' +
+            '<span class="reel-folder-chevron">' + (showDoneEpisodes ? '▾' : '▸') + '</span>' +
+            '<span class="reel-folder-label">Done</span>' +
+            '<span class="reel-folder-count">' + doneEps.length + '</span>' +
+        '</div>';
+        if (showDoneEpisodes) html += doneEps.map(renderEpItem).join('');
+    }
+    if (hiddenEps.length > 0) {
+        html += '<div class="reel-folder-header' + (showHiddenEpisodes ? ' open' : '') + '" onclick="showHiddenEpisodes=!showHiddenEpisodes; renderSidebar();">' +
+            '<span class="reel-folder-chevron">' + (showHiddenEpisodes ? '▾' : '▸') + '</span>' +
+            '<span class="reel-folder-label">Hidden</span>' +
+            '<span class="reel-folder-count">' + hiddenEps.length + '</span>' +
+        '</div>';
+        if (showHiddenEpisodes) html += hiddenEps.map(renderEpItem).join('');
+    }
+    list.innerHTML = html;
 }
 
 function stepsForType(mediaType, ep) {
@@ -276,6 +307,15 @@ function renderMain(slug) {
     epTitleEl.appendChild(renameBtn);
     const typeLabels = {episode: 'Full Episode', reel_full: 'Reel (fully done)', reel_cut: 'Reel (cut, no subs)'};
     document.getElementById('ep-type-display').innerHTML = '<span class="ep-type-badge ' + ep.mediaType + '">' + typeLabels[ep.mediaType] + '</span>';
+    var ownerOptions = '';
+    if (window.PROFILES && window.PROFILES.enabled && Array.isArray(window.PROFILES.list) && window.PROFILES.list.length > 0) {
+        ownerOptions = '<select onchange="setEpisodeOwner(currentSlug, this.value)" title="Owner" style="background:#111; border:1px solid #333; color:#888; padding:4px 8px; border-radius:4px; font-size:0.75rem;">' +
+            '<option value="">— owner —</option>' +
+            window.PROFILES.list.map(function(p) {
+                return '<option value="' + p + '"' + (ep.owner === p ? ' selected' : '') + '>' + p + '</option>';
+            }).join('') +
+        '</select>';
+    }
     document.getElementById('ep-meta').innerHTML =
         '<span>Guest: <strong>' + (ep.guest || '—') + '</strong></span>' +
         '<span>Role: <strong>' + (ep.role || '—') + '</strong></span>' +
@@ -285,6 +325,7 @@ function renderMain(slug) {
             '<option value="reel_full" ' + (ep.mediaType === 'reel_full' ? 'selected' : '') + '>Reel (Full)</option>' +
             '<option value="reel_cut" ' + (ep.mediaType === 'reel_cut' ? 'selected' : '') + '>Reel (Cut)</option>' +
         '</select>' +
+        ownerOptions +
         '<span style="color:#333; margin-left:4px;">|</span>' +
         '<button class="header-delete" onclick="deleteEpisode(\'' + ep.slug + '\')" title="Delete episode">🗑</button>';
 
@@ -518,6 +559,48 @@ async function changeMediaType(slug, newType) {
 
 var showHiddenReels = false;  // expand the Hidden folder
 var showDoneReels = false;    // expand the Done folder
+var showHiddenEpisodes = false;
+var showDoneEpisodes = false;
+
+async function toggleHideEpisode(slug) {
+    try {
+        const res = await fetch('/api/hide-episode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug})
+        });
+        const data = await res.json();
+        if (!data.success) return showToast(data.error || 'Failed to hide', 'error');
+        await refresh();
+    } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function toggleDoneEpisode(slug) {
+    try {
+        const res = await fetch('/api/done-episode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug})
+        });
+        const data = await res.json();
+        if (!data.success) return showToast(data.error || 'Failed to mark done', 'error');
+        await refresh();
+    } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function setEpisodeOwner(slug, owner) {
+    try {
+        const res = await fetch('/api/set-episode-owner', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug, owner: owner || null})
+        });
+        const data = await res.json();
+        if (!data.success) return showToast(data.error || 'Failed to set owner', 'error');
+        showToast('Owner ' + (owner ? 'set to ' + owner : 'cleared'), 'success');
+        await refresh();
+    } catch (err) { showToast(err.message, 'error'); }
+}
 
 function renderClipsList(ep) {
     var listEl = document.getElementById('clips-list');

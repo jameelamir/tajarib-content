@@ -2,10 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.18] - 2026-04-29
+## [1.0.19] - 2026-04-29
 
 ### Fixed
 - Manual LLM modals (e.g. asking for a reel caption or title) no longer pop up for every admin watching the dashboard. The server still broadcasts the prompt to all clients (no per-user identity), but each browser now only opens the modal for slugs *it* initiated work on. Logs and progress still stream to everyone — only the focus-stealing modal is filtered. Claims are tracked per tab via sessionStorage and carry across the temp-slug → real-slug rename that AI auto-titling triggers.
+
+## [1.0.18] - 2026-04-29
+
+### Added
+- Episode-level hide / done / owner. Each episode in the sidebar now has the same `✓` (done) and `−` / `👁` (hide) buttons that reels already have, mirrored from the reel pattern. Done episodes drop into a collapsible **Done** folder at the bottom of the sidebar; hidden ones drop into **Hidden** below that. Both folders only render when non-empty, and clicking the header expands or collapses them. New endpoints: `POST /api/hide-episode` and `POST /api/done-episode`, both toggle `meta.json` flags in place.
+- Owner picker in the episode header. When a workspace has a `profiles.json` (multi-user mode), the episode header gets an "owner" `<select>` next to the media-type picker, so an owner can be assigned (or reassigned) after upload — previously `meta.owner` was only set at upload time and had no UI to change. The chosen owner is persisted via the new `POST /api/set-episode-owner` endpoint and surfaces as a small purple chip on the sidebar row, so you can see at a glance who owns what.
 
 ## [1.0.17] - 2026-04-29
 
