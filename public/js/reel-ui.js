@@ -390,6 +390,17 @@ async function loadStandaloneTranscript() {
     reelTranscriptReelId = '__standalone__';
     reelChunksData = null;
 
+    // Prefer saved chunks (proofread or just-uploaded SRT) over the raw transcript
+    // so the editor reflects whatever Sub will burn — mirrors loadReelTranscript.
+    try {
+        var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=full-chunks.json');
+        if (chunksRes.ok) {
+            reelChunksData = JSON.parse(await chunksRes.text());
+            rtRenderChunks(contentEl);
+            return;
+        }
+    } catch (_) {}
+
     try {
         var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=transcript.json');
         if (!res.ok) throw new Error('No transcript found');
@@ -3050,6 +3061,14 @@ function uploadReelSrt(reelId) {
             var data = await res.json();
             if (data.success) {
                 showToast('SRT uploaded — ' + data.chunkCount + ' chunks. Re-run Sub to burn.', 'success');
+                // Refresh transcript editor so the new SRT is visible/editable immediately
+                try {
+                    if (reelId && typeof loadReelTranscript === 'function') {
+                        await loadReelTranscript(reelId);
+                    } else if (!reelId && typeof loadStandaloneTranscript === 'function') {
+                        await loadStandaloneTranscript();
+                    }
+                } catch (_) {}
             } else {
                 showToast('Upload failed: ' + (data.error || 'unknown'), 'error');
             }

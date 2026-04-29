@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.15] - 2026-04-29
+
+### Changed
+- Reel Transcript editor (standalone reel-uploads) now prefers `full-chunks.json` over `transcript.json`, mirroring the per-reel loader. Previously, uploading an SRT (↑ SRT) wrote new chunks but the editor still rendered the old whisper transcript, so the user couldn't edit the uploaded SRT in the panel.
+- After ↑ SRT upload (per-reel and standalone), the transcript editor auto-refreshes to show the new chunks — no second click on "Load / Edit" needed before adjusting.
+
 ## [1.0.14] - 2026-04-29
 
 ### Changed
