@@ -27,6 +27,36 @@ module.exports = async function reelRoutes(req, res, url, ctx) {
     return true;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/rename-reel") {
+    const body = await readBody(req);
+    try {
+      const { slug, reelId, hook } = JSON.parse(body);
+      if (!slug || !reelId) throw new Error("slug + reelId required");
+      const newHook = (hook == null ? "" : String(hook)).trim();
+      const padded = String(reelId).padStart(2, "0");
+
+      const analysisPath = path.join(EPISODES_DIR, slug, "analysis.json");
+      const analysis = loadJSON(analysisPath);
+      if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+      const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+      if (!reel) throw new Error("Reel not found in analysis");
+      reel.hook = newHook;
+      saveJSON(analysisPath, analysis);
+
+      const contentPath = path.join(EPISODES_DIR, slug, "content.json");
+      const content = loadJSON(contentPath);
+      if (content && content.reels) {
+        const reelNum = parseInt(reelId, 10);
+        const c = content.reels.find(r => r.id === reelNum || String(r.id).padStart(2, "0") === padded);
+        if (c) { c.hook = newHook; saveJSON(contentPath, content); }
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, hook: newHook }));
+      io.emit("status-update", {});
+    } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/save-reel-trim") {
     const body = await readBody(req);
     try {
