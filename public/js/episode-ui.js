@@ -347,8 +347,14 @@ function renderEpisodePipelineBar(ep) {
 
     const isReel = ep.mediaType === 'reel_full' || ep.mediaType === 'reel_cut';
     const episodeLevelSteps = ['compose', 'transcribe'];
+    // For reel-uploads, hide steps already covered by the per-reel pipeline (Crop / Sub /
+    // Overlay) below — they're shown there with richer controls (style dropdown, SRT
+    // upload, in-final toggle). Keep top bar limited to genuinely episode-level steps.
+    const reelTopSteps = ['transcribe', 'generate', 'compose'];
     const stepsToShow = steps.filter(function(s) {
-        return s.applicable && (isReel || episodeLevelSteps.includes(s.id));
+        if (!s.applicable) return false;
+        if (isReel) return reelTopSteps.includes(s.id);
+        return episodeLevelSteps.includes(s.id);
     });
 
     bar.style.display = stepsToShow.length > 0 ? '' : 'none';

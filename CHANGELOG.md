@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.14] - 2026-04-29
+
+### Changed
+- Reel-upload view: top episode-pipeline chip bar now only shows Transcribe + Caption (and Compose for multi-track). The Subtitle and Overlay chips, which were duplicated here and in the per-reel pipeline below, have been removed from the top — the per-reel row is the canonical place for them since it has the richer controls (style dropdown, ↑ SRT upload, In final / Skip toggle, Customize). Cuts the "three Sub-buttons" clutter on uploaded reels.
+
 ## [1.0.13] - 2026-04-29
 
 ### Added
