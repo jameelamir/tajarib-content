@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.19] - 2026-04-29
+
+### Fixed
+- Manual LLM modals (e.g. asking for a reel caption or title) no longer pop up for every admin watching the dashboard. The server still broadcasts the prompt to all clients (no per-user identity), but each browser now only opens the modal for slugs *it* initiated work on. Logs and progress still stream to everyone — only the focus-stealing modal is filtered. Claims are tracked per tab via sessionStorage and carry across the temp-slug → real-slug rename that AI auto-titling triggers.
+
 ## [1.0.18] - 2026-04-29
 
 ### Added

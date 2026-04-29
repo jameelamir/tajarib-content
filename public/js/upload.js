@@ -331,8 +331,12 @@ function confirmUpload() {
         progressEl.classList.remove('active');
         document.getElementById('upload-zone').style.display = '';
         if (xhr.status === 200) {
+            let serverSlug = null;
+            try { serverSlug = JSON.parse(xhr.responseText).slug || null; } catch (e) {}
+            if (serverSlug) claimPromptSlug(serverSlug);
             showToast('Upload complete!', 'success');
-            refresh().then(() => selectEp(slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase()));
+            const finalSlug = serverSlug || slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+            refresh().then(() => selectEp(finalSlug));
         } else {
             showToast('Upload failed: ' + xhr.responseText, 'error');
         }
