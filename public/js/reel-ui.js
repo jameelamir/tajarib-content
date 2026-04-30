@@ -2399,6 +2399,20 @@ async function saveReelTrim(reelId) {
 var reelTranscriptData = null;
 var reelTranscriptReelId = null;
 var reelChunksData = null; // computed/saved subtitle chunks
+var reelTranscriptAutosaveTimer = null;
+var reelTranscriptSaveInFlight = false;
+var REEL_TRANSCRIPT_AUTOSAVE_MS = 10000;
+
+function rtStartAutosave() {
+    if (reelTranscriptAutosaveTimer) return;
+    reelTranscriptAutosaveTimer = setInterval(function() {
+        var segList = document.getElementById('rt-seg-list');
+        if (!segList || !reelChunksData || reelTranscriptReelId == null) return;
+        if (reelTranscriptSaveInFlight) return;
+        if (!segList.querySelector('.tm-text.edited')) return;
+        saveReelChunks(reelTranscriptReelId);
+    }, REEL_TRANSCRIPT_AUTOSAVE_MS);
+}
 
 function rtFormatSRTTime(sec) {
     var h = Math.floor(sec / 3600);
@@ -2754,7 +2768,8 @@ function rtRenderChunks(containerEl) {
     html += '</div>';
     var uploadArg = (reelTranscriptReelId && reelTranscriptReelId !== '__standalone__') ? "'" + reelTranscriptReelId + "'" : '';
     html += '<div style="display:flex; gap:6px;">' +
-        '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;">Save & Re-sub</button>' +
+        '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;" title="Save chunk edits to disk">Save</button>' +
+        '<button onclick="resubReel(\'' + reelTranscriptReelId + '\')" style="font-size:0.7rem; flex:1;" title="Re-burn subtitles from saved chunks">Re-sub</button>' +
         '<button onclick="uploadReelSrt(' + uploadArg + ')" style="font-size:0.7rem;" title="Upload SRT to replace transcript">↑ SRT</button>' +
         '<button onclick="downloadReelSRT()" style="font-size:0.7rem;" title="Download current chunks as SRT">↓ SRT</button>' +
     '</div>' +
@@ -2821,6 +2836,8 @@ function rtRenderChunks(containerEl) {
             }
         });
     });
+
+    rtStartAutosave();
 }
 
 function rtSplitChunk(chunkIdx, el) {
@@ -2868,11 +2885,13 @@ function seekReelVideo(time) {
 }
 
 async function saveReelChunks(reelId) {
+    if (reelTranscriptSaveInFlight) return;
     var statusEl = document.getElementById('reel-transcript-status');
     if (statusEl) { statusEl.textContent = 'Saving...'; statusEl.style.color = '#888'; }
     if (!reelChunksData) return;
     var isStandalone = reelId === '__standalone__';
     var padded = isStandalone ? null : String(reelId).padStart(2, '0');
+    reelTranscriptSaveInFlight = true;
     try {
         // Collect any in-progress text edits
         var segList = document.getElementById('rt-seg-list');
@@ -2900,8 +2919,19 @@ async function saveReelChunks(reelId) {
                 el.classList.remove('edited');
             });
         }
-        if (statusEl) { statusEl.textContent = 'Saved! Re-burning subtitles...'; statusEl.style.color = '#4ade80'; }
+        if (statusEl) { statusEl.textContent = 'Saved.'; statusEl.style.color = '#4ade80'; }
+    } catch (err) {
+        if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
+    } finally {
+        reelTranscriptSaveInFlight = false;
+    }
+}
 
+async function resubReel(reelId) {
+    var statusEl = document.getElementById('reel-transcript-status');
+    if (statusEl) { statusEl.textContent = 'Re-burning subtitles...'; statusEl.style.color = '#888'; }
+    var isStandalone = reelId === '__standalone__';
+    try {
         var stepBody = {
             slug: currentSlug,
             step: 'subtitle',
@@ -2915,6 +2945,7 @@ async function saveReelChunks(reelId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(stepBody)
         });
+        if (statusEl) { statusEl.textContent = 'Re-sub started.'; statusEl.style.color = '#4ade80'; }
     } catch (err) {
         if (statusEl) { statusEl.textContent = 'Error: ' + err.message; statusEl.style.color = '#ef4444'; }
     }
