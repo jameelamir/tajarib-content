@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.20] - 2026-05-01
+
+### Added
+- Resumable uploads for plain video files. When a long upload drops mid-flight (network blip, browser close, server restart), pick the same file again and the upload picks up where it left off instead of restarting from 0. Files are now sent in 5 MB chunks via the existing `/api/upload-init` → `/api/upload-chunk` → `/api/upload-complete` plumbing (which was already on the backend but unused by the browser). The client tracks each in-flight upload in `localStorage` keyed by `name|size|lastModified`, validates against the server's chunk state on retry, and skips already-received chunks. The progress bar shows `↻ Resuming: …` when picking up a partial upload. Multi-track and SRT-attached uploads still use the existing single-POST path.
+
+### Changed
+- `/api/upload-complete` now accepts `slug`, `guest`, `role`, `mediaType`, and `transcribeMethod` overrides at completion, so settings reflect what the user typed on their final attempt rather than the first init. It also fires transcription (or logs the skip) the same way `/api/upload` does — chunked uploads previously completed silently with no transcription kicked off.
+
 ## [1.0.19] - 2026-04-29
 
 ### Fixed
