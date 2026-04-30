@@ -9,6 +9,22 @@ module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, NODE_BIN,
     activeProcesses, activeSteps, loadJSON, loadMeta, saveMeta, handlePostTranscription, getTranscriptionConfig } = ctx;
 
+  // Reel-level concurrency lanes. Jobs in different lanes on the same reel run
+  // in parallel; jobs in the same lane serialize. video lane rewrites the reel's
+  // working video file; meta lane only writes JSON metadata.
+  // Episode-level steps (no reelId) keep the bare slug key so transcribe still
+  // blocks dependent ops on the same episode.
+  function stepGroup(step) {
+    if (step === "subtitle" || step === "overlay" || step === "crop" || step === "cut") return "video";
+    if (step === "generate") return "meta";
+    return null;
+  }
+  function computeProcKey(slug, reelId, step) {
+    if (!reelId) return slug;
+    const group = stepGroup(step);
+    return group ? `${slug}:${reelId}:${group}` : `${slug}:${reelId}`;
+  }
+
   function readReelToggleFlags(slug, reelId) {
     try {
       const analysis = loadJSON(path.join(EPISODES_DIR, slug, "analysis.json"));
@@ -45,8 +61,7 @@ module.exports = function init(ctx) {
         default: resolve(-1); return;
       }
       const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-      // Track with slug:reelId key so stop handler can find and kill all reel processes
-      const procKey = `${slug}:${reelId}`;
+      const procKey = computeProcKey(slug, reelId, step);
       activeProcesses[procKey] = proc;
       proc.stdout.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
       proc.stderr.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
@@ -102,7 +117,7 @@ module.exports = function init(ctx) {
 
   function runStep(params) {
     const { slug, step, reelId } = params;
-    const procKey = reelId ? `${slug}:${reelId}` : slug;
+    const procKey = computeProcKey(slug, reelId, step);
 
     // Auto-transcribe before subtitle if no transcript exists yet.
     // Queue the subtitle under the slug-level procKey so the post-transcribe
@@ -130,7 +145,7 @@ module.exports = function init(ctx) {
   }
 
   function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim }) {
-    let procKey = reelId ? `${slug}:${reelId}` : slug;
+    let procKey = computeProcKey(slug, reelId, step);
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
     let videoFile = "raw.mp4";
@@ -242,7 +257,7 @@ module.exports = function init(ctx) {
               delete stepQueue[key];
             }
           }
-          procKey = reelId ? `${newSlug}:${reelId}` : newSlug;
+          procKey = computeProcKey(newSlug, reelId, step);
         }
       }
 
