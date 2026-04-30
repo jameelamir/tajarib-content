@@ -1,5 +1,16 @@
 // ── Upload: Guest History, Media Type, Upload Flow ──────────────────────────
 
+// Mirror of server/helpers.js#slugify — preserve Unicode letters/digits so
+// Arabic titles survive instead of getting stripped to all-dashes.
+function slugify(input) {
+    if (input == null) return '';
+    return String(input)
+        .normalize('NFC')
+        .replace(/[^\p{L}\p{N}_-]+/gu, '-')
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase();
+}
+
 // Guest History
 async function loadGuestHistory() {
     try {
@@ -448,7 +459,7 @@ function confirmUpload() {
             document.getElementById('upload-zone').style.display = '';
             if (serverSlug) claimPromptSlug(serverSlug);
             showToast('Upload complete!', 'success');
-            const finalSlug = serverSlug || slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+            const finalSlug = serverSlug || slugify(slug);
             refresh().then(() => selectEp(finalSlug));
             pendingFile = null;
             pendingSrtFile = null;
@@ -506,7 +517,7 @@ function confirmUpload() {
             try { serverSlug = JSON.parse(xhr.responseText).slug || null; } catch (e) {}
             if (serverSlug) claimPromptSlug(serverSlug);
             showToast('Upload complete!', 'success');
-            const finalSlug = serverSlug || slug.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+            const finalSlug = serverSlug || slugify(slug);
             refresh().then(() => selectEp(finalSlug));
         } else {
             showToast('Upload failed: ' + xhr.responseText, 'error');

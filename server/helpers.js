@@ -102,5 +102,20 @@ module.exports = function init(ctx) {
     });
   }
 
-  return { loadJSON, saveJSON, loadMeta, saveMeta, parseSrt, getGuestHistory, addGuestToHistory, readBody };
+  /**
+   * Convert an arbitrary title into a safe directory/URL slug.
+   * Preserves Unicode letters and digits (so Arabic, Cyrillic, etc. survive)
+   * and collapses everything else into single dashes. Returns "" for input
+   * that has no usable characters (caller decides the fallback, e.g. temp slug).
+   */
+  function slugify(input) {
+    if (input == null) return "";
+    return String(input)
+      .normalize("NFC")
+      .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+  }
+
+  return { loadJSON, saveJSON, loadMeta, saveMeta, parseSrt, getGuestHistory, addGuestToHistory, readBody, slugify };
 };

@@ -7,7 +7,7 @@ const path = require("path");
 module.exports = async function pipelineRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, NODE_BIN, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     callModelForRevision, generateTitleFromTranscript, deduplicateSlug, renameEpisode, handlePostTranscription,
-    runStep, runReelsParallel, pendingManualLLM, readBody, formidable, UPLOADS_DIR } = ctx;
+    runStep, runReelsParallel, pendingManualLLM, readBody, formidable, UPLOADS_DIR, slugify } = ctx;
 
   if (req.method === "POST" && url.pathname === "/api/run-step") {
     const body = await readBody(req);
@@ -157,7 +157,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
     try {
       const { slug, newSlug } = JSON.parse(body);
       if (!slug || !newSlug) throw new Error("slug + newSlug required");
-      const sanitized = String(newSlug).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      const sanitized = slugify(newSlug);
       if (!sanitized) throw new Error("New name must contain letters or numbers");
       if (sanitized === slug) { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, oldSlug: slug, newSlug: slug })); return true; }
       if (fs.existsSync(path.join(EPISODES_DIR, sanitized))) throw new Error(`Episode "${sanitized}" already exists`);

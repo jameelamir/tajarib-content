@@ -153,22 +153,40 @@ function gracefulShutdown(signal) {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-// ─── Orphaned Upload Cleanup ─────────────────────────────────────────────────
+// ─── Orphaned Upload Recovery ────────────────────────────────────────────────
 
-function cleanupOrphanedUploads() {
+// If a chunked upload has all chunks on disk but the client never called
+// /api/upload-complete (tab closed, network drop, container restart), the
+// chunks would otherwise sit forever and the user would never see the episode.
+// Auto-finalize on server startup and on a periodic sweep, using the metadata
+// captured at upload-init time. Old uploads with missing chunks are pruned.
+async function recoverOrphanedUploads() {
   const state = ctx.loadUploadsState ? ctx.loadUploadsState() : {};
-  let cleaned = 0;
+  let finalized = 0, cleaned = 0;
   for (const [uploadId, upload] of Object.entries(state)) {
     const age = Date.now() - new Date(upload.createdAt).getTime();
-    if (age > 24 * 60 * 60 * 1000) { ctx.cleanupUploadState(uploadId); cleaned++; }
+    const allChunksReceived = upload.chunksReceived && upload.chunksReceived.length === upload.totalChunks;
+    if (allChunksReceived && upload.status !== "finalizing" && age > 60 * 1000) {
+      try {
+        const slug = await ctx.finalizeUpload(uploadId, {});
+        console.log(`[Recovery] Finalized orphaned upload ${uploadId} → ${slug}`);
+        finalized++;
+      } catch (err) {
+        console.error(`[Recovery] Failed to finalize ${uploadId}: ${err.message}`);
+        if (age > 24 * 60 * 60 * 1000) { ctx.cleanupUploadState(uploadId); cleaned++; }
+      }
+    } else if (age > 24 * 60 * 60 * 1000) {
+      ctx.cleanupUploadState(uploadId); cleaned++;
+    }
   }
-  if (cleaned > 0) console.log(`[Cleanup] Removed ${cleaned} orphaned uploads`);
+  if (finalized > 0) console.log(`[Recovery] Finalized ${finalized} orphaned upload(s)`);
+  if (cleaned > 0) console.log(`[Cleanup] Removed ${cleaned} stale upload(s)`);
 }
 
 // ─── Start Server ────────────────────────────────────────────────────────────
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log("🎙️  Tajarib Dashboard DEV → http://76.13.145.146:" + PORT);
-  cleanupOrphanedUploads();
-  setInterval(cleanupOrphanedUploads, 60 * 60 * 1000);
+  recoverOrphanedUploads();
+  setInterval(recoverOrphanedUploads, 60 * 60 * 1000);
 });
