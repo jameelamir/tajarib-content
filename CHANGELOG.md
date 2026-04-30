@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.22] - 2026-05-01
+
+### Changed
+- Reel-level pipeline jobs now run on two independent lanes per reel instead of one. Pressing **SUB** (subtitle burn) and **Generate captions** on the same reel no longer queues the second behind the first — they run in parallel, since one rewrites the reel's video file (ffmpeg) and the other only writes JSON metadata (LLM call). The lock in `server/pipeline.js` was previously keyed on `slug:reelId`, so any two reel-level steps shared a queue. It now splits into a `video` lane (`subtitle`, `overlay`, `crop`, `cut`) and a `meta` lane (`generate`), keyed `slug:reelId:video` vs `slug:reelId:meta`. Within a lane jobs still serialize (so overlay still waits for subtitle on the same reel — they share the working video file), and episode-level steps keep the bare `slug` key so transcribe still blocks the things that depend on it. The `runReelChain`, stop-by-slug, slug-rename remap, and graceful-shutdown paths all key off prefix matches and continue to find every running process unchanged.
+
 ## [1.0.21] - 2026-05-01
 
 ### Fixed
