@@ -18,8 +18,8 @@ function moveFile(src, dest) {
 module.exports = async function uploadRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     addGuestToHistory, startTranscription, tryFetchYouTubeTranscript, handlePostTranscription,
-    getStorageConfig, calcDirSize, loadUploadsState, saveUploadsState, cleanupUploadState, CHUNK_SIZE,
-    formidable, activeProcesses, readBody, getProfileFromReq } = ctx;
+    getStorageConfig, calcDirSize, loadUploadsState, saveUploadsState, cleanupUploadState, finalizeUpload,
+    CHUNK_SIZE, formidable, activeProcesses, readBody, getProfileFromReq, slugify } = ctx;
   const owner = getProfileFromReq(req);
 
   if (req.method === "POST" && url.pathname === "/api/upload") {
@@ -29,8 +29,9 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
       try {
         const field = (v, fallback = "") => { const val = Array.isArray(v) ? v[0] : v; return (val != null ? String(val) : fallback); };
         const rawSlug = field(fields.slug).trim();
-        const pendingAiTitle = !rawSlug;
-        const slug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : rawSlug.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+        const cleaned = slugify(rawSlug);
+        const pendingAiTitle = !cleaned;
+        const slug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : cleaned;
         const guest = field(fields.guest), role = field(fields.role);
         const mediaType = field(fields.mediaType, "episode"), transcribeMethod = field(fields.transcribeMethod, "local");
         const multiTrack = field(fields.multiTrack) === "true";
@@ -91,8 +92,9 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
     try {
       const { url: videoUrl, slug: rawSlug, guest, role, mediaType, transcribeMethod } = JSON.parse(body);
       if (!videoUrl || !/^https?:\/\/.+/.test(videoUrl)) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: "Invalid URL" })); return true; }
-      const pendingAiTitle = !rawSlug || !rawSlug.trim();
-      const slug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : rawSlug.trim().replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+      const cleaned = slugify(rawSlug);
+      const pendingAiTitle = !cleaned;
+      const slug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : cleaned;
       const epDir = path.join(EPISODES_DIR, slug); fs.mkdirSync(epDir, { recursive: true });
       const outPath = path.join(epDir, "raw.mp4");
 
@@ -128,9 +130,9 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
     try {
       const { filename, fileSize, slug, guest, role, mediaType, transcribeMethod } = JSON.parse(body);
       const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const rawSlug = (slug || "").trim();
-      const pendingAiTitle = !rawSlug;
-      const safeSlug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : rawSlug.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
+      const cleaned = slugify(slug);
+      const pendingAiTitle = !cleaned;
+      const safeSlug = pendingAiTitle ? `temp-${Date.now()}-${Math.random().toString(36).substr(2,6)}` : cleaned;
       const state = loadUploadsState();
       state[uploadId] = { filename, fileSize, slug: safeSlug, guest, role, mediaType: mediaType || "episode", transcribeMethod: transcribeMethod || "local", pendingAiTitle, owner: owner || null, chunksReceived: [], totalChunks: Math.ceil(fileSize / CHUNK_SIZE), createdAt: new Date().toISOString(), status: "pending" };
       saveUploadsState(state);
@@ -157,38 +159,8 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
     try {
       const overrides = JSON.parse(body);
       const { uploadId } = overrides;
-      const state = loadUploadsState();
-      if (!state[uploadId]) throw new Error("Upload not found");
-      const upload = state[uploadId];
-      const chunkDir = path.join(UPLOADS_DIR, `.chunks-${uploadId}`);
-      const missing = Array.from({length: upload.totalChunks}, (_, i) => i).filter(i => !upload.chunksReceived.includes(i));
-      if (missing.length > 0) throw new Error(`Missing chunks: ${missing.join(", ")}`);
-      const rawSlugOverride = typeof overrides.slug === "string" ? overrides.slug.trim() : "";
-      const safeSlug = rawSlugOverride
-        ? rawSlugOverride.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase()
-        : upload.slug;
-      const pendingAiTitle = rawSlugOverride ? false : !!upload.pendingAiTitle;
-      const guest = overrides.guest != null ? String(overrides.guest) : (upload.guest || "");
-      const role = overrides.role != null ? String(overrides.role) : (upload.role || "");
-      const mediaType = overrides.mediaType || upload.mediaType || "episode";
-      const transcribeMethod = overrides.transcribeMethod || upload.transcribeMethod || "local";
-      const epDir = path.join(EPISODES_DIR, safeSlug); fs.mkdirSync(epDir, { recursive: true });
-      const ext = path.extname(upload.filename) || ".mp4";
-      const dest = path.join(epDir, `raw${ext}`);
-      const ws = fs.createWriteStream(dest);
-      for (let i = 0; i < upload.totalChunks; i++) { const chunkData = fs.readFileSync(path.join(chunkDir, `chunk-${i}`)); if (!ws.write(chunkData)) await new Promise(resolve => ws.once("drain", resolve)); }
-      ws.end(); await new Promise((resolve, reject) => { ws.on("finish", resolve); ws.on("error", reject); });
-      if (guest) addGuestToHistory(guest, role);
-      saveMeta(safeSlug, { mediaType, originalFilename: upload.filename, createdAt: new Date().toISOString(), rawVideo: dest, transcribeMethod, ...(guest && { guest }), ...(role && { role }), ...(upload.owner && { owner: upload.owner }), ...(pendingAiTitle && { pendingAiTitle: true }) });
-      io.emit("log", { slug: safeSlug, text: `\n📁 Uploaded: ${upload.filename}\n` });
-      cleanupUploadState(uploadId);
-      if (transcribeMethod === "skip") {
-        io.emit("log", { slug: safeSlug, text: `⏭️ Transcription skipped — you can transcribe later from the episode view\n` });
-      } else {
-        startTranscription(safeSlug, dest, transcribeMethod);
-      }
+      const safeSlug = await finalizeUpload(uploadId, overrides);
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, slug: safeSlug }));
-      io.emit("toast", { type: "success", message: `Upload complete → ${safeSlug}` }); io.emit("status-update", {});
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;
   }

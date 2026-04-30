@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.21] - 2026-05-01
+
+### Fixed
+- Chunked uploads no longer get stranded if the browser tab closes (or the network drops) between the last chunk landing and the `/api/upload-complete` call. Previously the chunks would sit in `.uploads-state.json` forever and the user would never see the episode in the list — they'd just see a successful progress bar followed by nothing. The dashboard now sweeps `.uploads-state.json` on startup and hourly, finalizes any upload whose chunks are all on disk (using the slug/guest/role/mediaType captured at upload-init), and only prunes after 24 h if chunks are genuinely missing. A `status: "finalizing"` guard prevents the sweep from racing a client retry.
+- Slug sanitization now preserves Unicode letters and digits (`\p{L}\p{N}`) instead of stripping everything that isn't `[a-zA-Z0-9_-]`. Arabic/Hebrew/Cyrillic titles like `الحرب الاخيرة` survive as `الحرب-الاخيرة` instead of collapsing to a string of dashes (which silently overwrote any earlier all-Arabic upload that hashed to the same dashed slug). Path-traversal characters (`/`, `..`) still get stripped. Affects every entry point: the simple `/api/upload`, the URL-download path, chunked init, chunked complete (with override), and `/api/rename-episode`.
+
 ## [1.0.20] - 2026-05-01
 
 ### Added
