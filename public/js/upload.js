@@ -86,7 +86,7 @@ function setMediaType(type) {
 }
 
 // Upload Flow
-function startUploadFlow(file) {
+async function startUploadFlow(file) {
     pendingFile = file;
     pendingUrl = null;
     document.getElementById('upload-modal-title').textContent = '📁 Upload Episode';
@@ -140,6 +140,46 @@ function startUploadFlow(file) {
     pendingGuestFile = null;
 
     document.getElementById('upload-modal').classList.add('open');
+
+    // If this file matches an in-progress chunked upload, pre-fill the metadata
+    // so the user doesn't have to re-enter slug / guest / role / etc.
+    try {
+        const existing = await findExistingUpload(file);
+        if (!existing || pendingFile !== file) return;
+
+        const pct = Math.round((existing.receivedIndexes.length / Math.max(existing.totalChunks, 1)) * 100);
+        document.getElementById('upload-modal-title').textContent = `🔄 Resume Upload (${pct}% done)`;
+        document.getElementById('upload-confirm-btn').textContent = 'Resume Upload';
+
+        if (existing.slug && !existing.pendingAiTitle) {
+            document.getElementById('upload-slug').value = existing.slug;
+        }
+        if (existing.guest) {
+            const select = document.getElementById('upload-guest-select');
+            const input = document.getElementById('upload-guest-input');
+            const inDropdown = Array.from(select.options).some(o => o.value === existing.guest);
+            if (inDropdown) {
+                select.value = existing.guest;
+            } else {
+                input.value = existing.guest;
+                input.style.display = 'block';
+                select.style.display = 'none';
+            }
+        }
+        if (existing.role) document.getElementById('upload-role').value = existing.role;
+        if (existing.mediaType) {
+            const idSuffix = existing.mediaType === 'reel_cut' ? 'reel-cut' : existing.mediaType === 'reel_full' ? 'reel-full' : 'episode';
+            const typeRadio = document.getElementById('upload-type-' + idSuffix);
+            if (typeRadio) typeRadio.checked = true;
+            updateMultiTrackVisibility();
+        }
+        if (existing.transcribeMethod) {
+            document.querySelectorAll('input[name="transcribe-method"]').forEach(r => r.checked = r.value === existing.transcribeMethod);
+            const apiWarning = document.getElementById('api-key-warning');
+            const needsWarning = (m) => (m === 'api' && !transcriptionConfig.hasApiKey) || (m === 'groq' && !transcriptionConfig.hasGroqKey);
+            apiWarning.style.display = needsWarning(existing.transcribeMethod) ? 'block' : 'none';
+        }
+    } catch {}
 }
 
 function startUrlUploadFlow() {
@@ -287,8 +327,14 @@ async function findExistingUpload(file) {
             fingerprint,
             uploadId: entry.uploadId,
             totalChunks: data.totalChunks,
-            chunkSize: entry.chunkSize,
-            receivedIndexes: data.receivedIndexes || []
+            chunkSize: data.chunkSize || entry.chunkSize,
+            receivedIndexes: data.receivedIndexes || [],
+            slug: data.slug,
+            guest: data.guest,
+            role: data.role,
+            mediaType: data.mediaType,
+            transcribeMethod: data.transcribeMethod,
+            pendingAiTitle: data.pendingAiTitle
         };
     } catch { return null; }
 }
@@ -340,43 +386,51 @@ async function uploadFileChunked(file, options, onProgress) {
         rememberUpload(fingerprint, uploadId, totalChunks, chunkSize);
     }
 
-    const isResume = receivedIndexes.size > 0;
-    let bytesDone = 0;
-    for (const idx of receivedIndexes) {
-        const start = idx * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        bytesDone += (end - start);
-    }
-    onProgress(bytesDone, file.size, isResume);
+    _activeChunkedUploadIds.add(uploadId);
+    loadPendingUploads();
 
-    for (let i = 0; i < totalChunks; i++) {
-        if (receivedIndexes.has(i)) continue;
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, file.size);
-        const blob = file.slice(start, end);
-        await postChunkXhr(uploadId, i, blob, (chunkBytes) => {
-            onProgress(bytesDone + chunkBytes, file.size, isResume);
-        });
-        bytesDone += (end - start);
+    try {
+        const isResume = receivedIndexes.size > 0;
+        let bytesDone = 0;
+        for (const idx of receivedIndexes) {
+            const start = idx * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            bytesDone += (end - start);
+        }
         onProgress(bytesDone, file.size, isResume);
-    }
 
-    const completeRes = await fetch('/api/upload-complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            uploadId,
-            slug: options.slug,
-            guest: options.guest,
-            role: options.role,
-            mediaType: options.mediaType,
-            transcribeMethod: options.transcribeMethod
-        })
-    });
-    const completeData = await completeRes.json();
-    if (!completeData.success) throw new Error(completeData.error || 'Upload assembly failed');
-    forgetUpload(fingerprint);
-    return completeData.slug;
+        for (let i = 0; i < totalChunks; i++) {
+            if (receivedIndexes.has(i)) continue;
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const blob = file.slice(start, end);
+            await postChunkXhr(uploadId, i, blob, (chunkBytes) => {
+                onProgress(bytesDone + chunkBytes, file.size, isResume);
+            });
+            bytesDone += (end - start);
+            onProgress(bytesDone, file.size, isResume);
+        }
+
+        const completeRes = await fetch('/api/upload-complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                uploadId,
+                slug: options.slug,
+                guest: options.guest,
+                role: options.role,
+                mediaType: options.mediaType,
+                transcribeMethod: options.transcribeMethod
+            })
+        });
+        const completeData = await completeRes.json();
+        if (!completeData.success) throw new Error(completeData.error || 'Upload assembly failed');
+        forgetUpload(fingerprint);
+        return completeData.slug;
+    } finally {
+        _activeChunkedUploadIds.delete(uploadId);
+        loadPendingUploads();
+    }
 }
 
 function confirmUpload() {
@@ -536,4 +590,111 @@ function confirmUpload() {
 
     xhr.open('POST', '/api/upload');
     xhr.send(formData);
+}
+
+// ── Pending uploads (interrupted chunked uploads) ──────────────────────────
+let _resumePendingTarget = null;
+const _activeChunkedUploadIds = new Set();
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function loadPendingUploads() {
+    const section = document.getElementById('pending-uploads-section');
+    const listEl = document.getElementById('pending-uploads-list');
+    if (!section || !listEl) return;
+    let uploads = [];
+    try {
+        const res = await fetch('/api/uploads-pending');
+        const data = await res.json();
+        uploads = (data && data.success && Array.isArray(data.uploads)) ? data.uploads : [];
+    } catch { uploads = []; }
+
+    // Hide entries that this tab is actively uploading right now
+    uploads = uploads.filter(u => !_activeChunkedUploadIds.has(u.uploadId));
+
+    if (uploads.length === 0) {
+        section.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+    }
+    section.style.display = '';
+
+    listEl.innerHTML = uploads.map(u => {
+        const pct = Math.round((u.receivedChunks / Math.max(u.totalChunks, 1)) * 100);
+        const sizeMb = (u.fileSize / 1024 / 1024).toFixed(0);
+        const when = u.createdAt ? new Date(u.createdAt).toLocaleString() : '';
+        const safeName = escapeHtml(u.filename);
+        const jsName = String(u.filename).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const finalizing = u.status === 'finalizing';
+        return `
+            <div class="pending-upload-item">
+                <div class="pending-upload-name" title="${safeName}">📁 ${safeName}</div>
+                <div class="pending-upload-meta">
+                    <span>${pct}% · ${sizeMb} MB</span>
+                    <span title="${when}">${u.receivedChunks}/${u.totalChunks} chunks</span>
+                </div>
+                <div class="pending-upload-progress"><div class="pending-upload-progress-fill" style="width:${pct}%"></div></div>
+                <div class="pending-upload-actions">
+                    <button class="primary" ${finalizing ? 'disabled title="Already finalizing"' : ''} onclick="resumePendingUpload('${u.uploadId}', '${jsName}', ${u.fileSize})">↻ Resume</button>
+                    <button class="danger" ${finalizing ? 'disabled' : ''} onclick="deletePendingUpload('${u.uploadId}', '${jsName}')">✕ Delete</button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+async function deletePendingUpload(uploadId, filename) {
+    if (!confirm(`Delete this incomplete upload?\n\n${filename}\n\nUploaded chunks will be discarded — this cannot be undone.`)) return;
+    try {
+        const res = await fetch('/api/upload-cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uploadId })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Cancel failed');
+        // Drop matching localStorage fingerprint entries so we don't try to resume a dead upload
+        const reg = loadUploadRegistry();
+        let changed = false;
+        for (const fp of Object.keys(reg)) {
+            if (reg[fp] && reg[fp].uploadId === uploadId) { delete reg[fp]; changed = true; }
+        }
+        if (changed) saveUploadRegistry(reg);
+        showToast('Upload deleted', 'success');
+        loadPendingUploads();
+    } catch (err) {
+        showToast('Failed to delete: ' + err.message, 'error');
+    }
+}
+
+function resumePendingUpload(uploadId, filename, fileSize) {
+    _resumePendingTarget = { uploadId, filename, fileSize };
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mp4,.mkv,.mov,.avi';
+    input.onchange = function() {
+        const file = this.files && this.files[0];
+        const target = _resumePendingTarget;
+        _resumePendingTarget = null;
+        if (!file || !target) return;
+        if (file.name !== target.filename || file.size !== target.fileSize) {
+            const proceed = confirm(
+                `The selected file doesn't match the interrupted upload.\n\n` +
+                `Expected: ${target.filename} (${(target.fileSize / 1024 / 1024).toFixed(0)} MB)\n` +
+                `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(0)} MB)\n\n` +
+                `Start as a fresh upload instead?`
+            );
+            if (proceed) startUploadFlow(file);
+            return;
+        }
+        // Tie this fingerprint to the existing uploadId so findExistingUpload picks it up.
+        // chunkSize will be re-fetched from the server inside findExistingUpload.
+        const reg = loadUploadRegistry();
+        const fingerprint = getFileFingerprint(file);
+        reg[fingerprint] = { uploadId, totalChunks: 0, chunkSize: 0, ts: Date.now() };
+        saveUploadRegistry(reg);
+        startUploadFlow(file);
+    };
+    input.click();
 }

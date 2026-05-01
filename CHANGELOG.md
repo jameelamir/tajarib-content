@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.26] - 2026-05-01
+
+### Added
+- Interrupted chunked uploads now appear in a dedicated sidebar section between the upload progress bar and the episode list. Each one shows the filename, percentage complete, chunk count, an amber progress bar, and two buttons. **Resume** opens a file picker — re-pick the same file (matched by name + size) and the existing chunked-upload path picks up exactly where it left off, only sending the missing chunks. **Delete** confirms, then removes the server-side chunk directory and state entry, and clears any matching localStorage fingerprint so the dead upload doesn't try to resume on next pick. The list is owner-scoped (when profiles are enabled, you only see your own uploads, and you can't cancel someone else's), refreshes on init, after every chunked upload completes, and on every socket `status-update`. Uploads currently transferring in this tab are filtered out so they don't show up as "interrupted." Backed by two new endpoints — `GET /api/uploads-pending` and `POST /api/upload-cancel` — and a new `_activeChunkedUploadIds` set in the client that tracks in-flight uploads via a `try/finally` around the chunk loop.
+
+### Changed
+- Re-picking a file that has an in-progress chunked upload now pre-fills the upload modal with the slug, guest, role, media type, and transcription method that were entered the first time. Previously the modal opened blank and you had to type everything again, even though the saved metadata was sitting on the server and would be overwritten on finalize anyway. The modal title now flips to "🔄 Resume Upload (XX% done)" and the button reads "Resume Upload" so it's clear you're continuing rather than starting fresh. Empty/AI-generated slugs stay empty (no `temp-…` placeholder leaks into the slug field). If the saved guest is no longer in the dropdown, it falls back to the free-text input. A `pendingFile !== file` guard prevents stale pre-fills if you pick a different file before the status check resolves. Powered by extending `/api/upload-status` to return the saved metadata fields and `chunkSize` (the latter so cross-tab/cross-device resume works without depending on a stale localStorage value).
+
 ## [1.0.25] - 2026-05-01
 
 ### Changed
