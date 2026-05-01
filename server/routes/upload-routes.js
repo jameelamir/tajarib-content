@@ -100,7 +100,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
 
       io.emit("log", { slug, text: `\n🔗 Downloading: ${videoUrl}\n` });
       io.emit("download-progress", { slug, percent: 0, status: "downloading" });
-      const ytdlpArgs = ["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", outPath, "--newline", "--no-warnings", videoUrl];
+      const ytdlpArgs = ["-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4", "-o", outPath, "--newline", "--no-warnings", videoUrl];
       const proc = spawn("yt-dlp", ytdlpArgs, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
       activeProcesses[slug] = proc;
 
