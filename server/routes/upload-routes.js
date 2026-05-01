@@ -171,7 +171,62 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
     const state = loadUploadsState();
     if (!state[uploadId]) { res.writeHead(404); res.end("Upload not found"); return true; }
     const u = state[uploadId];
-    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, uploadId, filename: u.filename, fileSize: u.fileSize, totalChunks: u.totalChunks, receivedChunks: u.chunksReceived.length, receivedIndexes: u.chunksReceived, status: u.status }));
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, uploadId, filename: u.filename, fileSize: u.fileSize, totalChunks: u.totalChunks, chunkSize: CHUNK_SIZE, receivedChunks: u.chunksReceived.length, receivedIndexes: u.chunksReceived, status: u.status, slug: u.slug, guest: u.guest, role: u.role, mediaType: u.mediaType, transcribeMethod: u.transcribeMethod, pendingAiTitle: u.pendingAiTitle }));
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/uploads-pending") {
+    const state = loadUploadsState();
+    const list = Object.entries(state)
+      .map(([uploadId, u]) => ({
+        uploadId,
+        filename: u.filename,
+        fileSize: u.fileSize,
+        slug: u.slug || "",
+        guest: u.guest || "",
+        role: u.role || "",
+        mediaType: u.mediaType || "episode",
+        transcribeMethod: u.transcribeMethod || "local",
+        pendingAiTitle: !!u.pendingAiTitle,
+        totalChunks: u.totalChunks,
+        chunkSize: CHUNK_SIZE,
+        receivedChunks: (u.chunksReceived || []).length,
+        createdAt: u.createdAt,
+        status: u.status,
+        owner: u.owner || null,
+      }))
+      .filter(u => !owner || !u.owner || u.owner === owner)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ success: true, uploads: list }));
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/upload-cancel") {
+    const body = await readBody(req);
+    try {
+      const { uploadId } = JSON.parse(body);
+      if (!uploadId) throw new Error("Missing uploadId");
+      const state = loadUploadsState();
+      if (!state[uploadId]) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Upload not found" }));
+        return true;
+      }
+      if (state[uploadId].status === "finalizing") throw new Error("Upload is finalizing — cannot cancel");
+      if (owner && state[uploadId].owner && state[uploadId].owner !== owner) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Not your upload" }));
+        return true;
+      }
+      cleanupUploadState(uploadId);
+      io.emit("status-update", {});
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
     return true;
   }
 

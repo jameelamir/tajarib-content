@@ -27,6 +27,7 @@ async function init() {
 
     setInterval(refresh, 5000);
     loadStorageInfo();
+    loadPendingUploads();
 }
 
 // Setup socket handlers

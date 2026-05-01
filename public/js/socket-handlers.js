@@ -91,6 +91,7 @@ function setupSocketHandlers() {
         refresh();
         clearTimeout(window._storageReloadTimer);
         window._storageReloadTimer = setTimeout(loadStorageInfo, 2000);
+        if (typeof loadPendingUploads === 'function') loadPendingUploads();
     });
     socket.on('log', function(data) {
         if (!logs[data.slug]) logs[data.slug] = '';
