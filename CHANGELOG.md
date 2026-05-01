@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.24] - 2026-05-01
+
+### Changed
+- The single **Save & Re-sub** button in the Reel Transcript editor splits into two: **Save** (writes chunk edits to `reel-XX-chunks.json`) and **Re-sub** (re-burns the subtitle file from saved chunks). Previously every text tweak forced a full ffmpeg re-burn, which made small proofreading passes feel heavy. Now you can correct ten chunks in a row with cheap saves and only re-burn once at the end.
+
+### Added
+- Autosave in the Reel Transcript editor. Every 10 s, if any chunk has unsaved edits (`.tm-text.edited`), the editor writes the chunks JSON in the background. Re-sub never runs automatically — only when you click the button. Guarded against overlapping saves so concurrent autosave + manual save can't trample each other.
+
 ## [1.0.23] - 2026-05-01
 
 ### Added
