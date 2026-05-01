@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.26] - 2026-05-01
+
+### Fixed
+- YouTube downloads in **Add from URL** were failing or silently falling back to a lower-quality stream on many videos. The yt-dlp format string required `bestvideo[ext=mp4]+bestaudio[ext=m4a]`, but YouTube's 1080p tracks usually ship as webm/vp9 + opus, so no matching mp4/m4a pair existed and yt-dlp would either fail or drop to the `best[ext=mp4]/best` fallback (typically 360p or 720p). Format selector relaxed to `bestvideo[height<=1080]+bestaudio/best` (matches what works in a manual yt-dlp call); `--merge-output-format mp4` already remuxes the result, so the final file on disk is still mp4.
+- yt-dlp itself was being installed from Debian's apt repo in the Dockerfile, which lags upstream by months. YouTube changes its player code regularly, so apt's yt-dlp routinely breaks downloads until a backport ships. Moved to `pip3 install yt-dlp` alongside the existing `faster-whisper` line — pip pulls the current PyPI release, which tracks YouTube changes within days. Requires a container rebuild on the VPS to take effect.
+
 ## [1.0.25] - 2026-05-01
 
 ### Changed

@@ -8,13 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg \
       python3 \
       python3-pip \
-      yt-dlp \
       git \
       ca-certificates \
       curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir faster-whisper requests
+RUN pip3 install --no-cache-dir faster-whisper requests yt-dlp
 
 WORKDIR /app
 
