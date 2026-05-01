@@ -306,7 +306,14 @@
                 <h2 id="ep-title"></h2>
                 <div id="ep-type-display" style="font-size:0.75rem; color:#666; margin-top:4px;"></div>
             </div>
-            <div class="header-meta" id="ep-meta"></div>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <button id="video-quality-toggle" type="button"
+                    onclick="setVideoQuality(videoQuality === 'low' ? 'full' : 'low')"
+                    style="font-size:0.7rem; padding:4px 10px; background:#1a1a1a; border:1px solid #333; color:#aaa; border-radius:6px; cursor:pointer;">
+                    📶 HD
+                </button>
+                <div class="header-meta" id="ep-meta"></div>
+            </div>
         </div>
         <div class="pipeline" id="pipeline"></div>
         <div class="panels">
@@ -2009,10 +2016,10 @@ async function loadPreview() {
     let videoSrc = '';
     if (ep.mediaType === 'reel_full') {
         // Use raw video for reel_full
-        videoSrc = '/api/video?slug=' + currentSlug + '&type=raw';
+        videoSrc = '/api/video?slug=' + currentSlug + '&type=raw' + videoQualityParam();
     } else {
         // Use subtitled reel for reel_cut
-        videoSrc = '/api/video?slug=' + currentSlug + '&type=subtitled';
+        videoSrc = '/api/video?slug=' + currentSlug + '&type=subtitled' + videoQualityParam();
     }
     
     let captionSection = '';

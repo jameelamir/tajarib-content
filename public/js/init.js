@@ -50,6 +50,12 @@ setInterval(syncSettingsDots, 1000);
     if (saved) setMediaType(saved);
 })();
 
+// Sync video quality toggle button to persisted state
+(function initVideoQualityToggle() {
+    const btn = document.getElementById('video-quality-toggle');
+    if (btn) updateVideoQualityToggle(btn);
+})();
+
 // Upload Zone DOM bindings
 document.getElementById('upload-zone').onclick = function(e) {
     if (e.target === this || e.target.parentElement === this) {

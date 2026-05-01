@@ -3,6 +3,46 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
+
+// Tracks low-quality transcodes currently running (keyed by source path) so we
+// don't double-spawn ffmpeg on parallel requests for the same video.
+const inFlightLowQuality = new Set();
+
+// Returns the path to a low-quality MP4 derivative if it's ready, else null.
+// If not ready, kicks off a background ffmpeg transcode (non-blocking) so a
+// later request finds it cached. Atomic: writes to .tmp then renames.
+function ensureLowQuality(srcPath) {
+  if (!srcPath || !/\.mp4$/i.test(srcPath)) return null;
+  const lowPath = srcPath.replace(/\.mp4$/i, ".low.mp4");
+  try {
+    const srcStat = fs.statSync(srcPath);
+    if (fs.existsSync(lowPath)) {
+      const lowStat = fs.statSync(lowPath);
+      if (lowStat.size > 1024 && lowStat.mtimeMs >= srcStat.mtimeMs) return lowPath;
+    }
+  } catch { return null; }
+  if (inFlightLowQuality.has(srcPath)) return null;
+  inFlightLowQuality.add(srcPath);
+  const tmpPath = lowPath + ".tmp";
+  try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+  const args = [
+    "-y", "-i", srcPath,
+    "-vf", "scale='trunc(iw/2)*2':'min(720,trunc(ih/2)*2)':force_original_aspect_ratio=decrease",
+    "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+    "-c:a", "aac", "-b:a", "96k",
+    "-movflags", "+faststart",
+    "-f", "mp4", tmpPath,
+  ];
+  const child = spawn("ffmpeg", args, { stdio: "ignore", detached: false });
+  child.on("exit", (code) => {
+    inFlightLowQuality.delete(srcPath);
+    if (code === 0) { try { fs.renameSync(tmpPath, lowPath); } catch {} }
+    else { try { fs.unlinkSync(tmpPath); } catch {} }
+  });
+  child.on("error", () => { inFlightLowQuality.delete(srcPath); try { fs.unlinkSync(tmpPath); } catch {} });
+  return null;
+}
 
 module.exports = async function mediaRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, UPLOADS_DIR, loadJSON, loadMeta, readBody, formidable, getStorageConfig } = ctx;
@@ -77,20 +117,29 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
       videoPath = path.join(dir, rawVideo || "raw.mp4");
     }
     if (!fs.existsSync(videoPath)) { res.writeHead(404); res.end("Video not found"); return true; }
+    // Low-quality preview: swap in cached low version if ready, else kick off
+    // background transcode and serve the original (no blocking).
+    let servedQuality = "full";
+    if (url.searchParams.get("q") === "low" && url.searchParams.get("download") !== "1") {
+      const lowPath = ensureLowQuality(videoPath);
+      if (lowPath) { videoPath = lowPath; servedQuality = "low"; }
+      else { servedQuality = "preparing"; }
+    }
     const stat = fs.statSync(videoPath);
     if (stat.size === 0) { res.writeHead(204); res.end(); return true; }
     const wantDownload = url.searchParams.get("download") === "1";
     const safeName = (s) => String(s).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
     const downloadName = reelParam ? `${safeName(slug)}-reel-${safeName(reelParam)}.mp4` : `${safeName(slug)}.mp4`;
     const dispositionHeader = wantDownload ? { "Content-Disposition": `attachment; filename="${downloadName}"` } : {};
+    const qualityHeader = { "X-Video-Quality": servedQuality };
     const range = req.headers.range;
     if (range) {
       const parts = range.replace(/bytes=/, "").split("-");
       const start = parseInt(parts[0], 10), end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...dispositionHeader });
+      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": end - start + 1, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...qualityHeader, ...dispositionHeader });
       fs.createReadStream(videoPath, { start, end }).pipe(res);
     } else {
-      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...dispositionHeader });
+      res.writeHead(200, { "Content-Length": stat.size, "Content-Type": "video/mp4", "Cache-Control": "no-store", ...qualityHeader, ...dispositionHeader });
       fs.createReadStream(videoPath).pipe(res);
     }
     return true;

@@ -138,8 +138,8 @@ function renderReelDetail(ep, reelId) {
     } else if (previewEl.dataset.reelId !== reelId || previewEl.dataset.slug !== ep.slug) {
         var hasCuts = r.cuts && r.cuts.length > 0;
         var videoUrl = hasCuts
-            ? '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now()
-            : '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now();
+            ? '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw&t=' + Date.now() + videoQualityParam()
+            : '/api/video?slug=' + encodeURIComponent(ep.slug) + '&reel=' + encodeURIComponent(reelId) + '&t=' + Date.now() + videoQualityParam();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.reelId = reelId;
         previewEl.dataset.slug = ep.slug;
@@ -251,7 +251,7 @@ function renderReelFullView(ep) {
     var videoType = ep.steps.overlaid ? 'final' : ep.steps.subtitled ? 'subtitled' : 'raw';
     var cacheKey = ep.slug + ':' + videoType;
     if (previewEl.dataset.cacheKey !== cacheKey) {
-        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=' + videoType + '&t=' + Date.now();
+        var videoUrl = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=' + videoType + '&t=' + Date.now() + videoQualityParam();
         previewEl.innerHTML = '<video controls preload="metadata" src="' + videoUrl + '" style="max-width:100%; max-height:400px; border-radius:8px; background:#000;"></video>';
         previewEl.dataset.cacheKey = cacheKey;
         var vid = previewEl.querySelector('video');
@@ -1461,7 +1461,7 @@ function tlOpenPreview() {
     ctxState.segments = tlState.segments;
     ctxState.startIdx = tlState.selStartIdx;
     ctxState.endIdx = tlState.selEndIdx;
-    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw';
+    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw' + videoQualityParam();
     ctxState.reelStartSec = tlState.reelStart;
     openCtxVideoPopup();
 }
@@ -1592,7 +1592,7 @@ async function renderTranscriptContext(ep, reel) {
         '</div>';
 
     // Store video src for the popup
-    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw';
+    ctxState.videoSrc = '/api/video?slug=' + encodeURIComponent(ep.slug) + '&type=raw' + videoQualityParam();
     ctxState.reelStartSec = reelStartSec;
     ctxState.needsInit = true;
 }
@@ -1933,7 +1933,7 @@ function renderFindDoc() {
     var body = document.getElementById('find-reel-body');
     if (!body) return;
 
-    var videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw';
+    var videoSrc = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=raw' + videoQualityParam();
 
     var segHtml = findState.segments.map(function(seg, i) {
         var m = Math.floor(seg.start / 60);
