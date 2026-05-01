@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.28] - 2026-05-01
+
+### Added
+- yt-dlp now reads YouTube cookies from `$TAJARIB_CONFIG_DIR/yt-cookies.txt` (default `/data/config/yt-cookies.txt` in the container, persisted across rebuilds via the existing `/opt/tajarib-data` volume mount). YouTube blocks datacenter IPs with a "Sign in to confirm you're not a bot" gate, so the previous v1.0.26 download fix worked from a residential laptop but still failed instantly from the VPS. With a Netscape-format cookies file from a logged-in YouTube session in place, both video downloads (`/api/download-url`) and YouTube transcript fetches authenticate and bypass the gate. The file is optional — if it's not present, yt-dlp runs cookieless as before, which keeps local dev and dev-without-cookies setups working unchanged. Implementation: `server/global-config.js` exports `getYtdlpCookieArgs()` which returns `["--cookies", path]` when the file exists or `[]` when it doesn't, and both yt-dlp call sites spread it into their args array.
+
 ## [1.0.27] - 2026-05-01
 
 ### Added

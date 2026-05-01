@@ -16,6 +16,13 @@ if (!fs.existsSync(GLOBAL_CONFIG_DIR)) {
 const GLOBAL_TRANSCRIPTION_CONFIG = path.join(GLOBAL_CONFIG_DIR, "transcription-config.json");
 const GLOBAL_AUTH_PATH = path.join(GLOBAL_CONFIG_DIR, "auth.json");
 const GLOBAL_GUESTS_FILE = path.join(GLOBAL_CONFIG_DIR, "guests.json");
+const YT_COOKIES_FILE = path.join(GLOBAL_CONFIG_DIR, "yt-cookies.txt");
+
+// YouTube blocks datacenter IPs with "Sign in to confirm you're not a bot."
+// Mount a Netscape-format cookies file at YT_COOKIES_FILE to authenticate yt-dlp.
+function getYtdlpCookieArgs() {
+  return fs.existsSync(YT_COOKIES_FILE) ? ["--cookies", YT_COOKIES_FILE] : [];
+}
 
 function seedIfMissing(targetPath, sourcePath) {
   if (fs.existsSync(targetPath)) return;
@@ -63,4 +70,4 @@ function migrateIfNeeded(localPath, globalPath) {
   } catch (_) {}
 }
 
-module.exports = { GLOBAL_CONFIG_DIR, GLOBAL_TRANSCRIPTION_CONFIG, GLOBAL_AUTH_PATH, GLOBAL_GUESTS_FILE, migrateIfNeeded, seedIfMissing };
+module.exports = { GLOBAL_CONFIG_DIR, GLOBAL_TRANSCRIPTION_CONFIG, GLOBAL_AUTH_PATH, GLOBAL_GUESTS_FILE, YT_COOKIES_FILE, getYtdlpCookieArgs, migrateIfNeeded, seedIfMissing };

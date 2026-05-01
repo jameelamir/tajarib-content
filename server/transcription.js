@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { getYtdlpCookieArgs } = require("./global-config");
 
 module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, activeProcesses, handlePostTranscription, getTranscriptionConfig } = ctx;
@@ -36,7 +37,7 @@ module.exports = function init(ctx) {
 
       const args = ["--write-subs", "--write-auto-subs", "--sub-langs", "ar.*,ar,en.*,en",
         "--sub-format", "json3", "--skip-download", "-o", path.join(epDir, "yt-subs"),
-        "--no-warnings", videoUrl];
+        "--no-warnings", ...getYtdlpCookieArgs(), videoUrl];
 
       const proc = spawn("yt-dlp", args, { cwd: WORKSPACE_DIR, stdio: ["ignore", "pipe", "pipe"] });
       proc.stdout.on("data", d => io.emit("log", { slug, text: d.toString() }));
