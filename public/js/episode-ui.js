@@ -665,9 +665,9 @@ async function loadPreview() {
     // Determine video source
     let videoSrc = '';
     if (ep.mediaType === 'reel_full') {
-        videoSrc = '/api/video?slug=' + currentSlug + '&type=raw';
+        videoSrc = '/api/video?slug=' + currentSlug + '&type=raw' + videoQualityParam();
     } else {
-        videoSrc = '/api/video?slug=' + currentSlug + '&type=subtitled';
+        videoSrc = '/api/video?slug=' + currentSlug + '&type=subtitled' + videoQualityParam();
     }
 
     previewDiv.innerHTML =
