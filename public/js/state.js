@@ -41,6 +41,56 @@ let availableModels = [];
 let modelListLoaded = false;
 let modelValidationTimer = null;
 
+// ── Video quality toggle ──────────────────────────────────────────────────────
+// 'full' (default) or 'low'. When 'low', /api/video URLs are tagged with q=low;
+// the server transcodes a 720p/CRF28 cached derivative on first request and
+// falls back to the original until that derivative is ready.
+let videoQuality = localStorage.getItem('tajarib-video-quality') === 'low' ? 'low' : 'full';
+
+function videoQualityParam() {
+    return videoQuality === 'low' ? '&q=low' : '';
+}
+
+function setVideoQuality(q) {
+    videoQuality = q === 'low' ? 'low' : 'full';
+    localStorage.setItem('tajarib-video-quality', videoQuality);
+    refreshVisibleVideos();
+    var btn = document.getElementById('video-quality-toggle');
+    if (btn) updateVideoQualityToggle(btn);
+}
+
+function refreshVisibleVideos() {
+    document.querySelectorAll('video').forEach(function(v) {
+        var src = v.getAttribute('src') || '';
+        if (src.indexOf('/api/video') === -1) return;
+        try {
+            var u = new URL(src, location.origin);
+            if (videoQuality === 'low') u.searchParams.set('q', 'low');
+            else u.searchParams.delete('q');
+            u.searchParams.set('t', Date.now());
+            var resumeAt = v.currentTime;
+            var wasPaused = v.paused;
+            v.src = u.pathname + u.search;
+            v.addEventListener('loadedmetadata', function once() {
+                v.removeEventListener('loadedmetadata', once);
+                try { if (resumeAt > 0) v.currentTime = resumeAt; } catch (e) {}
+                if (!wasPaused) v.play().catch(function() {});
+            });
+        } catch (e) {}
+    });
+}
+
+function updateVideoQualityToggle(btn) {
+    var on = videoQuality === 'low';
+    btn.textContent = on ? '📶 LD' : '📶 HD';
+    btn.title = on
+        ? 'Low-quality preview (saves data) — click for full quality'
+        : 'Full quality — click to switch to low-quality preview';
+    btn.style.background = on ? '#1f2d3d' : '#1a1a1a';
+    btn.style.borderColor = on ? '#3a5a7a' : '#333';
+    btn.style.color = on ? '#7dd3fc' : '#aaa';
+}
+
 // ── Prompt ownership ──────────────────────────────────────────────────────────
 // The server broadcasts `llm-prompt` modals to every connected client (no
 // per-user identity). This set tracks slugs *this* browser tab initiated

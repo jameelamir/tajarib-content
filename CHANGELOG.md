@@ -2,13 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.23] - 2026-05-01
+## [1.0.24] - 2026-05-01
 
 ### Changed
 - The single **Save & Re-sub** button in the Reel Transcript editor splits into two: **Save** (writes chunk edits to `reel-XX-chunks.json`) and **Re-sub** (re-burns the subtitle file from saved chunks). Previously every text tweak forced a full ffmpeg re-burn, which made small proofreading passes feel heavy. Now you can correct ten chunks in a row with cheap saves and only re-burn once at the end.
 
 ### Added
 - Autosave in the Reel Transcript editor. Every 10 s, if any chunk has unsaved edits (`.tm-text.edited`), the editor writes the chunks JSON in the background. Re-sub never runs automatically — only when you click the button. Guarded against overlapping saves so concurrent autosave + manual save can't trample each other.
+
+## [1.0.23] - 2026-05-01
+
+### Added
+- Low-quality video preview toggle in the episode header (📶 HD ↔ 📶 LD), persisted to localStorage. When LD is on, every `/api/video` request gets `&q=low` and the server serves a cached `.low.mp4` derivative (720p max, H.264 CRF 28, AAC 96k, faststart) instead of the full-quality reel. First request for a given video kicks off ffmpeg in the background (non-blocking, in-flight tracked in a Set so parallel requests don't double-spawn) and falls back to the original — so video starts playing immediately with no transcoding delay; subsequent loads pick up the cached low version. Atomic write via `.tmp` → rename so partial transcodes never get served. New `X-Video-Quality` response header reports `low`, `full`, or `preparing`. Toggle swaps `src` on visible `<video>` elements in place, preserving playback position and play/pause state. Skipped on overlay editor previews (positioning needs full resolution) and download links (full file required).
 
 ## [1.0.22] - 2026-05-01
 
