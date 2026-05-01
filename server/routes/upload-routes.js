@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { getYtdlpCookieArgs } = require("../global-config");
 
 function moveFile(src, dest) {
   try {
@@ -100,7 +101,7 @@ module.exports = async function uploadRoutes(req, res, url, ctx) {
 
       io.emit("log", { slug, text: `\n🔗 Downloading: ${videoUrl}\n` });
       io.emit("download-progress", { slug, percent: 0, status: "downloading" });
-      const ytdlpArgs = ["-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4", "-o", outPath, "--newline", "--no-warnings", videoUrl];
+      const ytdlpArgs = ["-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4", "-o", outPath, "--newline", "--no-warnings", ...getYtdlpCookieArgs(), videoUrl];
       const proc = spawn("yt-dlp", ytdlpArgs, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
       activeProcesses[slug] = proc;
 
