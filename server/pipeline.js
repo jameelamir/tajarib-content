@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { prewarmReelStep } = require("./low-quality");
 
 module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, NODE_BIN,
@@ -243,6 +244,10 @@ module.exports = function init(ctx) {
 
       io.emit("log", { slug, reelId: _rid, text: `\nExit code: ${code}\n${"─".repeat(40)}\n` });
       if (step === "crop" && code === 0 && ratio) saveMeta(slug, { cropRatio: ratio });
+      // Pre-warm low-quality preview so the LD toggle is instant on this reel.
+      if (code === 0 && _rid && (step === "cut" || step === "crop" || step === "subtitle" || step === "overlay")) {
+        prewarmReelStep(EPISODES_DIR, slug, _rid, step);
+      }
       io.emit("process-end", { slug, step, code, reelId: _rid });
       io.emit("status-update", {});
       if (step === "transcribe" && code === 0) {

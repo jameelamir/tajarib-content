@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.25] - 2026-05-01
+
+### Changed
+- Low-quality reel previews are now pre-generated during the pipeline instead of waiting for the first LD-toggle click. After every reel-building step that produces a video file (`cut`, `crop`, `subtitle`, `overlay`) finishes with exit 0, the server fires a fire-and-forget ffmpeg transcode for the file that step just produced (e.g., `reel-001-final.mp4` → `reel-001-final.low.mp4`). By the time the user toggles 📶 LD, the cached low version is usually ready — no fallback to full-quality, no delay. The transcoder helper was extracted from `server/routes/media-routes.js` into a shared `server/low-quality.js` module so both the on-demand path (`/api/video?q=low`) and the proactive pipeline hook share the same in-flight Set, atomic `.tmp` → rename behavior, and 720p / CRF 28 / AAC 96k settings.
+
 ## [1.0.24] - 2026-05-01
 
 ### Changed
