@@ -133,6 +133,14 @@ async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
         // Older completions API format
         text = choice.text.trim();
       }
+
+      // Some models (e.g. Haimaker/MiniMax) inline reasoning as <think>…</think>
+      // inside the content field instead of using reasoning_content.
+      if (text.includes("<think>")) {
+        const thinkMatch = text.match(/<think>([\s\S]*?)<\/think>/i);
+        if (thinkMatch && !reasoning) reasoning = thinkMatch[1].trim();
+        text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      }
     }
 
     // Debug: log when text is empty (often caused by reasoning models exhausting token budget)

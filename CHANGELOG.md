@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.29] - 2026-05-04
+
+### Fixed
+- LLM responses that inline reasoning as `<think>…</think>` inside the content field (Haimaker / MiniMax models do this when not using the separate `reasoning_content` field) now have the think block stripped before text is returned to callers. The captured reasoning is moved into the existing `reasoning` return field so debugging stays clean. Previously the raw `<think>…</think>` block leaked through to whatever consumed the response — most visibly into reel caption text shown in the UI. Fixed centrally in `llm.js` so every caller benefits, not just the caption path.
+
 ## [1.0.28] - 2026-05-01
 
 ### Added
