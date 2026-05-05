@@ -16,7 +16,7 @@ module.exports = function init(ctx) {
   // Episode-level steps (no reelId) keep the bare slug key so transcribe still
   // blocks dependent ops on the same episode.
   function stepGroup(step) {
-    if (step === "subtitle" || step === "overlay" || step === "crop" || step === "cut") return "video";
+    if (step === "subtitle" || step === "overlay" || step === "crop" || step === "cut" || step === "clean") return "video";
     if (step === "generate") return "meta";
     return null;
   }
@@ -58,6 +58,11 @@ module.exports = function init(ctx) {
           args = ["crop.js", "--slug", slug, "--reel-id", reelId, "--force"];
           if (opts.ratio) args.push("--ratio", opts.ratio);
           if (opts.faceTrack) args.push("--face-track");
+          break;
+        case "clean":
+          args = ["clean.js", "--slug", slug, "--reel-id", reelId, "--force"];
+          if (opts.silenceThreshold != null) args.push("--silence-threshold", String(opts.silenceThreshold));
+          if (opts.removeFillers === false) args.push("--no-fillers");
           break;
         default: resolve(-1); return;
       }
@@ -145,7 +150,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim, forceManual }) {
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim, silenceThreshold, removeFillers, forceManual }) {
     let procKey = computeProcKey(slug, reelId, step);
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -174,6 +179,13 @@ module.exports = function init(ctx) {
       case "cut":
         if (!found) { io.emit("toast", { type: "error", message: `No video in ${slug}/` }); return; }
         cmd = NODE_BIN; args = ["cut.js", "--slug", slug, "--video", path.join(dir, videoFile)]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); break;
+      case "clean":
+        cmd = NODE_BIN; args = ["clean.js", "--slug", slug];
+        if (reelId) args.push("--reel-id", reelId);
+        if (force) args.push("--force");
+        if (silenceThreshold != null) args.push("--silence-threshold", String(silenceThreshold));
+        if (removeFillers === false) args.push("--no-fillers");
+        break;
       case "crop": cmd = NODE_BIN; args = ["crop.js", "--slug", slug]; if (ratio) args.push("--ratio", ratio); if (faceTrack) args.push("--face-track"); if (reelId) args.push("--reel-id", reelId); if (preferSide) args.push("--prefer-side", preferSide); if (force) args.push("--force"); break;
       case "subtitle": cmd = NODE_BIN; args = ["subtitle.js", "--slug", slug]; if (reelId) args.push("--reel-id", reelId); if (force) args.push("--force"); if (burnOnly) args.push("--burn-only"); if (noTranscribe) args.push("--no-transcribe"); if (subtitleStyle) args.push("--subtitle-style", subtitleStyle); break;
       case "overlay": {
@@ -248,7 +260,7 @@ module.exports = function init(ctx) {
       io.emit("log", { slug, reelId: _rid, text: `\nExit code: ${code}\n${"─".repeat(40)}\n` });
       if (step === "crop" && code === 0 && ratio) saveMeta(slug, { cropRatio: ratio });
       // Pre-warm low-quality preview so the LD toggle is instant on this reel.
-      if (code === 0 && _rid && (step === "cut" || step === "crop" || step === "subtitle" || step === "overlay")) {
+      if (code === 0 && _rid && (step === "cut" || step === "clean" || step === "crop" || step === "subtitle" || step === "overlay")) {
         prewarmReelStep(EPISODES_DIR, slug, _rid, step);
       }
       io.emit("process-end", { slug, step, code, reelId: _rid });

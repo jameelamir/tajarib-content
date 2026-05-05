@@ -23,7 +23,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/run-step") {
     const body = await readBody(req);
     try {
-      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim } = JSON.parse(body);
+      const { slug, step, force, more, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim, silenceThreshold, removeFillers } = JSON.parse(body);
       if (!slug || !step) throw new Error("slug + step required");
       const meta = loadMeta(slug);
       const mediaType = meta.mediaType || "episode";
@@ -41,7 +41,7 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       const isLlmStep = LLM_STEPS.has(step);
       const dispatch = (forceManual) => {
         if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack, subtitleStyle });
-        else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim, forceManual });
+        else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim, silenceThreshold, removeFillers, forceManual });
       };
 
       if (!isLlmStep) {

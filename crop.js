@@ -327,12 +327,19 @@ async function crop(slug, ratio, force = false, faceTrack = false, reelId = null
   console.log(`📐 Cropping ${reelIds.length} reels to ${ratio} (${mode} crop)`);
 
   for (const id of reelIds) {
-    const inputFile = path.join(reelsDir, `reel-${id}.mp4`);
+    // Prefer the cleaned reel (filler/silence-trimmed) as the crop source when
+    // it exists; otherwise fall back to the raw cut.
+    const cleanedFile = path.join(reelsDir, `reel-${id}-cleaned.mp4`);
+    const rawCutFile = path.join(reelsDir, `reel-${id}.mp4`);
+    const inputFile = fs.existsSync(cleanedFile) ? cleanedFile : rawCutFile;
     const outputFile = path.join(reelsDir, `reel-${id}-cropped.mp4`);
 
     if (!fs.existsSync(inputFile)) {
       console.log(`   ⏭️  reel-${id}.mp4 not found, skipping`);
       continue;
+    }
+    if (inputFile === cleanedFile) {
+      console.log(`   ✨ reel-${id}: using cleaned source`);
     }
 
     if (fs.existsSync(outputFile) && !force) {

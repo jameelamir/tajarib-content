@@ -101,6 +101,7 @@ module.exports = function init(ctx) {
           const reelInfo = analysisData?.reels?.find(r => String(r.id).padStart(2, "0") === id) || {};
           reelStatuses.push({
             id, cut: validCutIds.has(id), generated: generatedReelIds.has(id),
+            cleaned: reelFiles.includes(`reel-${id}-cleaned.mp4`),
             cropped: reelFiles.includes(`reel-${id}-cropped.mp4`),
             subtitled: reelFiles.includes(`reel-${id}-subtitled.mp4`),
             final: reelFiles.includes(`reel-${id}-final.mp4`),
