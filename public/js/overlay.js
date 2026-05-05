@@ -59,7 +59,9 @@ async function toggleOverlayConfig() {
         if (selectedReelId) {
             overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(selectedReelId) + '&stage=pre-overlay&t=' + Date.now();
         } else {
-            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=subtitled&t=' + Date.now();
+            var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+            var videoType = (ep && ep.steps && ep.steps.subtitled) ? 'subtitled' : 'raw';
+            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=' + videoType + '&t=' + Date.now();
         }
     }
     renderOverlayConfig();
