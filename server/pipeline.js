@@ -145,7 +145,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim }) {
+  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim, forceManual }) {
     let procKey = computeProcKey(slug, reelId, step);
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -201,10 +201,13 @@ module.exports = function init(ctx) {
     io.emit("log", { slug, reelId: _rid, text: `   Starting process...\n\n` });
     io.emit("process-start", { slug, step, reelId: _rid });
 
-    console.log(`[Spawning] ${cmd} ${args.join(" ")} in ${WORKSPACE_DIR}`);
+    console.log(`[Spawning] ${cmd} ${args.join(" ")} in ${WORKSPACE_DIR}${forceManual ? ' [TAJARIB_FORCE_MANUAL=1]' : ''}`);
     console.log(`[DEBUG] slug=${slug}, step=${step}, io.connected sockets=${io.engine?.clientsCount || 'unknown'}`);
 
-    const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    // Hybrid mode "manual" choice: env var makes the child's llm.getConfig()
+    // resolve to mode='manual' for this spawn only, triggering paste-from-Claude.
+    const spawnEnv = forceManual ? { ...process.env, TAJARIB_FORCE_MANUAL: "1" } : process.env;
+    const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: spawnEnv });
     activeProcesses[procKey] = proc;
     let stdoutBuffer = '', stderrBuffer = '', outputSent = false;
 

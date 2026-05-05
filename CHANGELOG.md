@@ -2,16 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.33] - 2026-05-05
+## [1.0.37] - 2026-05-05
 
 ### Added
 - Persistent overlay asset library with visual thumbnail picker. Every overlay slot (Sponsor, Logo, Lower Third, CTA) now renders a horizontal-scroll strip of preview thumbnails sourced from the existing `/api/assets/file/<name>` endpoint, with the selected file highlighted by an accent border and a `+` button that opens the upload dialog. Logo previously had no upload UI at all in the overlay panel — only X/Y/Scale sliders that assumed a file named `logo.{ext}` already existed in `assets/`. CTA had a bare `<input type="file">` with no way to swap back to a previously uploaded button. Both now match what Sponsor and Lower Third already had. New helpers in `public/js/overlay.js`: `renderAssetPickerStripHTML(opts)` returns the placeholder markup, `populateAssetPickerStrip(stripId, typeFilter, currentFile, selectFn)` fills it via `/api/assets/browse`. New CSS classes in `public/style.css`: `.asset-picker-strip`, `.asset-thumb`, `.asset-thumb.selected`, `.asset-upload-btn`. New select/upload handlers `selectLogoAsset`, `uploadLogoAsset`, `selectCTAAsset`.
 
 ### Fixed
-- Logo and CTA uploads no longer overwrite each other. `POST /api/upload-asset` was saving logo files to a fixed `assets/logo.{ext}` and CTA files to `assets/cta{ext}`, so each new upload destroyed the previous one. Sponsor and lower-third already preserved the original filename — logo and CTA now do the same (`server/routes/media-routes.js:285-291`). User can keep many logos and CTA images side by side and switch between them via the picker. Compositor (`overlay.js`) now resolves the logo from `config.logo.file` first, then falls back to the legacy `logo.{ext}` lookup; CTA resolution is symmetric, reading `config.cta.imagePath` (which already existed in the config schema but was being ignored). The live drag-and-drop preview canvas (`getOverlayElements`, `drawLiveOverlay` in `public/js/overlay.js`) was updated to honor the same config fields, so a custom-named logo shows in the canvas preview, not just the rendered FFmpeg output.
+- Logo and CTA uploads no longer overwrite each other. `POST /api/upload-asset` was saving logo files to a fixed `assets/logo.{ext}` and CTA files to `assets/cta{ext}`, so each new upload destroyed the previous one. Sponsor and lower-third already preserved the original filename — logo and CTA now do the same (`server/routes/media-routes.js:285-289`). User can keep many logos and CTA images side by side and switch between them via the picker. Compositor (`overlay.js`) now resolves the logo from `config.logo.file` first, then falls back to the legacy `logo.{ext}` lookup; CTA resolution is symmetric, reading `config.cta.imagePath` (which already existed in the config schema but was being ignored). The live drag-and-drop preview canvas (`getOverlayElements`, `drawLiveOverlay` in `public/js/overlay.js`) was updated to honor the same config fields, so a custom-named logo shows in the canvas preview, not just the rendered FFmpeg output.
 
 ### Changed
 - `assets/.preview-*` (the WebM VP9 alpha previews generated on demand by `/api/assets/video/<name>` for live overlay playback in the browser) are now gitignored, matching the existing `.thumb-*` rule. They are regenerated automatically when the source asset changes.
+
+## [1.0.36] - 2026-05-05
+
+### Added
+- "Recut from source" action on each reel in episode mode. When the existing cut has drifted (timestamps no longer reliable, e.g. after re-trim, transcript edits, or upstream pipeline changes), the new button matches the reel's transcript text against the episode word-level transcript and re-cuts a fresh raw clip at the matching boundaries — no dependence on the stored start/end. Useful when you have a finished reel and want to start fresh from the source. Flow: click ↺ Recut on a reel, the system runs a dry-run match and shows a confirm dialog with old vs new times and match confidence; on accept it updates `analysis.json`, wipes stale derived files (cut, cropped, subtitled, final, chunks, ASS), and triggers the standard `cut` step to render a new raw clip — crop/sub/overlay then need to be redone. Implementation: new `POST /api/recut-from-source` in `server/routes/reel-routes.js`, new aligner `alignReelTextToEpisode` in `utils.js` (Arabic-aware: strips diacritics, normalizes alef/ya/ta-marbuta, tolerates morphological prefixes/suffixes like `لكن`/`لكننا`; bag-of-words sliding window finds the matching region in the episode, then cluster-density localizes precise start/end). Validated against real reel transcripts: matches stored timestamps within ~2s; synthetic round-trips match within 1s at 95% confidence.
+
+## [1.0.35] - 2026-05-05
+
+### Added
+- Copy transcript button in the reel transcript section, alongside the SRT upload/download buttons. Joins all chunk text with newlines, syncs in-progress edits first, and uses the existing `copyToClipboard()` toast util. `public/js/reel-ui.js`.
+
+## [1.0.34] - 2026-05-05
+
+### Fixed
+- Sponsor / logo / CTA / lower-third overlay uploads no longer fail with `EXDEV: cross-device link not permitted` on the production VPS. Formidable writes the temp file to `UPLOADS_DIR` (`/data/uploads`, the bind-mounted host volume), but `/api/upload-asset` was finalizing it to `<repo>/assets` (`/app/assets` inside the container, on the container's overlay filesystem). `fs.renameSync` across filesystems errors with `EXDEV`. Fixed by wrapping the rename in the same `EXDEV` → `copyFileSync` + `unlinkSync` fallback that `server/routes/upload-routes.js` already uses for episode video uploads. `media-routes.js:293`.
+
+## [1.0.33] - 2026-05-05
+
+### Changed
+- Hybrid-mode "Fill manually" choice now shows the LLM prompt to copy-paste into your own Claude — same flow as top-level Manual mode, just per-step. Previously v1.0.31 wrote empty placeholders and asked you to type the result yourself, which wasn't what users meant by "manual" — they wanted the prompt so they could run it through whatever model they prefer. Implementation: child processes (`analyze.js`, `generate.js`, `compose.js`) get spawned with `TAJARIB_FORCE_MANUAL=1` env var when the user picks manual; `llm.js` checks that env var in `getConfig()` and forces `mode='manual'` for that spawn, which makes `llm.chat()` return null and triggers the existing exit-42 → `llm-prompt` socket flow. In-process callers (`/api/feedback`, `/api/generate-title`, `/api/analyze-clips`) pass a `forceManual` opt through `callClaude` → `llm.chat({forceManual: true})` for the same effect without env vars.
+
+### Removed
+- `server/manual-steps.js` (the empty-placeholder writer) — no longer needed since manual mode now routes through the existing paste flow for every step.
+- `#llm-title-modal` HTML, `openManualTitleModal` / `submitManualTitle` / `cancelManualTitle` JS, and the `POST /api/llm-title-input` endpoint — replaced by the standard paste prompt for manual title generation.
 
 ## [1.0.32] - 2026-05-05
 

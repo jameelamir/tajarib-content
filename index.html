@@ -418,25 +418,6 @@
     </div>
 </div>
 
-<!-- Hybrid Mode: Manual Title Input Modal -->
-<div class="modal" id="llm-title-modal">
-    <div class="modal-box" style="width:520px;">
-        <h3>✍️ Type the episode title</h3>
-        <div style="font-size:0.75rem; color:#aaa; margin:8px 0 14px 0;">
-            Lowercase, hyphens for spaces. Will be deduplicated automatically.
-        </div>
-        <input id="llm-title-input-field" type="text" placeholder="e.g. john-smith-on-startups"
-            style="width:100%; background:#0a0a0a; border:1px solid #333; color:#eee; padding:10px 12px; border-radius:6px; font-size:0.85rem; margin-bottom:14px;"
-            onkeydown="if(event.key==='Enter'){submitManualTitle();}else if(event.key==='Escape'){cancelManualTitle();}"
-        />
-        <div class="modal-actions">
-            <button onclick="cancelManualTitle()">Cancel</button>
-            <button class="primary" onclick="submitManualTitle()">Save</button>
-        </div>
-    </div>
-</div>
-
-
 <!-- Storage Browser Modal -->
 <div class="modal" id="storage-modal">
     <div class="modal-box" style="width:780px; max-height:90vh; display:flex; flex-direction:column;">

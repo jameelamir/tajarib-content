@@ -288,7 +288,13 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
           const originalName = file.originalFilename || defaults[assetType];
           destPath = path.join(ASSETS_DIR, originalName);
         }
-        fs.renameSync(file.filepath, destPath);
+        try {
+          fs.renameSync(file.filepath, destPath);
+        } catch (renameErr) {
+          if (renameErr.code !== "EXDEV") throw renameErr;
+          fs.copyFileSync(file.filepath, destPath);
+          fs.unlinkSync(file.filepath);
+        }
         const sizeMb = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
         res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, file: path.basename(destPath), sizeMb }));
         io.emit("toast", { type: "success", message: `${assetType} overlay uploaded (${sizeMb} MB)` });

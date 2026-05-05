@@ -1,12 +1,15 @@
 /**
- * LLM wrappers — callClaude, model revision, manual LLM mode, hybrid step choice.
+ * LLM wrappers — callClaude, model revision, hybrid step choice.
+ *
+ * Manual paths route through the existing paste-from-your-own-Claude flow
+ * (llm.chat → null → llm-prompt socket event → user pastes response).
+ *
+ * For in-process callers (this file), pass `forceManual: true` to opts.
+ * For child-process callers (analyze.js, generate.js, compose.js), the parent
+ * spawns with TAJARIB_FORCE_MANUAL=1 in env — see server/pipeline.js.
  */
-class ManualSkip extends Error {
-  constructor(step) { super(`Manual skip: ${step}`); this.code = "MANUAL_SKIP"; this.step = step; }
-}
-
 module.exports = function init(ctx) {
-  const { io, pendingManualLLM, pendingModeChoices, pendingTitleInputs, llm, prompts } = ctx;
+  const { io, pendingManualLLM, pendingModeChoices, llm, prompts } = ctx;
 
   // Hybrid mode: ask the user once per LLM step whether to use AI or fill manually.
   // Returns 'ai' | 'manual'.
@@ -31,25 +34,13 @@ module.exports = function init(ctx) {
     });
   }
 
-  // Hybrid + manual title: prompt the user to type the title themselves.
-  // Returns the typed string.
-  async function askManualTitle({ slug = "", currentSlug = "" } = {}) {
-    const requestId = "title-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pendingTitleInputs.delete(requestId);
-        reject(new Error("Manual title input timed out (10 minutes)"));
-      }, 10 * 60 * 1000);
-      pendingTitleInputs.set(requestId, {
-        resolve: (text) => { clearTimeout(timeout); resolve(text || ""); },
-        reject: (err) => { clearTimeout(timeout); reject(err); },
-      });
-      io.emit("llm-title-input", { requestId, slug, currentSlug });
-    });
-  }
-
   async function callClaude(systemPrompt, userMessage, maxTokens = 4096, manualOpts = {}) {
-    const result = await llm.chat({ system: systemPrompt, user: userMessage, maxTokens });
+    const result = await llm.chat({
+      system: systemPrompt,
+      user: userMessage,
+      maxTokens,
+      forceManual: !!manualOpts.forceManual,
+    });
     if (!result) {
       const requestId = 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
       return new Promise((resolve, reject) => {
@@ -85,17 +76,15 @@ module.exports = function init(ctx) {
     return llm.hasKey();
   }
 
-  async function callModelForRevision(originalContent, feedback, transcriptText = null, slug = "") {
+  async function callModelForRevision(originalContent, feedback, transcriptText = null, slug = "", forceManual = false) {
     let transcriptSection = '';
     if (transcriptText) {
       transcriptSection = `\n\n---FULL TRANSCRIPT (for context on what was actually said)---\n${transcriptText.substring(0, 8000)}${transcriptText.length > 8000 ? '...' : ''}\n---END TRANSCRIPT---`;
     }
     const systemPrompt = prompts.load("revision-system");
     const prompt = prompts.load("revision-user", { originalContent, transcriptSection, feedback });
-    return callClaude(systemPrompt, prompt, 4096, { slug, step: "feedback", expectedFormat: "text" });
+    return callClaude(systemPrompt, prompt, 4096, { slug, step: "feedback", expectedFormat: "text", forceManual });
   }
 
-  return { callClaude, hasApiKey, callModelForRevision, askLlmModeChoice, askManualTitle, ManualSkip };
+  return { callClaude, hasApiKey, callModelForRevision, askLlmModeChoice };
 };
-
-module.exports.ManualSkip = ManualSkip;
