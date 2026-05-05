@@ -169,22 +169,34 @@ async function saveTranscriptionConfig() {
     }
 }
 
-// LLM Config (API key + base URL + model)
+// LLM Config (API key + base URL + model + mode)
 async function loadGenKeyStatus() {
     try {
         const res = await fetch('/api/llm-config');
         const data = await res.json();
         const dot = document.getElementById('gen-key-dot');
         const status = document.getElementById('gen-key-status');
-        const toggle = document.getElementById('manual-mode-toggle');
         // Populate fields with current config (but not the key)
         if (data.baseUrl) document.getElementById('gen-base-url').value = data.baseUrl;
         if (data.model) document.getElementById('sidebar-model-select').value = data.model;
-        if (toggle) toggle.checked = !!data.manualMode;
-        if (data.manualMode) {
+        const mode = data.mode || 'hybrid';
+        const radio = document.querySelector('input[name="llm-mode"][value="' + mode + '"]');
+        if (radio) radio.checked = true;
+        if (mode === 'manual') {
             dot.style.background = '#a78bfa';
             status.innerHTML = '📋 Manual mode — paste prompts into your own Claude';
             status.style.color = '#a78bfa';
+        } else if (mode === 'hybrid') {
+            if (data.hasKey) {
+                dot.style.background = '#7dd3fc';
+                const provider = data.baseUrl ? new URL(data.baseUrl).hostname : 'Anthropic direct';
+                status.innerHTML = '⚡ Hybrid — <span style="color:#888;">' + provider + ', will ask per step</span>';
+                status.style.color = '#7dd3fc';
+            } else {
+                dot.style.background = '#7dd3fc';
+                status.innerHTML = '⚡ Hybrid — <span style="color:#888;">no API key, manual only</span>';
+                status.style.color = '#7dd3fc';
+            }
         } else if (data.hasKey) {
             dot.style.background = 'var(--success)';
             const provider = data.baseUrl ? new URL(data.baseUrl).hostname : 'Anthropic direct';
@@ -247,26 +259,29 @@ async function saveLLMConfig() {
     }
 }
 
-async function toggleManualMode(enabled) {
+async function saveLlmMode(mode) {
     try {
         const res = await fetch('/api/llm-config', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ manualMode: enabled })
+            body: JSON.stringify({ mode })
         });
         const data = await res.json();
         if (data.success) {
-            showToast(enabled ? 'Manual mode enabled' : 'Manual mode disabled', 'success');
+            const labels = { auto: 'API mode', hybrid: 'Hybrid mode', manual: 'Manual mode' };
+            showToast(labels[mode] + ' enabled', 'success');
             loadGenKeyStatus();
         } else {
             throw new Error(data.error || 'Failed');
         }
     } catch (err) {
         showToast('Error: ' + err.message, 'error');
-        // Revert toggle
-        document.getElementById('manual-mode-toggle').checked = !enabled;
+        loadGenKeyStatus();
     }
 }
+
+// Legacy alias — old toggle code path may still call this.
+function toggleManualMode(enabled) { return saveLlmMode(enabled ? 'manual' : 'auto'); }
 
 // Collapsible sidebar sections
 function toggleSection(name) {

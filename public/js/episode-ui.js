@@ -819,7 +819,14 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
         const data = await res.json();
         console.log('[feedback] Response data:', { success: data.success, revisedLen: data.revised ? data.revised.length : 0, error: data.error });
 
-        if (data.success) {
+        if (data.success && data.manual) {
+            hint.textContent = '✍️ Manual mode — edit the field directly';
+            hint.style.color = '#a78bfa';
+            hint.style.fontSize = '';
+            hint.className = 'content-hint';
+            textarea.focus();
+            showToast(data.message || 'Edit the field directly', 'info');
+        } else if (data.success) {
             textarea.value = data.revised;
             autoResize(textarea);
             fbInput.value = '';

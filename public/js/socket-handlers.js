@@ -227,6 +227,16 @@ function setupSocketHandlers() {
         pendingLlmData = data;
         openLlmModal(data);
     });
+
+    socket.on('llm-step-choice', (data) => {
+        if (!ownsPromptSlug(data.slug)) return;
+        openLlmChoiceModal(data);
+    });
+
+    socket.on('llm-title-input', (data) => {
+        if (!ownsPromptSlug(data.slug)) return;
+        openManualTitleModal(data);
+    });
     socket.on('episode-renamed', ({oldSlug, newSlug}) => {
         // Carry the prompt-ownership claim across the rename so we still
         // get the modal after AI auto-titling renames a temp- slug.

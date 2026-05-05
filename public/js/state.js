@@ -119,6 +119,81 @@ function ownsPromptSlug(slug) {
     return myPromptSlugs.has(slug);
 }
 
+// ── Hybrid-mode choice modal ─────────────────────────────────────────────────
+// In hybrid LLM mode, every LLM-using step pops this modal so the user picks
+// "AI" or "manual" once per step. Resolved via POST /api/llm-step-decision.
+let pendingChoiceRequest = null;
+
+function openLlmChoiceModal(data) {
+    pendingChoiceRequest = data;
+    const modal = document.getElementById('llm-choice-modal');
+    const title = document.getElementById('llm-choice-title');
+    const desc = document.getElementById('llm-choice-desc');
+    if (title) title.textContent = `Run "${data.step}" with AI or fill in manually?`;
+    if (desc) desc.textContent = data.description || '';
+    if (modal) modal.classList.add('open');
+}
+
+function resolveLlmChoice(choice) {
+    if (!pendingChoiceRequest) return;
+    const requestId = pendingChoiceRequest.requestId;
+    pendingChoiceRequest = null;
+    const modal = document.getElementById('llm-choice-modal');
+    if (modal) modal.classList.remove('open');
+    fetch('/api/llm-step-decision', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ requestId, choice }),
+    }).catch(err => console.error('llm-step-decision failed:', err));
+}
+
+// ── Hybrid-mode manual title modal ──────────────────────────────────────────
+let pendingTitleRequest = null;
+
+function openManualTitleModal(data) {
+    pendingTitleRequest = data;
+    const modal = document.getElementById('llm-title-modal');
+    const input = document.getElementById('llm-title-input-field');
+    if (input) {
+        input.value = data.currentSlug && !data.currentSlug.startsWith('temp-') ? data.currentSlug : '';
+        setTimeout(() => input.focus(), 50);
+    }
+    if (modal) modal.classList.add('open');
+}
+
+function submitManualTitle() {
+    if (!pendingTitleRequest) return;
+    const input = document.getElementById('llm-title-input-field');
+    const title = (input?.value || '').trim();
+    if (!title) {
+        showToast('Type a title first', 'error');
+        return;
+    }
+    const requestId = pendingTitleRequest.requestId;
+    pendingTitleRequest = null;
+    const modal = document.getElementById('llm-title-modal');
+    if (modal) modal.classList.remove('open');
+    fetch('/api/llm-title-input', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ requestId, title }),
+    }).catch(err => console.error('llm-title-input failed:', err));
+}
+
+function cancelManualTitle() {
+    if (!pendingTitleRequest) return;
+    const requestId = pendingTitleRequest.requestId;
+    pendingTitleRequest = null;
+    const modal = document.getElementById('llm-title-modal');
+    if (modal) modal.classList.remove('open');
+    // Submit empty so server can clean up; the route will throw "empty title" gracefully.
+    fetch('/api/llm-title-input', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ requestId, title: '' }),
+    }).catch(err => console.error('llm-title-input cancel failed:', err));
+}
+
 // Auto-claim slug on outgoing fetch to pipeline endpoints. Covers
 // /api/run-step, /api/feedback, /api/download-url. The XHR-based
 // /api/upload path claims separately in upload.js.
