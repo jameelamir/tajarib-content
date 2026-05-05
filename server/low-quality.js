@@ -56,6 +56,7 @@ function prewarmReelStep(episodesDir, slug, reelId, step) {
   const reelsDir = path.join(episodesDir, slug, "reels");
   const target = ({
     cut:      `reel-${padded}.mp4`,
+    clean:    `reel-${padded}-cleaned.mp4`,
     crop:     `reel-${padded}-cropped.mp4`,
     subtitle: `reel-${padded}-subtitled.mp4`,
     overlay:  `reel-${padded}-final.mp4`,

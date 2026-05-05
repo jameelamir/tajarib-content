@@ -91,7 +91,7 @@ async function cut(slug, videoPath, force = false, reelId = null) {
 
     // Clean up stale downstream files from previous cuts
     const reelPrefix = `reel-${String(reel.id).padStart(2, "0")}`;
-    for (const suffix of ["-cropped.mp4", "-subtitled.mp4", "-final.mp4", ".ass", "-transcript.json"]) {
+    for (const suffix of ["-cleaned.mp4", "-cropped.mp4", "-subtitled.mp4", "-final.mp4", ".ass", "-transcript.json"]) {
       const stale = path.join(reelsDir, reelPrefix + suffix);
       try { if (fs.existsSync(stale)) { fs.unlinkSync(stale); console.log(`   🗑️  Removed stale ${reelPrefix}${suffix}`); } } catch {}
     }

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.30] - 2026-05-05
+
+### Added
+- New **Clean** step in the per-reel pipeline, sitting between **Cut** and **Crop**, that strips filler words and silences from a cut reel. Filler removal matches against a conservative list (English `um/uh/uhm/er/hmm/mm`, Iraqi-Arabic `اه/يعني/إيه`) and is text-based, so it works whether the transcript came from Whisper or an uploaded SRT. Silence removal walks the gaps between consecutive word timestamps and cuts any gap longer than the chosen threshold (Tight >0.5s, Med >0.7s default, Light >1.0s, or off). Each removed range gets 80ms of padding on either side so cuts feel natural rather than choppy. Output is `reel-NN-cleaned.mp4` — the original `reel-NN.mp4` is preserved, and `crop.js` automatically prefers the cleaned source when it exists. Subtitles re-sync automatically because `subtitle.js` already re-transcribes the cropped reel. Per-reel `reel-NN-transcript.json` (real Whisper word timing) is preferred over the episode transcript when available, since SRT-uploaded transcripts have synthesized zero-gap word timing that defeats silence detection. Cleaning refuses to run if it would gut the reel (>99% removed) or all words are inside cut zones. Implementation: new `clean.js` script + plumbing in `server/pipeline.js` (clean joins the `video` concurrency lane), `server/routes/pipeline-routes.js` (passes `silenceThreshold`/`removeFillers`), `server/episodes.js` (exposes `cleaned` reel state), `server/low-quality.js` (LD preview prewarm), `crop.js` (input fallback), `cut.js` (extends downstream-stale cleanup to include `-cleaned.mp4`), and `public/js/reel-ui.js` (Clean button + silence threshold dropdown + fillers checkbox in the per-reel pipeline strip). Bulk "process-reels" still skips Clean — it stays opt-in per reel because over-aggressive trimming on reflective interviews can sound jumpcut-y.
+
 ## [1.0.29] - 2026-05-04
 
 ### Fixed

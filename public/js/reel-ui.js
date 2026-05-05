@@ -423,6 +423,19 @@ function buildReelActions(ep, reel) {
     if (ep.mediaType === 'episode') {
         steps.push({ id: 'cut', label: 'Cut', done: reel.cut });
     }
+    if (ep.mediaType === 'episode') {
+        steps.push({ id: 'clean', label: 'Clean', done: reel.cleaned, extra:
+            '<select id="reel-clean-silence" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;" title="Silence threshold — gaps longer than this get cut">' +
+                '<option value="0" style="background:#111;">No silence</option>' +
+                '<option value="1.0" style="background:#111;">Light (>1.0s)</option>' +
+                '<option value="0.7" style="background:#111;" selected>Med (>0.7s)</option>' +
+                '<option value="0.5" style="background:#111;">Tight (>0.5s)</option>' +
+            '</select>' +
+            '<label style="font-size:0.58rem; cursor:pointer; display:flex; align-items:center; gap:2px;" title="Cut out um/uh/يعني etc.">' +
+                '<input type="checkbox" id="reel-clean-fillers" style="accent-color:var(--accent); width:12px; height:12px;" checked>Fillers' +
+            '</label>'
+        });
+    }
     steps.push({ id: 'crop', label: 'Crop', done: reel.cropped, extra:
         '<select id="reel-crop-ratio" class="pipe-inline-select" style="background:transparent; border:none; color:inherit; font-size:0.6rem; padding:0 2px; cursor:pointer;">' +
             '<option value="9:16" style="background:#111;">9:16</option><option value="1:1" style="background:#111;">1:1</option><option value="4:5" style="background:#111;">4:5</option>' +
@@ -3054,6 +3067,13 @@ async function runReelStep(reelId, step) {
         body.ratio = ratioEl ? ratioEl.value : '9:16';
         var ftEl = document.getElementById('reel-face-track');
         body.faceTrack = ftEl ? ftEl.checked : false;
+    }
+
+    if (step === 'clean') {
+        var silenceEl = document.getElementById('reel-clean-silence');
+        body.silenceThreshold = silenceEl ? parseFloat(silenceEl.value) : 0.7;
+        var fillerEl = document.getElementById('reel-clean-fillers');
+        body.removeFillers = fillerEl ? fillerEl.checked : true;
     }
 
     if (step === 'subtitle') {
