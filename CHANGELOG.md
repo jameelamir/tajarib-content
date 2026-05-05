@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.36] - 2026-05-05
+
+### Added
+- "Recut from source" action on each reel in episode mode. When the existing cut has drifted (timestamps no longer reliable, e.g. after re-trim, transcript edits, or upstream pipeline changes), the new button matches the reel's transcript text against the episode word-level transcript and re-cuts a fresh raw clip at the matching boundaries — no dependence on the stored start/end. Useful when you have a finished reel and want to start fresh from the source. Flow: click ↺ Recut on a reel, the system runs a dry-run match and shows a confirm dialog with old vs new times and match confidence; on accept it updates `analysis.json`, wipes stale derived files (cut, cropped, subtitled, final, chunks, ASS), and triggers the standard `cut` step to render a new raw clip — crop/sub/overlay then need to be redone. Implementation: new `POST /api/recut-from-source` in `server/routes/reel-routes.js`, new aligner `alignReelTextToEpisode` in `utils.js` (Arabic-aware: strips diacritics, normalizes alef/ya/ta-marbuta, tolerates morphological prefixes/suffixes like `لكن`/`لكننا`; bag-of-words sliding window finds the matching region in the episode, then cluster-density localizes precise start/end). Validated against real reel transcripts: matches stored timestamps within ~2s; synthetic round-trips match within 1s at 95% confidence.
+
 ## [1.0.35] - 2026-05-05
 
 ### Added
