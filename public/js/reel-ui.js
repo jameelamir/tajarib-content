@@ -2440,6 +2440,16 @@ function rtFormatSRTTime(sec) {
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ',' + String(ms).padStart(3, '0');
 }
 
+function copyReelTranscript() {
+    if (!reelChunksData || !reelChunksData.length) {
+        showToast('No transcript to copy', 'error');
+        return;
+    }
+    rtSyncDomToData();
+    var text = reelChunksData.map(function(c) { return (c.text || '').trim(); }).filter(Boolean).join('\n');
+    copyToClipboard(text, 'Transcript copied');
+}
+
 function downloadReelSRT() {
     if (!reelChunksData || !reelChunksData.length) return;
     // Sync any in-progress edits
@@ -2790,6 +2800,7 @@ function rtRenderChunks(containerEl) {
         '<button onclick="resubReel(\'' + reelTranscriptReelId + '\')" style="font-size:0.7rem; flex:1;" title="Re-burn subtitles from saved chunks">Re-sub</button>' +
         '<button onclick="uploadReelSrt(' + uploadArg + ')" style="font-size:0.7rem;" title="Upload SRT to replace transcript">↑ SRT</button>' +
         '<button onclick="downloadReelSRT()" style="font-size:0.7rem;" title="Download current chunks as SRT">↓ SRT</button>' +
+        '<button onclick="copyReelTranscript()" style="font-size:0.7rem;" title="Copy transcript text to clipboard">Copy</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.35] - 2026-05-05
+
+### Added
+- Copy transcript button in the reel transcript section, alongside the SRT upload/download buttons. Joins all chunk text with newlines, syncs in-progress edits first, and uses the existing `copyToClipboard()` toast util. `public/js/reel-ui.js`.
+
 ## [1.0.34] - 2026-05-05
 
 ### Fixed
