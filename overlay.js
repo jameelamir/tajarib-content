@@ -166,7 +166,15 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
       inputIdx++;
     }
 
-    const logoFile = [".mov", ".png", ".jpg", ".mp4"].map(ext => path.join(ASSETS_DIR, "logo" + ext)).find(f => fs.existsSync(f));
+    // Prefer config.logo.file if set; fall back to legacy hardcoded "logo.{ext}" lookup.
+    let logoFile = null;
+    if (config.logo.file) {
+      const candidate = path.join(ASSETS_DIR, config.logo.file);
+      if (fs.existsSync(candidate)) logoFile = candidate;
+    }
+    if (!logoFile) {
+      logoFile = [".mov", ".png", ".jpg", ".mp4"].map(ext => path.join(ASSETS_DIR, "logo" + ext)).find(f => fs.existsSync(f));
+    }
     if (logoFile) {
       inputs.push(logoFile);
       const scale = config.logo.scale || 140;
@@ -185,7 +193,7 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
 
   // CTA image overlay
   if (config.cta && config.cta.enabled && config.cta.mode === "image") {
-    const ctaFile = findCTAAsset();
+    const ctaFile = findCTAAsset(config.cta.imagePath);
     if (ctaFile) {
       inputs.push(ctaFile);
       const scale = config.cta.scale || 200;
@@ -203,7 +211,13 @@ function buildConfigOverlays(config, videoWidth, videoHeight) {
   return { inputs, chain, lastLabel, inputIdx };
 }
 
-function findCTAAsset() {
+function findCTAAsset(configImagePath) {
+  // Prefer the file referenced in config (frontend stores it as "assets/<name>" or just "<name>")
+  if (configImagePath) {
+    const name = configImagePath.replace(/^assets\//, "");
+    const p = path.join(ASSETS_DIR, name);
+    if (fs.existsSync(p)) return p;
+  }
   for (const ext of [".png", ".mov", ".mp4", ".gif"]) {
     const p = path.join(ASSETS_DIR, "cta" + ext);
     if (fs.existsSync(p)) return p;

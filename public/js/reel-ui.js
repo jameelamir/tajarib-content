@@ -513,9 +513,11 @@ function buildReelActions(ep, reel) {
 
     // Meta actions (download/trim/done/hide/delete) pushed to the right
     var hasVideo = reel.cut || reel.cropped || reel.subtitled || reel.final;
+    var canRecut = ep.mediaType === 'episode' && (reel.subtitled || reel.cut);
     html += '<div class="pipe-meta">' +
         (hasVideo ? '<button onclick="downloadReel(\'' + reelId + '\')" style="color:#60a5fa;" title="Download reel MP4">&#11015; Download</button>' : '') +
         '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
+        (canRecut ? '<button onclick="recutFromSource(\'' + reelId + '\')" style="color:#a78bfa;" title="Match reel transcript to source video and re-cut a clean clip (resets crop/sub/overlay)">&#8634; Recut</button>' : '') +
         '<button onclick="toggleDoneReel(\'' + reelId + '\')"' + (reel.done ? ' style="color:#4ade80; border-color:#4ade80;"' : '') + ' title="' + (reel.done ? 'Mark undone' : 'Mark done') + '">' +
         '&#10003; ' + (reel.done ? 'Done' : 'Mark Done') + '</button>' +
         '<button onclick="toggleHideReel(\'' + reelId + '\')" title="' + (reel.hidden ? 'Show reel' : 'Hide reel') + '">' +
@@ -3118,6 +3120,46 @@ async function runReelStep(reelId, step) {
         });
         var data = await res.json();
         if (!data.success) showToast(data.error, 'error');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+// ── Recut from source: match reel transcript → cut fresh clip ──────────
+async function recutFromSource(reelId) {
+    if (!currentSlug) return;
+    var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+    if (!ep) return;
+
+    showToast('Matching reel transcript to source...', 'info');
+    var preview;
+    try {
+        var res = await fetch('/api/recut-from-source', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, reelId: reelId, dryRun: true })
+        });
+        preview = await res.json();
+        if (!preview.success) { showToast(preview.error || 'Match failed', 'error'); return; }
+    } catch (err) { showToast(err.message, 'error'); return; }
+
+    var pct = Math.round((preview.confidence || 0) * 100);
+    var msg = 'Recut from source?\n\n' +
+        'Old: ' + preview.oldStart + ' – ' + preview.oldEnd + '\n' +
+        'New: ' + preview.newStart + ' – ' + preview.newEnd + '\n' +
+        'Match confidence: ' + pct + '%\n\n' +
+        'This will reset the reel to a fresh raw cut (crop, subtitles, and overlay will be redone).';
+    if (!confirm(msg)) return;
+
+    try {
+        var res2 = await fetch('/api/recut-from-source', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ slug: currentSlug, reelId: reelId })
+        });
+        var data = await res2.json();
+        if (!data.success) { showToast(data.error || 'Recut failed', 'error'); return; }
+        showToast('Recutting from source — ' + data.newStart + ' to ' + data.newEnd, 'success');
     } catch (err) {
         showToast(err.message, 'error');
     }

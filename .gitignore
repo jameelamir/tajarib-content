@@ -41,6 +41,7 @@ index.html.v*.pre-mobile-backup
 assets/*.mov
 assets/*.mp4
 assets/.thumb-*
+assets/.preview-*
 
 # OS files
 .DS_Store

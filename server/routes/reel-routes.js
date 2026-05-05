@@ -3,11 +3,109 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { toSeconds } = require("../../utils");
+const { toSeconds, formatTimestamp, alignReelTextToEpisode } = require("../../utils");
 const { remapChunksForCuts, closeSubtitleGaps } = require("../../subtitle");
 
 module.exports = async function reelRoutes(req, res, url, ctx) {
-  const { io, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, readBody, parseSrt, formidable } = ctx;
+  const { io, EPISODES_DIR, UPLOADS_DIR, loadJSON, saveJSON, loadMeta, saveMeta, readBody, parseSrt, formidable, runStep } = ctx;
+
+  if (req.method === "POST" && url.pathname === "/api/recut-from-source") {
+    const body = await readBody(req);
+    try {
+      const { slug, reelId, dryRun, padSeconds } = JSON.parse(body);
+      if (!slug || !reelId) throw new Error("slug + reelId required");
+      const padded = String(reelId).padStart(2, "0");
+      const epDir = path.join(EPISODES_DIR, slug);
+      const reelsDir = path.join(epDir, "reels");
+
+      const analysisPath = path.join(epDir, "analysis.json");
+      const analysis = loadJSON(analysisPath);
+      if (!analysis || !analysis.reels) throw new Error("No analysis.json found");
+      const reel = analysis.reels.find(r => String(r.id).padStart(2, "0") === padded);
+      if (!reel) throw new Error("Reel not found in analysis");
+
+      const transcriptPath = path.join(epDir, "transcript.json");
+      if (!fs.existsSync(transcriptPath)) throw new Error("Episode transcript missing — run Transcribe first");
+      const transcript = JSON.parse(fs.readFileSync(transcriptPath, "utf8"));
+      const segments = transcript.segments || [];
+      const wordsRaw = transcript.words || [];
+      const episodeWords = (wordsRaw.length > segments.length) ? wordsRaw : segments.map(s => ({ word: s.text, start: s.start, end: s.end }));
+      if (!episodeWords.length) throw new Error("Episode transcript has no words/segments");
+
+      const reelTranscriptPath = path.join(reelsDir, `reel-${padded}-transcript.json`);
+      const chunksPath = path.join(reelsDir, `reel-${padded}-chunks.json`);
+      let reelText = "";
+      let textSource = "";
+      if (fs.existsSync(reelTranscriptPath)) {
+        const rt = JSON.parse(fs.readFileSync(reelTranscriptPath, "utf8"));
+        reelText = rt.full_text || (rt.segments || []).map(s => s.text).join(" ");
+        textSource = "reel-transcript";
+      }
+      if (!reelText && fs.existsSync(chunksPath)) {
+        const chunks = JSON.parse(fs.readFileSync(chunksPath, "utf8"));
+        reelText = (chunks || []).map(c => c.text).join(" ");
+        textSource = "chunks";
+      }
+      if (!reelText) throw new Error("No reel transcript found — run Subtitle on this reel first so the system has text to match");
+
+      const match = alignReelTextToEpisode(reelText, episodeWords, { minScore: 0.3 });
+      if (!match) throw new Error("Could not confidently match reel transcript to episode. Try Subtitle on this reel first to refresh its transcript.");
+
+      const pad = typeof padSeconds === "number" ? Math.max(0, Math.min(2, padSeconds)) : 0.3;
+      const newStartSec = Math.max(0, match.startSec - pad);
+      const newEndSec = match.endSec + pad;
+
+      const result = {
+        success: true,
+        textSource,
+        confidence: match.confidence,
+        matchedTokens: match.matchedTokens,
+        contentTokens: match.contentTokens,
+        oldStart: reel.start,
+        oldEnd: reel.end,
+        newStart: formatTimestamp(newStartSec),
+        newEnd: formatTimestamp(newEndSec),
+        newStartSec,
+        newEndSec,
+      };
+
+      if (dryRun) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
+        return true;
+      }
+
+      reel.start = formatTimestamp(newStartSec);
+      reel.end = formatTimestamp(newEndSec);
+      reel.cuts = [];
+      saveJSON(analysisPath, analysis);
+
+      try {
+        if (fs.existsSync(reelsDir)) {
+          const stale = fs.readdirSync(reelsDir).filter(f =>
+            f.startsWith(`reel-${padded}`) &&
+            (f.endsWith(".mp4") || f.endsWith("-chunks.json") || f.endsWith("-chunks-state.json") || f.endsWith("-transcript.json") || f.endsWith(".ass"))
+          );
+          for (const f of stale) { try { fs.unlinkSync(path.join(reelsDir, f)); } catch (_) {} }
+        }
+      } catch (_) {}
+
+      io.emit("log", { slug, reelId, text: `\n✂️  Recut from source: matched reel transcript (confidence ${(match.confidence * 100).toFixed(0)}%) → ${result.newStart} – ${result.newEnd}\n` });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+
+      const meta = loadMeta(slug);
+      if (typeof runStep === "function") {
+        runStep({ slug, step: "cut", force: true, reelId, mediaType: meta.mediaType || "episode", guest: meta.guest, role: meta.role });
+      }
+      io.emit("status-update", {});
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
 
   if (req.method === "POST" && url.pathname === "/api/save-reel-caption") {
     const body = await readBody(req);
