@@ -261,10 +261,13 @@ function renderReelFullView(ep) {
         });
     }
 
-    // Pipeline actions — show for reel_cut (crop/sub/overlay), hide for reel_full
+    // Pipeline actions — show for reel_cut (crop/sub/overlay), and overlay-only for reel_full
     var actionsEl = document.getElementById('rf-actions');
     if (isReelCut) {
         actionsEl.innerHTML = buildStandaloneActions(ep);
+        actionsEl.style.display = '';
+    } else if (ep.mediaType === 'reel_full') {
+        actionsEl.innerHTML = buildReelFullActions(ep);
         actionsEl.style.display = '';
     } else {
         actionsEl.innerHTML = '';
@@ -320,6 +323,21 @@ function renderReelFullView(ep) {
     } else {
         transcriptEl.style.display = 'none';
     }
+}
+
+// Overlay-only action row for reel_full uploads — lets the user add overlays
+// to an already-finished reel without exposing crop/sub steps that don't apply.
+function buildReelFullActions(ep) {
+    var done = ep.steps.overlaid;
+    var cls = 'pipe-step' + (done ? ' done' : ' next');
+    var icon = done ? '&#10003;' : '&#9654;';
+    var label = done ? 'Overlay' : 'Add Overlay';
+    return '<div class="reel-pipeline">' +
+        '<button class="' + cls + '" onclick="runStep(\'overlay\')" title="' + (done ? 'Re-run overlay (overwrites full-final.mp4)' : 'Apply overlays to this reel') + '">' +
+            '<span class="pipe-icon">' + icon + '</span>' + label +
+        '</button>' +
+        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>' +
+    '</div>';
 }
 
 function buildStandaloneActions(ep) {
