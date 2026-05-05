@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.30] - 2026-05-05
+## [1.0.31] - 2026-05-05
 
 ### Added
 - Three-mode LLM setting in Settings → Generation. Replaces the old Manual Mode checkbox with a 3-way radio: **API** (every step runs automatically via the LLM), **Hybrid** (per-step "AI or manual?" popup), and **Manual** (existing paste-from-claude.ai flow). Hybrid is the new default for fresh installs. Existing users with `manualMode: true` migrate to **Manual**; existing users with `manualMode: false` migrate to **API**. Settings round-trip via `mode` field in `auth.json`; legacy `manualMode` boolean is still accepted on POST for old clients but always replaced by `mode` on save.
@@ -11,6 +11,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Top-level **Manual** mode is fully preserved — `askLlmModeChoice` returns `"ai"` for both `auto` and `manual` modes, so the existing paste-from-claude.ai flow (driven by `llm.chat()` returning `null` when there's no key) still kicks in for users who have been relying on it. Only `hybrid` mode triggers the new choice popup. This avoids regressing the existing user-base that has been using Manual Mode to paste from their own Claude.
+
+## [1.0.30] - 2026-05-05
+
+### Added
+- Already-finished reel uploads (`reel_full` media type) now expose an **Add Overlay** action with the same ⚙ Customize panel as the post-cut reel detail view. Previously the entire pipeline strip was hidden for `reel_full`, so there was no way to apply sponsor/logo/lower-third/CTA overlays to a reel uploaded as a finished file even though `overlay.js` already handles that case (`overlay.js:287-293`) and the backend explicitly allows the step (`server/routes/pipeline-routes.js:22-25`). Once an overlay has been applied the button flips to a green ✓ Overlay and re-clicking re-runs with `--force` so the user can iterate on the overlay config without re-uploading. The original upload stays untouched as the raw video; output is written to `full-final.mp4`.
+
+### Fixed
+- The standalone overlay-config customize panel was loading `type=subtitled` as the canvas background video, which 404'd for fresh `reel_full` uploads (no `full-subtitled.mp4` exists) and left the customize canvas blank. The frontend now falls back to `type=raw` when `ep.steps.subtitled` is false, so the live drag-and-drop preview renders against the actual uploaded video.
 
 ## [1.0.29] - 2026-05-04
 
