@@ -120,13 +120,7 @@ function renderOverlayConfig() {
                         '</div>' +
                         '<div class="overlay-asset-info" id="ov-sponsor-info"><span style="color:#555;">' + (c.sponsor.file || 'sponsor.mov') + '</span></div>' +
                         '<div class="overlay-el-body">' +
-                            '<div class="overlay-row"><label>File</label>' +
-                                '<select id="sponsor-asset-picker" onchange="selectSponsorAsset(this.value)" style="font-size:0.65rem; flex:1; background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:2px 4px;">' +
-                                    '<option value="">' + (c.sponsor.file || 'sponsor.mov') + '</option>' +
-                                '</select>' +
-                                '<button onclick="document.getElementById(\'sponsor-upload-input\').click()" style="font-size:0.6rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="Upload new file">+</button>' +
-                                '<input type="file" id="sponsor-upload-input" accept=".mov,.mp4" onchange="uploadSponsorAsset(this.files[0]);" style="display:none;">' +
-                            '</div>' +
+                            renderAssetPickerStripHTML({ stripId: 'sponsor-asset-strip', uploadInputId: 'sponsor-upload-input', accept: '.mov,.mp4', uploadHandler: 'uploadSponsorAsset' }) +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.x + '" oninput="overlayConfig.sponsor.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.sponsor.y + '" oninput="overlayConfig.sponsor.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.sponsor.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="80" max="300" value="' + c.sponsor.scale + '" oninput="overlayConfig.sponsor.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.sponsor.scale + 'px</span></div>' +
@@ -141,8 +135,9 @@ function renderOverlayConfig() {
                             '<label>Logo</label>' +
                             '<input type="checkbox" id="ov-logo-on" ' + (c.logo.enabled ? 'checked' : '') + ' onchange="overlayConfig.logo.enabled=this.checked; drawOverlayCanvas();">' +
                         '</div>' +
-                        '<div class="overlay-asset-info" id="ov-logo-info"><span style="color:#555;">logo.mov/png</span></div>' +
+                        '<div class="overlay-asset-info" id="ov-logo-info"><span style="color:#555;">' + (c.logo.file || 'logo.mov/png') + '</span></div>' +
                         '<div class="overlay-el-body">' +
+                            renderAssetPickerStripHTML({ stripId: 'logo-asset-strip', uploadInputId: 'logo-upload-input', accept: '.mov,.mp4,.png,.jpg,.jpeg', uploadHandler: 'uploadLogoAsset' }) +
                             '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.x + '" oninput="overlayConfig.logo.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.x + '%</span></div>' +
                             '<div class="overlay-row"><label>Y</label><input type="range" min="0" max="100" step="0.5" value="' + c.logo.y + '" oninput="overlayConfig.logo.y=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + c.logo.y + '%</span></div>' +
                             '<div class="overlay-row"><label>Scale</label><input type="range" min="60" max="250" value="' + c.logo.scale + '" oninput="overlayConfig.logo.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.logo.scale + 'px</span></div>' +
@@ -160,13 +155,7 @@ function renderOverlayConfig() {
                                 '<button class="' + (c.lowerThird.mode === 'custom' ? 'active' : '') + '" onclick="overlayConfig.lowerThird.mode=\'custom\'; renderOverlayConfig();" style="font-size:0.65rem;">Custom File</button>' +
                             '</div>' +
                             (c.lowerThird.mode === 'custom' ?
-                                '<div class="overlay-row"><label>File</label>' +
-                                    '<select id="lt-asset-picker" onchange="selectLowerThirdAsset(this.value)" style="font-size:0.65rem; flex:1; background:#222; color:#ccc; border:1px solid #444; border-radius:4px; padding:2px 4px;">' +
-                                        '<option value="">' + (c.lowerThird.customFile ? c.lowerThird.customFile : '-- Select file --') + '</option>' +
-                                    '</select>' +
-                                    '<button onclick="document.getElementById(\'lt-upload-input\').click()" style="font-size:0.6rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="Upload new file">+</button>' +
-                                    '<input type="file" id="lt-upload-input" accept=".mov,.mp4,.png,.gif" onchange="uploadLowerThirdAsset(this.files[0]);" style="display:none;">' +
-                                '</div>' +
+                                renderAssetPickerStripHTML({ stripId: 'lt-asset-strip', uploadInputId: 'lt-upload-input', accept: '.mov,.mp4,.png,.gif', uploadHandler: 'uploadLowerThirdAsset' }) +
                                 (c.lowerThird.customFile ? '<div style="font-size:0.6rem; color:var(--success); margin-bottom:4px;">&#10003; ' + c.lowerThird.customFile + '</div>' : '') +
                                 '<div class="overlay-row"><label>Scale</label><input type="range" min="100" max="600" value="' + (c.lowerThird.scale || 300) + '" oninput="overlayConfig.lowerThird.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + (c.lowerThird.scale || 300) + 'px</span></div>' +
                                 '<div class="overlay-row"><label>X</label><input type="range" min="0" max="100" step="0.5" value="' + (c.lowerThird.x || 5) + '" oninput="overlayConfig.lowerThird.x=+this.value; this.nextSibling.textContent=this.value+\'%\'; drawOverlayCanvas();"><span>' + (c.lowerThird.x || 5) + '%</span></div>' +
@@ -192,7 +181,7 @@ function renderOverlayConfig() {
                                 '<div class="overlay-row"><label>Size</label><input type="range" min="14" max="48" value="' + c.cta.fontSize + '" oninput="overlayConfig.cta.fontSize=+this.value; this.nextSibling.textContent=this.value+\'pt\'; drawOverlayCanvas();"><span>' + c.cta.fontSize + 'pt</span></div>' +
                                 '<div class="overlay-row"><label>Color</label><input type="color" value="' + (c.cta.fontColor || '#ffffff') + '" oninput="overlayConfig.cta.fontColor=this.value; drawOverlayCanvas();"></div>'
                             :
-                                '<div class="overlay-row"><label>File</label><input type="file" accept=".png,.mov,.mp4,.gif" onchange="uploadCTAAsset(this.files[0]);" style="font-size:0.65rem; color:#888;"></div>' +
+                                renderAssetPickerStripHTML({ stripId: 'cta-asset-strip', uploadInputId: 'cta-upload-input', accept: '.png,.jpg,.jpeg,.gif,.mov,.mp4', uploadHandler: 'uploadCTAAsset' }) +
                                 '<div class="overlay-row"><label>Scale</label><input type="range" min="50" max="400" value="' + c.cta.scale + '" oninput="overlayConfig.cta.scale=+this.value; this.nextSibling.textContent=this.value+\'px\'; drawOverlayCanvas();"><span>' + c.cta.scale + 'px</span></div>'
                             ) +
                             '<div class="overlay-row"><label>Show</label><input type="range" min="0" max="120" step="1" value="' + c.cta.startTime + '" oninput="overlayConfig.cta.startTime=+this.value; this.nextSibling.textContent=this.value+\'s\'; drawOverlayCanvas();"><span>' + c.cta.startTime + 's</span></div>' +
@@ -209,11 +198,16 @@ function renderOverlayConfig() {
         '</div>';
 
     initOverlayCanvas();
-    // Populate the sponsor file picker
-    populateSponsorAssetPicker();
-    // Populate the asset file browser dropdown if lower-third custom mode is active
-    if (overlayConfig.lowerThird.mode === 'custom') {
-        populateLTAssetPicker();
+    // Populate visual asset pickers
+    var sponsorCurrent = (c.sponsor && c.sponsor.file) || 'sponsor.mov';
+    populateAssetPickerStrip('sponsor-asset-strip', 'video', sponsorCurrent, 'selectSponsorAsset');
+    populateAssetPickerStrip('logo-asset-strip', null, c.logo.file || '', 'selectLogoAsset');
+    if (c.lowerThird.mode === 'custom') {
+        populateAssetPickerStrip('lt-asset-strip', null, c.lowerThird.customFile || '', 'selectLowerThirdAsset');
+    }
+    if (c.cta.mode === 'image') {
+        var ctaCurrent = (c.cta.imagePath || '').replace(/^assets\//, '');
+        populateAssetPickerStrip('cta-asset-strip', null, ctaCurrent, 'selectCTAAsset');
     }
 }
 
@@ -225,10 +219,19 @@ function initOverlayCanvas() {
 
     // Preload overlay MOV files as video elements
     loadOverlayVideo(overlayConfig.sponsor.file || 'sponsor.mov');
-    loadOverlayVideo('logo.mov');
-    loadOverlayVideo('logo.mp4');
+    if (overlayConfig.logo && overlayConfig.logo.file) {
+        loadOverlayVideo(overlayConfig.logo.file);
+        loadOverlayImage(overlayConfig.logo.file);
+    } else {
+        loadOverlayVideo('logo.mov');
+        loadOverlayVideo('logo.mp4');
+    }
     if (overlayConfig.lowerThird && overlayConfig.lowerThird.customFile) {
         loadOverlayVideo(overlayConfig.lowerThird.customFile);
+    }
+    if (overlayConfig.cta && overlayConfig.cta.imagePath) {
+        var ctaName = overlayConfig.cta.imagePath.replace(/^assets\//, '');
+        loadOverlayImage(ctaName);
     }
 
     // Redraw canvas when pre-overlay video loads so we get the real frame as background
@@ -375,8 +378,14 @@ function getOverlayElements() {
     }
     if (c.logo.enabled) {
         var scalePx = (c.logo.scale || 140);
-        var logoImg = loadOverlayImageMulti('logo', ['.png', '.jpg', '.mov', '.mp4']);
-        var logoVid = overlayVideoCache['logo.mov'] || overlayVideoCache['logo.mp4'];
+        var logoImg, logoVid;
+        if (c.logo.file) {
+            logoImg = loadOverlayImage(c.logo.file);
+            logoVid = overlayVideoCache[c.logo.file];
+        } else {
+            logoImg = loadOverlayImageMulti('logo', ['.png', '.jpg', '.mov', '.mp4']);
+            logoVid = overlayVideoCache['logo.mov'] || overlayVideoCache['logo.mp4'];
+        }
         var aspect = (logoVid && logoVid._ready && logoVid.videoWidth) ? logoVid.videoHeight / logoVid.videoWidth :
                      (logoImg.naturalWidth && logoImg.naturalHeight) ? logoImg.naturalHeight / logoImg.naturalWidth : 1;
         var w = scalePx * sx;
@@ -418,7 +427,8 @@ function getOverlayElements() {
             els.push({ key: 'cta', label: 'CTA', x: x, y: y, w: w, h: Math.max(25 * sy, h), color: 'rgba(34,197,94,0.6)' });
         } else {
             var scalePx = (c.cta.scale || 200);
-            var ctaImg = loadOverlayImageMulti('cta', ['.png', '.mov', '.mp4', '.gif']);
+            var ctaName = c.cta.imagePath ? c.cta.imagePath.replace(/^assets\//, '') : null;
+            var ctaImg = ctaName ? loadOverlayImage(ctaName) : loadOverlayImageMulti('cta', ['.png', '.mov', '.mp4', '.gif']);
             var aspect = (ctaImg.naturalWidth && ctaImg.naturalHeight) ? ctaImg.naturalHeight / ctaImg.naturalWidth : 0.5;
             var w = scalePx * sx;
             var h = w * aspect;
@@ -555,25 +565,46 @@ function drawOverlayCanvas() {
     });
 }
 
-// Populate the lower-third asset picker dropdown with files from assets/ and shared dir
-async function populateSponsorAssetPicker() {
-    var picker = document.getElementById('sponsor-asset-picker');
-    if (!picker) return;
+// Render an empty thumbnail picker strip; populateAssetPickerStrip fills it in async.
+function renderAssetPickerStripHTML(opts) {
+    // opts: { stripId, uploadInputId, accept, uploadHandler }
+    return '<div class="asset-picker-row">' +
+        '<div id="' + opts.stripId + '" class="asset-picker-strip">' +
+            '<div class="asset-thumb-loading">Loading…</div>' +
+        '</div>' +
+        '<button class="asset-upload-btn" onclick="document.getElementById(\'' + opts.uploadInputId + '\').click()" title="Upload new file">+</button>' +
+        '<input type="file" id="' + opts.uploadInputId + '" accept="' + opts.accept + '" onchange="' + opts.uploadHandler + '(this.files[0]);" style="display:none;">' +
+    '</div>';
+}
+
+async function populateAssetPickerStrip(stripId, typeFilter, currentFile, selectFn) {
+    var strip = document.getElementById(stripId);
+    if (!strip) return;
     try {
-        var res = await fetch('/api/assets/browse?type=video');
+        var query = typeFilter ? '?type=' + typeFilter : '';
+        var res = await fetch('/api/assets/browse' + query);
         var data = await res.json();
-        var currentFile = (overlayConfig.sponsor && overlayConfig.sponsor.file) || 'sponsor.mov';
-        picker.innerHTML = '<option value="">-- Select file --</option>';
-        (data.files || []).forEach(function(f) {
-            var opt = document.createElement('option');
-            opt.value = f.source === 'shared' ? ('shared:' + f.path) : f.name;
-            var label = f.name + ' (' + f.sizeMb + ' MB' + (f.source === 'shared' ? ', shared' : '') + ')';
-            opt.textContent = label;
-            if (f.name === currentFile) opt.selected = true;
-            picker.appendChild(opt);
-        });
+        var files = data.files || [];
+        if (files.length === 0) {
+            strip.innerHTML = '<div class="asset-thumb-empty">No files yet — click + to upload</div>';
+            return;
+        }
+        strip.innerHTML = files.map(function(f) {
+            var value = f.source === 'shared' ? ('shared:' + f.path) : f.name;
+            var safeValue = value.replace(/'/g, "\\'");
+            var isSelected = (f.name === currentFile);
+            var thumbUrl = '/api/assets/file/' + encodeURIComponent(f.name);
+            var titleAttr = (f.name + ' (' + f.sizeMb + ' MB' + (f.source === 'shared' ? ', shared' : '') + ')').replace(/"/g, '&quot;');
+            return '<div class="asset-thumb' + (isSelected ? ' selected' : '') +
+                '" title="' + titleAttr +
+                '" onclick="' + selectFn + "('" + safeValue + "')\">" +
+                '<img src="' + thumbUrl + '" loading="lazy" onerror="this.style.display=\'none\'">' +
+                '<div class="asset-thumb-name">' + f.name + '</div>' +
+                '</div>';
+        }).join('');
     } catch (e) {
-        console.warn('Failed to load sponsor assets:', e);
+        console.warn('Failed to load assets:', e);
+        strip.innerHTML = '<div class="asset-thumb-error">Failed to load</div>';
     }
 }
 
@@ -664,27 +695,6 @@ async function uploadSponsorAsset(file) {
     }
 }
 
-async function populateLTAssetPicker() {
-    var picker = document.getElementById('lt-asset-picker');
-    if (!picker) return;
-    try {
-        var res = await fetch('/api/assets/browse?type=video');
-        var data = await res.json();
-        picker.innerHTML = '<option value="">-- Select file --</option>';
-        var currentFile = overlayConfig.lowerThird.customFile || '';
-        (data.files || []).forEach(function(f) {
-            var opt = document.createElement('option');
-            opt.value = f.source === 'shared' ? ('shared:' + f.path) : f.name;
-            var label = f.name + ' (' + f.sizeMb + ' MB' + (f.source === 'shared' ? ', shared' : '') + ')';
-            opt.textContent = label;
-            if (f.name === currentFile) opt.selected = true;
-            picker.appendChild(opt);
-        });
-    } catch (e) {
-        console.warn('Failed to load assets:', e);
-    }
-}
-
 async function selectLowerThirdAsset(value) {
     if (!value) return;
     if (value.startsWith('shared:')) {
@@ -712,13 +722,78 @@ async function uploadLowerThirdAsset(file) {
     }
 }
 
+async function selectLogoAsset(value) {
+    if (!value) return;
+    var fileName;
+    if (value.startsWith('shared:')) {
+        var sourcePath = value.substring(7);
+        fileName = sourcePath.split('/').pop();
+        try {
+            await fetch('/api/link-asset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourcePath: sourcePath, assetName: fileName })
+            });
+        } catch (e) { console.warn('Failed to link shared asset:', e); }
+    } else {
+        fileName = value;
+    }
+    overlayConfig.logo.file = fileName;
+    delete overlayVideoCache[fileName];
+    delete overlayImageCache[fileName];
+    loadOverlayVideo(fileName);
+    loadOverlayImage(fileName);
+    renderOverlayConfig();
+}
+
+async function uploadLogoAsset(file) {
+    if (!file) return;
+    try {
+        var data = await uploadAssetWithProgress(file, 'logo', 'logo');
+        if (data.success) {
+            overlayConfig.logo.file = data.file;
+            delete overlayVideoCache[data.file];
+            delete overlayImageCache[data.file];
+            loadOverlayVideo(data.file);
+            loadOverlayImage(data.file);
+            renderOverlayConfig();
+        }
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
+}
+
+async function selectCTAAsset(value) {
+    if (!value) return;
+    var fileName;
+    if (value.startsWith('shared:')) {
+        var sourcePath = value.substring(7);
+        fileName = sourcePath.split('/').pop();
+        try {
+            await fetch('/api/link-asset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourcePath: sourcePath, assetName: fileName })
+            });
+        } catch (e) { console.warn('Failed to link shared asset:', e); }
+    } else {
+        fileName = value;
+    }
+    overlayConfig.cta.imagePath = 'assets/' + fileName;
+    delete overlayImageCache[fileName];
+    loadOverlayImage(fileName);
+    renderOverlayConfig();
+}
+
 async function uploadCTAAsset(file) {
     if (!file) return;
     try {
         const data = await uploadAssetWithProgress(file, 'cta', 'CTA');
         if (data.success) {
             overlayConfig.cta.imagePath = 'assets/' + data.file;
-            drawOverlayCanvas();
+            delete overlayImageCache[data.file];
+            loadOverlayImage(data.file);
+            renderOverlayConfig();
         }
     } catch (e) {
         alert('Upload failed: ' + e.message);
@@ -909,15 +984,22 @@ function drawLiveOverlay() {
         var logoX = Math.round((c.logo.x / 100) * W);
         var logoY = Math.round((c.logo.y / 100) * H);
         var margin = 10;
-        // Try video first, then image
-        var logoVid = overlayVideoCache['logo.mov'] || overlayVideoCache['logo.mp4'];
-        var logoImg = null;
-        var logoExts = ['.png', '.jpg', '.mov', '.mp4'];
-        for (var li = 0; li < logoExts.length; li++) {
-            var candidate = overlayImageCache['logo' + logoExts[li]];
-            if (candidate && candidate.naturalWidth && !candidate._failed) { logoImg = candidate; break; }
+        // Resolve logo source: prefer config.logo.file, else legacy hardcoded names
+        var logoVid, logoImg = null;
+        if (c.logo.file) {
+            logoVid = overlayVideoCache[c.logo.file];
+            if (!logoVid) logoVid = loadOverlayVideo(c.logo.file);
+            logoImg = overlayImageCache[c.logo.file];
+            if (!logoImg) logoImg = loadOverlayImage(c.logo.file);
+        } else {
+            logoVid = overlayVideoCache['logo.mov'] || overlayVideoCache['logo.mp4'];
+            var logoExts = ['.png', '.jpg', '.mov', '.mp4'];
+            for (var li = 0; li < logoExts.length; li++) {
+                var candidate = overlayImageCache['logo' + logoExts[li]];
+                if (candidate && candidate.naturalWidth && !candidate._failed) { logoImg = candidate; break; }
+            }
+            if (!logoImg) logoImg = loadOverlayImageMulti('logo', ['.png', '.jpg', '.mov', '.mp4']);
         }
-        if (!logoImg) logoImg = loadOverlayImageMulti('logo', ['.png', '.jpg', '.mov', '.mp4']);
 
         if (logoVid && logoVid._ready && logoVid.readyState >= 2) {
             var aspect = logoVid.videoHeight / logoVid.videoWidth;
@@ -1025,12 +1107,18 @@ function drawLiveOverlay() {
             } else {
                 var ctaScale = c.cta.scale || 200;
                 var ctaImg = null;
-                var ctaExts = ['.png', '.mov', '.mp4', '.gif'];
-                for (var ci = 0; ci < ctaExts.length; ci++) {
-                    var candidate = overlayImageCache['cta' + ctaExts[ci]];
-                    if (candidate && candidate.naturalWidth && !candidate._failed) { ctaImg = candidate; break; }
+                var ctaName = c.cta.imagePath ? c.cta.imagePath.replace(/^assets\//, '') : null;
+                if (ctaName) {
+                    ctaImg = overlayImageCache[ctaName] || loadOverlayImage(ctaName);
                 }
-                if (!ctaImg) ctaImg = loadOverlayImageMulti('cta', ['.png', '.mov', '.mp4', '.gif']);
+                if (!ctaImg || !ctaImg.naturalWidth || ctaImg._failed) {
+                    var ctaExts = ['.png', '.mov', '.mp4', '.gif'];
+                    for (var ci = 0; ci < ctaExts.length; ci++) {
+                        var candidate = overlayImageCache['cta' + ctaExts[ci]];
+                        if (candidate && candidate.naturalWidth && !candidate._failed) { ctaImg = candidate; break; }
+                    }
+                    if (!ctaImg) ctaImg = loadOverlayImageMulti('cta', ['.png', '.mov', '.mp4', '.gif']);
+                }
                 if (ctaImg && ctaImg.naturalWidth && !ctaImg._failed) {
                     var aspect = ctaImg.naturalHeight / ctaImg.naturalWidth;
                     var w = ctaScale;
