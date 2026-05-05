@@ -7,7 +7,18 @@ const path = require("path");
 module.exports = async function pipelineRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, NODE_BIN, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     callModelForRevision, generateTitleFromTranscript, deduplicateSlug, renameEpisode, handlePostTranscription,
-    runStep, runReelsParallel, pendingManualLLM, readBody, formidable, UPLOADS_DIR, slugify } = ctx;
+    runStep, runReelsParallel, pendingManualLLM, pendingModeChoices, pendingTitleInputs,
+    askLlmModeChoice, askManualTitle, manualGenerate, manualAnalyze,
+    readBody, formidable, UPLOADS_DIR, slugify } = ctx;
+
+  // Pipeline steps that hit an LLM — these get the hybrid-mode choice popup.
+  // Excludes transcription, cut, crop, subtitle, overlay, etc.
+  const LLM_STEPS = new Set(["analyze", "generate", "compose"]);
+  const STEP_DESCRIPTIONS = {
+    analyze: "Identify reels, cuts, and chapters from the transcript",
+    generate: "Write captions, YouTube description, and announcement",
+    compose: "Compose multi-track edit script",
+  };
 
   if (req.method === "POST" && url.pathname === "/api/run-step") {
     const body = await readBody(req);
@@ -26,9 +37,75 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       if (step === "compose" && !meta.multiTrack) throw new Error("Compose step requires a multi-track episode");
       if (step === "generate" && (!meta.guest || !meta.role)) throw new Error("Guest name and role required for generation");
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true }));
-      if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack, subtitleStyle });
-      else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim });
+
+      const isLlmStep = LLM_STEPS.has(step);
+      const runAi = () => {
+        if (step === "process-reels") runReelsParallel(slug, { ratio, faceTrack, subtitleStyle });
+        else runStep({ slug, step, force, more, mediaType, guest: meta.guest, role: meta.role, model, ratio, faceTrack, reelId, preferSide, burnOnly, subtitleStyle, noTranscribe, topic, transcribeMethod, autoTrim });
+      };
+      const runManual = () => {
+        try {
+          if (step === "generate") {
+            const reelOnly = (mediaType === "reel_full" || mediaType === "reel_cut");
+            manualGenerate(slug, { reelOnly, reelId });
+          } else if (step === "analyze") {
+            manualAnalyze(slug);
+          } else if (step === "compose") {
+            io.emit("log", { slug, text: "✍️  Compose has no manual path — multi-track scripting requires the AI. Switch to API mode for this step.\n" });
+            io.emit("toast", { type: "info", message: "Compose is AI-only — skipped" });
+          } else {
+            runAi();
+          }
+        } catch (err) {
+          io.emit("log", { slug, text: `❌ Manual ${step} failed: ${err.message}\n` });
+        }
+      };
+
+      if (!isLlmStep) {
+        runAi();
+      } else {
+        // Hybrid mode: ask user; auto/manual modes resolve immediately.
+        askLlmModeChoice({ slug, step, description: STEP_DESCRIPTIONS[step] || step })
+          .then(choice => { if (choice === "manual") runManual(); else runAi(); })
+          .catch(err => { io.emit("log", { slug, text: `⚠️  ${err.message}\n` }); });
+      }
     } catch (err) { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
+  // Hybrid mode: client returns the user's "AI vs manual" decision.
+  if (req.method === "POST" && url.pathname === "/api/llm-step-decision") {
+    const body = await readBody(req);
+    try {
+      const { requestId, choice } = JSON.parse(body);
+      if (!requestId || !pendingModeChoices.has(requestId)) throw new Error("Unknown or expired choice request");
+      const pending = pendingModeChoices.get(requestId);
+      pendingModeChoices.delete(requestId);
+      pending.resolve(choice);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  // Hybrid mode: client returns the user-typed title from the title input modal.
+  if (req.method === "POST" && url.pathname === "/api/llm-title-input") {
+    const body = await readBody(req);
+    try {
+      const { requestId, title } = JSON.parse(body);
+      if (!requestId || !pendingTitleInputs.has(requestId)) throw new Error("Unknown or expired title request");
+      const pending = pendingTitleInputs.get(requestId);
+      pendingTitleInputs.delete(requestId);
+      pending.resolve(title || "");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
     return true;
   }
 
@@ -114,6 +191,13 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
     try {
       const { slug, field, currentContent, feedback } = JSON.parse(body);
       if (!slug || !field || !currentContent || !feedback) throw new Error("slug, field, currentContent, feedback all required");
+      const choice = await askLlmModeChoice({ slug, step: "feedback", description: `Revise "${field}" with AI feedback: "${feedback.slice(0, 80)}${feedback.length > 80 ? '…' : ''}"` });
+      if (choice === "manual") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, manual: true, message: "Manual mode — edit the field directly, no AI revision applied." }));
+        io.emit("toast", { type: "info", message: "Edit the field directly — AI feedback skipped" });
+        return true;
+      }
       let transcriptText = null;
       const transcriptPath = path.join(EPISODES_DIR, slug, "transcript.json");
       if (fs.existsSync(transcriptPath)) { try { const t = loadJSON(transcriptPath); transcriptText = t.full_text || t.segments?.map(s => s.text).join(' ') || null; } catch (_) {} }
@@ -139,14 +223,24 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       const fullText = transcript.full_text || transcript.segments?.map(s => s.text).join(' ') || '';
       if (!fullText) throw new Error("Transcript is empty");
       const meta = loadMeta(slug);
-      io.emit("log", { slug, text: "\n🤖 Generating AI title from transcript...\n" });
-      const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug);
+      const choice = await askLlmModeChoice({ slug, step: "generate-title", description: "Generate a slug-style title from the transcript" });
+      let aiSlug;
+      if (choice === "manual") {
+        io.emit("log", { slug, text: "\n✍️  Manual title — waiting for typed input...\n" });
+        const typed = await askManualTitle({ slug, currentSlug: slug });
+        aiSlug = (typed || "").toString().trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        if (!aiSlug) throw new Error("Manual title was empty");
+      } else {
+        io.emit("log", { slug, text: "\n🤖 Generating AI title from transcript...\n" });
+        aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug);
+      }
       const finalSlug = deduplicateSlug(aiSlug);
-      io.emit("log", { slug, text: `📝 AI suggested: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
+      const sourceLabel = choice === "manual" ? "Typed" : "AI suggested";
+      io.emit("log", { slug, text: `📝 ${sourceLabel}: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
       const newSlug = renameEpisode(slug, finalSlug);
       const newMeta = loadMeta(newSlug); delete newMeta.pendingAiTitle; saveMeta(newSlug, newMeta);
       io.emit("log", { slug: newSlug, text: `✅ Episode renamed: ${slug} → ${newSlug}\n` });
-      io.emit("episode-renamed", { oldSlug: slug, newSlug }); io.emit("status-update", {}); io.emit("toast", { type: "success", message: `AI titled: ${newSlug}` });
+      io.emit("episode-renamed", { oldSlug: slug, newSlug }); io.emit("status-update", {}); io.emit("toast", { type: "success", message: `${choice === "manual" ? "Renamed" : "AI titled"}: ${newSlug}` });
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, oldSlug: slug, newSlug }));
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
     return true;

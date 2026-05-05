@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.30] - 2026-05-05
+
+### Added
+- Three-mode LLM setting in Settings → Generation. Replaces the old Manual Mode checkbox with a 3-way radio: **API** (every step runs automatically via the LLM), **Hybrid** (per-step "AI or manual?" popup), and **Manual** (existing paste-from-claude.ai flow). Hybrid is the new default for fresh installs. Existing users with `manualMode: true` migrate to **Manual**; existing users with `manualMode: false` migrate to **API**. Settings round-trip via `mode` field in `auth.json`; legacy `manualMode` boolean is still accepted on POST for old clients but always replaced by `mode` on save.
+- Hybrid-mode choice modal. When an LLM step kicks off in hybrid mode, a popup asks "Use AI" or "Fill manually" before any API call is made. The choice is per-step, not per-LLM-call, so a `generate` run that would normally hit the API 5+ times is one decision instead of five popups. Wired into `analyze`, `generate`, `compose`, `generate-title`, `analyze-clips`, and the AI feedback/revision endpoint. Choice resolved via `POST /api/llm-step-decision` with a server-side timeout of 5 minutes (defaults to manual). The auto-titling flow that runs after transcription also goes through the same choice gate, so users no longer have an LLM call fired silently in the background.
+- Per-step manual paths. When the user picks "Fill manually" at the choice modal: `generate` writes empty caption / YouTube description / announcement placeholders to `content.json` for every reel from `analysis.json`, and the existing reel-ui textareas surface as ready-to-fill — this is the path the user explicitly asked for ("give me an option to generate caption manually if I don't want to rely on the one made"). `generate-title` opens a text input modal for typing the slug-style title yourself. `analyze` writes a minimal `analysis.json` and points the user to "Find & Create Reel" on the transcript for manual reel picking. `analyze-clips` and `compose` skip with informative toasts. AI feedback/revision becomes a no-op so the user can edit the textarea directly. New module: `server/manual-steps.js` holds the placeholder writers; new modals: `#llm-choice-modal` and `#llm-title-modal` in `index.html`; new client functions in `public/js/state.js`.
+
+### Changed
+- Top-level **Manual** mode is fully preserved — `askLlmModeChoice` returns `"ai"` for both `auto` and `manual` modes, so the existing paste-from-claude.ai flow (driven by `llm.chat()` returning `null` when there's no key) still kicks in for users who have been relying on it. Only `hybrid` mode triggers the new choice popup. This avoids regressing the existing user-base that has been using Manual Mode to paste from their own Claude.
+
 ## [1.0.29] - 2026-05-04
 
 ### Fixed
