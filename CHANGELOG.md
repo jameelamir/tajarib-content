@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.32] - 2026-05-05
+
+### Added
+- Upload progress bar for overlay assets (sponsor, lower-third, CTA). The three overlay upload flows in `public/js/overlay.js` now drive the same `#upload-progress` element that the main video upload already uses, so the user sees `Uploading sponsor: 12.3 / 45.6 MB (27%)` and a fill bar instead of a frozen UI while a multi-megabyte `.mov` is in flight. Implementation switches from `fetch()` (which can't report upload progress) to `XMLHttpRequest` via a new `uploadAssetWithProgress(file, type, label)` helper. No backend changes — `/api/upload-asset` keeps the same multipart contract.
+
 ## [1.0.31] - 2026-05-05
 
 ### Added
