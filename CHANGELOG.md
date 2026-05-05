@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.34] - 2026-05-05
+
+### Fixed
+- Sponsor / logo / CTA / lower-third overlay uploads no longer fail with `EXDEV: cross-device link not permitted` on the production VPS. Formidable writes the temp file to `UPLOADS_DIR` (`/data/uploads`, the bind-mounted host volume), but `/api/upload-asset` was finalizing it to `<repo>/assets` (`/app/assets` inside the container, on the container's overlay filesystem). `fs.renameSync` across filesystems errors with `EXDEV`. Fixed by wrapping the rename in the same `EXDEV` → `copyFileSync` + `unlinkSync` fallback that `server/routes/upload-routes.js` already uses for episode video uploads. `media-routes.js:293`.
+
 ## [1.0.33] - 2026-05-05
 
 ### Changed
