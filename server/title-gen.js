@@ -5,9 +5,9 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = function init(ctx) {
-  const { io, EPISODES_DIR, loadJSON, loadMeta, saveMeta, callClaude, askLlmModeChoice, askManualTitle, activeProcesses, logs, prompts } = ctx;
+  const { io, EPISODES_DIR, loadJSON, loadMeta, saveMeta, callClaude, askLlmModeChoice, activeProcesses, logs, prompts } = ctx;
 
-  async function generateTitleFromTranscript(transcriptText, guest, role, slug = "") {
+  async function generateTitleFromTranscript(transcriptText, guest, role, slug = "", forceManual = false) {
     const snippet = transcriptText.substring(0, 4000);
     const guestInfo = guest ? `Guest: ${guest}${role ? ' (' + role + ')' : ''}` : '';
     const systemPrompt = prompts.load("slug-system");
@@ -15,7 +15,7 @@ module.exports = function init(ctx) {
       guestInfo: guestInfo ? guestInfo + '\n' : '',
       snippet,
     });
-    const result = await callClaude(systemPrompt, prompt, 100, { slug, step: "generate-title", expectedFormat: "text" });
+    const result = await callClaude(systemPrompt, prompt, 100, { slug, step: "generate-title", expectedFormat: "text", forceManual });
     return result.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || "untitled-episode";
   }
 
@@ -61,24 +61,13 @@ module.exports = function init(ctx) {
       const choice = askLlmModeChoice
         ? await askLlmModeChoice({ slug, step: "generate-title", description: "Auto-title episode from transcript" })
         : "ai";
-      let aiSlug;
-      if (choice === "manual") {
-        io.emit("log", { slug, text: "\n✍️  Auto-title — waiting for typed title...\n" });
-        const typed = await askManualTitle({ slug, currentSlug: slug });
-        aiSlug = (typed || "").toString().trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-        if (!aiSlug) {
-          io.emit("log", { slug, text: "⚠️  Empty title — keeping current name.\n" });
-          const m2 = loadMeta(slug); delete m2.pendingAiTitle; saveMeta(slug, m2);
-          return slug;
-        }
-      } else {
-        io.emit("log", { slug, text: "\n🤖 Generating AI title from transcript...\n" });
-        aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug);
-      }
+      io.emit("log", { slug, text: choice === "manual"
+        ? "\n📋 Manual auto-title — paste your LLM's response in the popup...\n"
+        : "\n🤖 Generating AI title from transcript...\n" });
+      const aiSlug = await generateTitleFromTranscript(fullText, meta.guest, meta.role, slug, choice === "manual");
       const finalSlug = deduplicateSlug(aiSlug);
-      const sourceLabel = choice === "manual" ? "Typed" : "AI suggested";
 
-      io.emit("log", { slug, text: `📝 ${sourceLabel}: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
+      io.emit("log", { slug, text: `📝 Title: ${aiSlug}${finalSlug !== aiSlug ? ` → ${finalSlug} (deduplicated)` : ''}\n` });
       const newSlug = renameEpisode(slug, finalSlug);
 
       const newMeta = loadMeta(newSlug);
@@ -88,7 +77,7 @@ module.exports = function init(ctx) {
       io.emit("log", { slug: newSlug, text: `✅ Episode renamed: ${slug} → ${newSlug}\n` });
       io.emit("episode-renamed", { oldSlug: slug, newSlug });
       io.emit("status-update", {});
-      io.emit("toast", { type: "success", message: `${choice === "manual" ? "Renamed" : "AI titled"}: ${newSlug}` });
+      io.emit("toast", { type: "success", message: `Renamed: ${newSlug}` });
       return newSlug;
     } catch (err) {
       console.error(`[AI Title] Error for ${slug}:`, err.message);

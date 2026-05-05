@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.33] - 2026-05-05
+
+### Changed
+- Hybrid-mode "Fill manually" choice now shows the LLM prompt to copy-paste into your own Claude — same flow as top-level Manual mode, just per-step. Previously v1.0.31 wrote empty placeholders and asked you to type the result yourself, which wasn't what users meant by "manual" — they wanted the prompt so they could run it through whatever model they prefer. Implementation: child processes (`analyze.js`, `generate.js`, `compose.js`) get spawned with `TAJARIB_FORCE_MANUAL=1` env var when the user picks manual; `llm.js` checks that env var in `getConfig()` and forces `mode='manual'` for that spawn, which makes `llm.chat()` return null and triggers the existing exit-42 → `llm-prompt` socket flow. In-process callers (`/api/feedback`, `/api/generate-title`, `/api/analyze-clips`) pass a `forceManual` opt through `callClaude` → `llm.chat({forceManual: true})` for the same effect without env vars.
+
+### Removed
+- `server/manual-steps.js` (the empty-placeholder writer) — no longer needed since manual mode now routes through the existing paste flow for every step.
+- `#llm-title-modal` HTML, `openManualTitleModal` / `submitManualTitle` / `cancelManualTitle` JS, and the `POST /api/llm-title-input` endpoint — replaced by the standard paste prompt for manual title generation.
+
 ## [1.0.32] - 2026-05-05
 
 ### Added

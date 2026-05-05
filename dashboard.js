@@ -57,7 +57,6 @@ const ctx = {
   activeProcesses: {}, activeSteps: {}, serverLogs: {}, logs: {},
   pendingManualLLM: new Map(),
   pendingModeChoices: new Map(),
-  pendingTitleInputs: new Map(),
   formidable, buffer, llm, prompts,
 };
 
@@ -67,7 +66,6 @@ Object.assign(ctx, require("./server/helpers")(ctx));
 Object.assign(ctx, require("./server/profiles")(ctx));
 Object.assign(ctx, require("./server/storage")(ctx));
 Object.assign(ctx, require("./server/ai-services")(ctx));
-Object.assign(ctx, require("./server/manual-steps")(ctx));
 Object.assign(ctx, require("./server/episodes")(ctx));
 Object.assign(ctx, require("./server/title-gen")(ctx));
 Object.assign(ctx, require("./server/transcription")(ctx));

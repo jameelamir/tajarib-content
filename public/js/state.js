@@ -147,53 +147,6 @@ function resolveLlmChoice(choice) {
     }).catch(err => console.error('llm-step-decision failed:', err));
 }
 
-// ── Hybrid-mode manual title modal ──────────────────────────────────────────
-let pendingTitleRequest = null;
-
-function openManualTitleModal(data) {
-    pendingTitleRequest = data;
-    const modal = document.getElementById('llm-title-modal');
-    const input = document.getElementById('llm-title-input-field');
-    if (input) {
-        input.value = data.currentSlug && !data.currentSlug.startsWith('temp-') ? data.currentSlug : '';
-        setTimeout(() => input.focus(), 50);
-    }
-    if (modal) modal.classList.add('open');
-}
-
-function submitManualTitle() {
-    if (!pendingTitleRequest) return;
-    const input = document.getElementById('llm-title-input-field');
-    const title = (input?.value || '').trim();
-    if (!title) {
-        showToast('Type a title first', 'error');
-        return;
-    }
-    const requestId = pendingTitleRequest.requestId;
-    pendingTitleRequest = null;
-    const modal = document.getElementById('llm-title-modal');
-    if (modal) modal.classList.remove('open');
-    fetch('/api/llm-title-input', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ requestId, title }),
-    }).catch(err => console.error('llm-title-input failed:', err));
-}
-
-function cancelManualTitle() {
-    if (!pendingTitleRequest) return;
-    const requestId = pendingTitleRequest.requestId;
-    pendingTitleRequest = null;
-    const modal = document.getElementById('llm-title-modal');
-    if (modal) modal.classList.remove('open');
-    // Submit empty so server can clean up; the route will throw "empty title" gracefully.
-    fetch('/api/llm-title-input', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ requestId, title: '' }),
-    }).catch(err => console.error('llm-title-input cancel failed:', err));
-}
-
 // Auto-claim slug on outgoing fetch to pipeline endpoints. Covers
 // /api/run-step, /api/feedback, /api/download-url. The XHR-based
 // /api/upload path claims separately in upload.js.
