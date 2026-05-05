@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.37] - 2026-05-05
+
+### Added
+- Persistent overlay asset library with visual thumbnail picker. Every overlay slot (Sponsor, Logo, Lower Third, CTA) now renders a horizontal-scroll strip of preview thumbnails sourced from the existing `/api/assets/file/<name>` endpoint, with the selected file highlighted by an accent border and a `+` button that opens the upload dialog. Logo previously had no upload UI at all in the overlay panel — only X/Y/Scale sliders that assumed a file named `logo.{ext}` already existed in `assets/`. CTA had a bare `<input type="file">` with no way to swap back to a previously uploaded button. Both now match what Sponsor and Lower Third already had. New helpers in `public/js/overlay.js`: `renderAssetPickerStripHTML(opts)` returns the placeholder markup, `populateAssetPickerStrip(stripId, typeFilter, currentFile, selectFn)` fills it via `/api/assets/browse`. New CSS classes in `public/style.css`: `.asset-picker-strip`, `.asset-thumb`, `.asset-thumb.selected`, `.asset-upload-btn`. New select/upload handlers `selectLogoAsset`, `uploadLogoAsset`, `selectCTAAsset`.
+
+### Fixed
+- Logo and CTA uploads no longer overwrite each other. `POST /api/upload-asset` was saving logo files to a fixed `assets/logo.{ext}` and CTA files to `assets/cta{ext}`, so each new upload destroyed the previous one. Sponsor and lower-third already preserved the original filename — logo and CTA now do the same (`server/routes/media-routes.js:285-289`). User can keep many logos and CTA images side by side and switch between them via the picker. Compositor (`overlay.js`) now resolves the logo from `config.logo.file` first, then falls back to the legacy `logo.{ext}` lookup; CTA resolution is symmetric, reading `config.cta.imagePath` (which already existed in the config schema but was being ignored). The live drag-and-drop preview canvas (`getOverlayElements`, `drawLiveOverlay` in `public/js/overlay.js`) was updated to honor the same config fields, so a custom-named logo shows in the canvas preview, not just the rendered FFmpeg output.
+
+### Changed
+- `assets/.preview-*` (the WebM VP9 alpha previews generated on demand by `/api/assets/video/<name>` for live overlay playback in the browser) are now gitignored, matching the existing `.thumb-*` rule. They are regenerated automatically when the source asset changes.
+
 ## [1.0.36] - 2026-05-05
 
 ### Added
