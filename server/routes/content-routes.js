@@ -6,7 +6,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 module.exports = async function contentRoutes(req, res, url, ctx) {
-  const { io, WORKSPACE_DIR, EPISODES_DIR, NODE_BIN, loadJSON, saveJSON, loadMeta, saveMeta, callClaude, prompts, readBody } = ctx;
+  const { io, WORKSPACE_DIR, EPISODES_DIR, NODE_BIN, loadJSON, saveJSON, loadMeta, saveMeta, callClaude, askLlmModeChoice, prompts, readBody } = ctx;
 
   if (req.method === "GET" && url.pathname === "/api/prompts") {
     try {
@@ -40,12 +40,13 @@ module.exports = async function contentRoutes(req, res, url, ctx) {
       if (!slug) throw new Error("slug required");
       const transcriptPath = path.join(EPISODES_DIR, slug, "transcript.json");
       if (!fs.existsSync(transcriptPath)) throw new Error("Transcript not found. Upload MP3 first.");
+      const choice = askLlmModeChoice ? await askLlmModeChoice({ slug, step: "analyze-clips", description: "AI-suggest reel-worthy clips from transcript" }) : "ai";
       const transcript = loadJSON(transcriptPath);
       function fmtTime(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`; }
       const segments = transcript.segments.map(s => `[${fmtTime(s.start)} - ${fmtTime(s.end)}] ${s.text}`).slice(0, 100).join('\n');
       const systemPrompt = prompts.load("reel-suggest-system");
       const prompt = prompts.load("reel-suggest-user", { guest: guest || "Unknown", role: role || "Unknown", segments });
-      const aiContent = await callClaude(systemPrompt, prompt, 2048, { slug, step: "analyze-clips", expectedFormat: "json" });
+      const aiContent = await callClaude(systemPrompt, prompt, 2048, { slug, step: "analyze-clips", expectedFormat: "json", forceManual: choice === "manual" });
       const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("Could not parse AI response");
       const result = JSON.parse(jsonMatch[0]);

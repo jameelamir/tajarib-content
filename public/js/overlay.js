@@ -59,7 +59,9 @@ async function toggleOverlayConfig() {
         if (selectedReelId) {
             overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&reel=' + encodeURIComponent(selectedReelId) + '&stage=pre-overlay&t=' + Date.now();
         } else {
-            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=subtitled&t=' + Date.now();
+            var ep = episodes.find(function(e) { return e.slug === currentSlug; });
+            var videoType = (ep && ep.steps && ep.steps.subtitled) ? 'subtitled' : 'raw';
+            overlayPreviewVideo.src = '/api/video?slug=' + encodeURIComponent(currentSlug) + '&type=' + videoType + '&t=' + Date.now();
         }
     }
     renderOverlayConfig();
@@ -602,14 +604,54 @@ async function selectSponsorAsset(value) {
     renderOverlayConfig();
 }
 
+// Shared XHR-based uploader so overlay uploads (sponsor / lower-third / CTA)
+// can show the same progress bar that the main video upload uses.
+function uploadAssetWithProgress(file, type, label) {
+    return new Promise(function(resolve, reject) {
+        var progressEl = document.getElementById('upload-progress');
+        var fillEl = document.getElementById('progress-fill');
+        var textEl = document.getElementById('progress-text');
+        if (progressEl) progressEl.classList.add('active');
+        if (fillEl) fillEl.style.width = '0%';
+        if (textEl) textEl.textContent = 'Uploading ' + label + '...';
+
+        var fd = new FormData();
+        fd.append('type', type);
+        fd.append('file', file);
+
+        var xhr = new XMLHttpRequest();
+        xhr.upload.onprogress = function(e) {
+            if (!e.lengthComputable) return;
+            var pct = Math.round((e.loaded / e.total) * 100);
+            if (fillEl) fillEl.style.width = pct + '%';
+            if (textEl) {
+                var mb = (e.loaded / 1024 / 1024).toFixed(1);
+                var totalMb = (e.total / 1024 / 1024).toFixed(1);
+                textEl.textContent = 'Uploading ' + label + ': ' + mb + ' / ' + totalMb + ' MB (' + pct + '%)';
+            }
+        };
+        xhr.onload = function() {
+            if (progressEl) progressEl.classList.remove('active');
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try { resolve(JSON.parse(xhr.responseText)); }
+                catch (err) { reject(new Error('Invalid response')); }
+            } else {
+                reject(new Error('HTTP ' + xhr.status + ': ' + xhr.responseText));
+            }
+        };
+        xhr.onerror = function() {
+            if (progressEl) progressEl.classList.remove('active');
+            reject(new Error('Network error'));
+        };
+        xhr.open('POST', '/api/upload-asset');
+        xhr.send(fd);
+    });
+}
+
 async function uploadSponsorAsset(file) {
     if (!file) return;
-    var fd = new FormData();
-    fd.append('type', 'sponsor');
-    fd.append('file', file);
     try {
-        var res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
-        var data = await res.json();
+        var data = await uploadAssetWithProgress(file, 'sponsor', 'sponsor');
         if (data.success) {
             overlayConfig.sponsor.file = data.file;
             delete overlayVideoCache[data.file];
@@ -659,12 +701,8 @@ async function selectLowerThirdAsset(value) {
 
 async function uploadLowerThirdAsset(file) {
     if (!file) return;
-    var fd = new FormData();
-    fd.append('type', 'lower-third');
-    fd.append('file', file);
     try {
-        var res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
-        var data = await res.json();
+        var data = await uploadAssetWithProgress(file, 'lower-third', 'lower third');
         if (data.success) {
             overlayConfig.lowerThird.customFile = data.file;
             renderOverlayConfig();
@@ -676,12 +714,8 @@ async function uploadLowerThirdAsset(file) {
 
 async function uploadCTAAsset(file) {
     if (!file) return;
-    const fd = new FormData();
-    fd.append('type', 'cta');
-    fd.append('file', file);
     try {
-        const res = await fetch('/api/upload-asset', { method: 'POST', body: fd });
-        const data = await res.json();
+        const data = await uploadAssetWithProgress(file, 'cta', 'CTA');
         if (data.success) {
             overlayConfig.cta.imagePath = 'assets/' + data.file;
             drawOverlayCanvas();

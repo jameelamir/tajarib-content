@@ -2,10 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.30] - 2026-05-05
+## [1.0.36] - 2026-05-05
 
 ### Added
 - New **Clean** step in the per-reel pipeline, sitting between **Cut** and **Crop**, that strips filler words and silences from a cut reel. Filler removal matches against a conservative list (English `um/uh/uhm/er/hmm/mm`, Iraqi-Arabic `اه/يعني/إيه`) and is text-based, so it works whether the transcript came from Whisper or an uploaded SRT. Silence removal walks the gaps between consecutive word timestamps and cuts any gap longer than the chosen threshold (Tight >0.5s, Med >0.7s default, Light >1.0s, or off). Each removed range gets 80ms of padding on either side so cuts feel natural rather than choppy. Output is `reel-NN-cleaned.mp4` — the original `reel-NN.mp4` is preserved, and `crop.js` automatically prefers the cleaned source when it exists. Subtitles re-sync automatically because `subtitle.js` already re-transcribes the cropped reel. Per-reel `reel-NN-transcript.json` (real Whisper word timing) is preferred over the episode transcript when available, since SRT-uploaded transcripts have synthesized zero-gap word timing that defeats silence detection. Cleaning refuses to run if it would gut the reel (>99% removed) or all words are inside cut zones. Implementation: new `clean.js` script + plumbing in `server/pipeline.js` (clean joins the `video` concurrency lane), `server/routes/pipeline-routes.js` (passes `silenceThreshold`/`removeFillers`), `server/episodes.js` (exposes `cleaned` reel state), `server/low-quality.js` (LD preview prewarm), `crop.js` (input fallback), `cut.js` (extends downstream-stale cleanup to include `-cleaned.mp4`), and `public/js/reel-ui.js` (Clean button + silence threshold dropdown + fillers checkbox in the per-reel pipeline strip). Bulk "process-reels" still skips Clean — it stays opt-in per reel because over-aggressive trimming on reflective interviews can sound jumpcut-y.
+
+## [1.0.35] - 2026-05-05
+
+### Added
+- Copy transcript button in the reel transcript section, alongside the SRT upload/download buttons. Joins all chunk text with newlines, syncs in-progress edits first, and uses the existing `copyToClipboard()` toast util. `public/js/reel-ui.js`.
+
+## [1.0.34] - 2026-05-05
+
+### Fixed
+- Sponsor / logo / CTA / lower-third overlay uploads no longer fail with `EXDEV: cross-device link not permitted` on the production VPS. Formidable writes the temp file to `UPLOADS_DIR` (`/data/uploads`, the bind-mounted host volume), but `/api/upload-asset` was finalizing it to `<repo>/assets` (`/app/assets` inside the container, on the container's overlay filesystem). `fs.renameSync` across filesystems errors with `EXDEV`. Fixed by wrapping the rename in the same `EXDEV` → `copyFileSync` + `unlinkSync` fallback that `server/routes/upload-routes.js` already uses for episode video uploads. `media-routes.js:293`.
+
+## [1.0.33] - 2026-05-05
+
+### Changed
+- Hybrid-mode "Fill manually" choice now shows the LLM prompt to copy-paste into your own Claude — same flow as top-level Manual mode, just per-step. Previously v1.0.31 wrote empty placeholders and asked you to type the result yourself, which wasn't what users meant by "manual" — they wanted the prompt so they could run it through whatever model they prefer. Implementation: child processes (`analyze.js`, `generate.js`, `compose.js`) get spawned with `TAJARIB_FORCE_MANUAL=1` env var when the user picks manual; `llm.js` checks that env var in `getConfig()` and forces `mode='manual'` for that spawn, which makes `llm.chat()` return null and triggers the existing exit-42 → `llm-prompt` socket flow. In-process callers (`/api/feedback`, `/api/generate-title`, `/api/analyze-clips`) pass a `forceManual` opt through `callClaude` → `llm.chat({forceManual: true})` for the same effect without env vars.
+
+### Removed
+- `server/manual-steps.js` (the empty-placeholder writer) — no longer needed since manual mode now routes through the existing paste flow for every step.
+- `#llm-title-modal` HTML, `openManualTitleModal` / `submitManualTitle` / `cancelManualTitle` JS, and the `POST /api/llm-title-input` endpoint — replaced by the standard paste prompt for manual title generation.
+
+## [1.0.32] - 2026-05-05
+
+### Added
+- Upload progress bar for overlay assets (sponsor, lower-third, CTA). The three overlay upload flows in `public/js/overlay.js` now drive the same `#upload-progress` element that the main video upload already uses, so the user sees `Uploading sponsor: 12.3 / 45.6 MB (27%)` and a fill bar instead of a frozen UI while a multi-megabyte `.mov` is in flight. Implementation switches from `fetch()` (which can't report upload progress) to `XMLHttpRequest` via a new `uploadAssetWithProgress(file, type, label)` helper. No backend changes — `/api/upload-asset` keeps the same multipart contract.
+
+## [1.0.31] - 2026-05-05
+
+### Added
+- Three-mode LLM setting in Settings → Generation. Replaces the old Manual Mode checkbox with a 3-way radio: **API** (every step runs automatically via the LLM), **Hybrid** (per-step "AI or manual?" popup), and **Manual** (existing paste-from-claude.ai flow). Hybrid is the new default for fresh installs. Existing users with `manualMode: true` migrate to **Manual**; existing users with `manualMode: false` migrate to **API**. Settings round-trip via `mode` field in `auth.json`; legacy `manualMode` boolean is still accepted on POST for old clients but always replaced by `mode` on save.
+- Hybrid-mode choice modal. When an LLM step kicks off in hybrid mode, a popup asks "Use AI" or "Fill manually" before any API call is made. The choice is per-step, not per-LLM-call, so a `generate` run that would normally hit the API 5+ times is one decision instead of five popups. Wired into `analyze`, `generate`, `compose`, `generate-title`, `analyze-clips`, and the AI feedback/revision endpoint. Choice resolved via `POST /api/llm-step-decision` with a server-side timeout of 5 minutes (defaults to manual). The auto-titling flow that runs after transcription also goes through the same choice gate, so users no longer have an LLM call fired silently in the background.
+- Per-step manual paths. When the user picks "Fill manually" at the choice modal: `generate` writes empty caption / YouTube description / announcement placeholders to `content.json` for every reel from `analysis.json`, and the existing reel-ui textareas surface as ready-to-fill — this is the path the user explicitly asked for ("give me an option to generate caption manually if I don't want to rely on the one made"). `generate-title` opens a text input modal for typing the slug-style title yourself. `analyze` writes a minimal `analysis.json` and points the user to "Find & Create Reel" on the transcript for manual reel picking. `analyze-clips` and `compose` skip with informative toasts. AI feedback/revision becomes a no-op so the user can edit the textarea directly. New module: `server/manual-steps.js` holds the placeholder writers; new modals: `#llm-choice-modal` and `#llm-title-modal` in `index.html`; new client functions in `public/js/state.js`.
+
+### Changed
+- Top-level **Manual** mode is fully preserved — `askLlmModeChoice` returns `"ai"` for both `auto` and `manual` modes, so the existing paste-from-claude.ai flow (driven by `llm.chat()` returning `null` when there's no key) still kicks in for users who have been relying on it. Only `hybrid` mode triggers the new choice popup. This avoids regressing the existing user-base that has been using Manual Mode to paste from their own Claude.
+
+## [1.0.30] - 2026-05-05
+
+### Added
+- Already-finished reel uploads (`reel_full` media type) now expose an **Add Overlay** action with the same ⚙ Customize panel as the post-cut reel detail view. Previously the entire pipeline strip was hidden for `reel_full`, so there was no way to apply sponsor/logo/lower-third/CTA overlays to a reel uploaded as a finished file even though `overlay.js` already handles that case (`overlay.js:287-293`) and the backend explicitly allows the step (`server/routes/pipeline-routes.js:22-25`). Once an overlay has been applied the button flips to a green ✓ Overlay and re-clicking re-runs with `--force` so the user can iterate on the overlay config without re-uploading. The original upload stays untouched as the raw video; output is written to `full-final.mp4`.
+
+### Fixed
+- The standalone overlay-config customize panel was loading `type=subtitled` as the canvas background video, which 404'd for fresh `reel_full` uploads (no `full-subtitled.mp4` exists) and left the customize canvas blank. The frontend now falls back to `type=raw` when `ep.steps.subtitled` is false, so the live drag-and-drop preview renders against the actual uploaded video.
 
 ## [1.0.29] - 2026-05-04
 

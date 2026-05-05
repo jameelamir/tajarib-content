@@ -261,10 +261,13 @@ function renderReelFullView(ep) {
         });
     }
 
-    // Pipeline actions — show for reel_cut (crop/sub/overlay), hide for reel_full
+    // Pipeline actions — show for reel_cut (crop/sub/overlay), and overlay-only for reel_full
     var actionsEl = document.getElementById('rf-actions');
     if (isReelCut) {
         actionsEl.innerHTML = buildStandaloneActions(ep);
+        actionsEl.style.display = '';
+    } else if (ep.mediaType === 'reel_full') {
+        actionsEl.innerHTML = buildReelFullActions(ep);
         actionsEl.style.display = '';
     } else {
         actionsEl.innerHTML = '';
@@ -320,6 +323,21 @@ function renderReelFullView(ep) {
     } else {
         transcriptEl.style.display = 'none';
     }
+}
+
+// Overlay-only action row for reel_full uploads — lets the user add overlays
+// to an already-finished reel without exposing crop/sub steps that don't apply.
+function buildReelFullActions(ep) {
+    var done = ep.steps.overlaid;
+    var cls = 'pipe-step' + (done ? ' done' : ' next');
+    var icon = done ? '&#10003;' : '&#9654;';
+    var label = done ? 'Overlay' : 'Add Overlay';
+    return '<div class="reel-pipeline">' +
+        '<button class="' + cls + '" onclick="runStep(\'overlay\')" title="' + (done ? 'Re-run overlay (overwrites full-final.mp4)' : 'Apply overlays to this reel') + '">' +
+            '<span class="pipe-icon">' + icon + '</span>' + label +
+        '</button>' +
+        '<button class="pipe-overlay-config" onclick="event.stopPropagation(); toggleOverlayConfig()" title="Configure overlays">&#9881; Customize</button>' +
+    '</div>';
 }
 
 function buildStandaloneActions(ep) {
@@ -2435,6 +2453,16 @@ function rtFormatSRTTime(sec) {
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ',' + String(ms).padStart(3, '0');
 }
 
+function copyReelTranscript() {
+    if (!reelChunksData || !reelChunksData.length) {
+        showToast('No transcript to copy', 'error');
+        return;
+    }
+    rtSyncDomToData();
+    var text = reelChunksData.map(function(c) { return (c.text || '').trim(); }).filter(Boolean).join('\n');
+    copyToClipboard(text, 'Transcript copied');
+}
+
 function downloadReelSRT() {
     if (!reelChunksData || !reelChunksData.length) return;
     // Sync any in-progress edits
@@ -2785,6 +2813,7 @@ function rtRenderChunks(containerEl) {
         '<button onclick="resubReel(\'' + reelTranscriptReelId + '\')" style="font-size:0.7rem; flex:1;" title="Re-burn subtitles from saved chunks">Re-sub</button>' +
         '<button onclick="uploadReelSrt(' + uploadArg + ')" style="font-size:0.7rem;" title="Upload SRT to replace transcript">↑ SRT</button>' +
         '<button onclick="downloadReelSRT()" style="font-size:0.7rem;" title="Download current chunks as SRT">↓ SRT</button>' +
+        '<button onclick="copyReelTranscript()" style="font-size:0.7rem;" title="Copy transcript text to clipboard">Copy</button>' +
     '</div>' +
     '<div id="reel-transcript-status" style="font-size:0.7rem; margin-top:4px; color:#666;"></div>';
 

@@ -30,7 +30,7 @@ function loadConfig() {
   // Priority 1: auth.json
   try {
     const data = JSON.parse(fs.readFileSync(AUTH_PATH, "utf8"));
-    if (data.llm && (data.llm.key || data.llm.manualMode)) return data.llm;
+    if (data.llm && (data.llm.key || data.llm.manualMode || data.llm.mode)) return data.llm;
     // Backwards compat: old { anthropic: { key } } format
     if (data.anthropic?.key) {
       return { key: data.anthropic.key, baseUrl: "", model: "" };
@@ -56,19 +56,36 @@ function loadConfig() {
   return {};
 }
 
+// Resolve effective mode: auto / hybrid / manual.
+//   - explicit `mode` field wins
+//   - else legacy `manualMode: true` → 'manual', `manualMode: false` → 'auto'
+//   - else 'hybrid' (new default — per-step choice between AI and manual)
+function resolveMode(config) {
+  if (config.mode === "auto" || config.mode === "hybrid" || config.mode === "manual") return config.mode;
+  if (config.manualMode === true) return "manual";
+  if (config.manualMode === false) return "auto";
+  return "hybrid";
+}
+
 function getConfig() {
   const config = loadConfig();
+  let mode = resolveMode(config);
+  // Per-spawn override: child processes spawned by hybrid "manual" decisions
+  // get TAJARIB_FORCE_MANUAL=1, which makes this CLI behave as if the user
+  // were in top-level manual mode — triggering the paste-from-Claude flow.
+  if (process.env.TAJARIB_FORCE_MANUAL === "1") mode = "manual";
   return {
     key: process.env.LLM_API_KEY || process.env.ANTHROPIC_API_KEY || config.key || "",
     baseUrl: process.env.LLM_BASE_URL || config.baseUrl || "",
     model: config.model || DEFAULT_MODEL,
-    manualMode: !!config.manualMode,
+    mode,
+    manualMode: mode === "manual", // legacy alias
   };
 }
 
 function hasKey() {
   const config = getConfig();
-  if (config.manualMode) return false; // Manual mode overrides API key
+  if (config.mode === "manual") return false; // Manual mode overrides API key
   return !!config.key;
 }
 
@@ -84,11 +101,15 @@ function hasKey() {
  * @returns {Promise<{text: string, model: string, usage: {input: number, output: number, total: number}}|null>}
  *          Returns null if no API key is configured.
  */
-async function chat({ system, user, maxTokens = 4096, model: modelOverride }) {
+async function chat({ system, user, maxTokens = 4096, model: modelOverride, forceManual }) {
   const config = getConfig();
   const model = modelOverride || config.model || DEFAULT_MODEL;
 
-  if (config.manualMode || !config.key) return null; // Manual mode or no key — caller handles
+  // Per-call override (used by hybrid mode when the user picks "manual" for
+  // an in-process step): same as top-level manual — return null so the caller
+  // routes through the paste-from-Claude flow.
+  if (forceManual) return null;
+  if (config.mode === "manual" || !config.key) return null; // Manual mode or no key — caller handles
 
   if (config.baseUrl) {
     // ── OpenAI-compatible endpoint ──

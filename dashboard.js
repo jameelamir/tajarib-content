@@ -56,6 +56,7 @@ const ctx = {
   PYTHON_BIN, NODE_BIN,
   activeProcesses: {}, activeSteps: {}, serverLogs: {}, logs: {},
   pendingManualLLM: new Map(),
+  pendingModeChoices: new Map(),
   formidable, buffer, llm, prompts,
 };
 

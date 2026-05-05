@@ -397,7 +397,26 @@
     </div>
 </div>
 
-
+<!-- Hybrid Mode: AI vs Manual Choice Modal -->
+<div class="modal" id="llm-choice-modal">
+    <div class="modal-box" style="width:480px;">
+        <h3 id="llm-choice-title">Run with AI or fill in manually?</h3>
+        <div id="llm-choice-desc" style="font-size:0.8rem; color:#aaa; margin:10px 0 18px 0;"></div>
+        <div style="display:flex; gap:10px;">
+            <button id="llm-choice-ai-btn" class="primary" style="flex:1; padding:14px; font-size:0.85rem;" onclick="resolveLlmChoice('ai')">
+                🤖 Use AI
+                <div style="font-size:0.65rem; opacity:0.8; margin-top:3px; font-weight:normal;">Run via API</div>
+            </button>
+            <button id="llm-choice-manual-btn" style="flex:1; padding:14px; font-size:0.85rem; background:#2a2a3e; border:1px solid #4a4a6e; color:#ddd;" onclick="resolveLlmChoice('manual')">
+                ✍️ Fill manually
+                <div style="font-size:0.65rem; opacity:0.7; margin-top:3px;">Type the result yourself</div>
+            </button>
+        </div>
+        <div style="font-size:0.65rem; color:#666; margin-top:14px; text-align:center;">
+            Set the default mode in Settings → Generation
+        </div>
+    </div>
+</div>
 
 <!-- Storage Browser Modal -->
 <div class="modal" id="storage-modal">
@@ -523,14 +542,29 @@
                 </div>
                 <div id="gen-key-status" style="font-size:0.7rem; margin-top:6px; color:#666;">Checking...</div>
 
-                <div style="margin-top:12px; padding:8px 10px; background:#1a1a2e; border:1px solid #333; border-radius:6px;">
-                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:0.75rem; color:#ddd;">
-                        <input type="checkbox" id="manual-mode-toggle" onchange="toggleManualMode(this.checked)" />
-                        Manual Mode
+                <div style="margin-top:12px; padding:10px; background:#1a1a2e; border:1px solid #333; border-radius:6px;">
+                    <div style="font-size:0.7rem; color:#aaa; font-weight:600; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px;">LLM Mode</div>
+                    <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:0.75rem; color:#ddd; padding:6px; border-radius:4px;" onmouseover="this.style.background='#222'" onmouseout="this.style.background=''">
+                        <input type="radio" name="llm-mode" value="auto" onchange="saveLlmMode('auto')" style="margin-top:2px;" />
+                        <div>
+                            <div>API</div>
+                            <div style="font-size:0.65rem; color:#666;">Run every step automatically via the LLM</div>
+                        </div>
                     </label>
-                    <div style="font-size:0.65rem; color:#666; margin-top:4px;">
-                        Skip API calls — copy prompts and paste responses from your own Claude
-                    </div>
+                    <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:0.75rem; color:#ddd; padding:6px; border-radius:4px;" onmouseover="this.style.background='#222'" onmouseout="this.style.background=''">
+                        <input type="radio" name="llm-mode" value="hybrid" onchange="saveLlmMode('hybrid')" style="margin-top:2px;" />
+                        <div>
+                            <div>Hybrid <span style="color:#7dd3fc; font-size:0.6rem; margin-left:4px;">recommended</span></div>
+                            <div style="font-size:0.65rem; color:#666;">Ask "AI or manual?" for each LLM step</div>
+                        </div>
+                    </label>
+                    <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer; font-size:0.75rem; color:#ddd; padding:6px; border-radius:4px;" onmouseover="this.style.background='#222'" onmouseout="this.style.background=''">
+                        <input type="radio" name="llm-mode" value="manual" onchange="saveLlmMode('manual')" style="margin-top:2px;" />
+                        <div>
+                            <div>Manual</div>
+                            <div style="font-size:0.65rem; color:#666;">Copy prompts and paste responses from your own LLM</div>
+                        </div>
+                    </label>
                 </div>
             </div>
 

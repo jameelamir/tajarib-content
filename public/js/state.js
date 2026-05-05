@@ -119,6 +119,34 @@ function ownsPromptSlug(slug) {
     return myPromptSlugs.has(slug);
 }
 
+// ── Hybrid-mode choice modal ─────────────────────────────────────────────────
+// In hybrid LLM mode, every LLM-using step pops this modal so the user picks
+// "AI" or "manual" once per step. Resolved via POST /api/llm-step-decision.
+let pendingChoiceRequest = null;
+
+function openLlmChoiceModal(data) {
+    pendingChoiceRequest = data;
+    const modal = document.getElementById('llm-choice-modal');
+    const title = document.getElementById('llm-choice-title');
+    const desc = document.getElementById('llm-choice-desc');
+    if (title) title.textContent = `Run "${data.step}" with AI or fill in manually?`;
+    if (desc) desc.textContent = data.description || '';
+    if (modal) modal.classList.add('open');
+}
+
+function resolveLlmChoice(choice) {
+    if (!pendingChoiceRequest) return;
+    const requestId = pendingChoiceRequest.requestId;
+    pendingChoiceRequest = null;
+    const modal = document.getElementById('llm-choice-modal');
+    if (modal) modal.classList.remove('open');
+    fetch('/api/llm-step-decision', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ requestId, choice }),
+    }).catch(err => console.error('llm-step-decision failed:', err));
+}
+
 // Auto-claim slug on outgoing fetch to pipeline endpoints. Covers
 // /api/run-step, /api/feedback, /api/download-url. The XHR-based
 // /api/upload path claims separately in upload.js.

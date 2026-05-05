@@ -934,7 +934,6 @@ async function analyzeForClips(slug, guest, role) {
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
-        
         showClipSuggestions(data.clips, slug, guest, role);
     } catch (err) {
         showToast('Analysis failed: ' + err.message, 'error');
@@ -2321,7 +2320,7 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
             })
         });
         const data = await res.json();
-        
+
         if (data.success) {
             textarea.value = data.revised;
             autoResize(textarea);
@@ -2336,7 +2335,7 @@ async function submitFeedback(fieldPath, textareaId, hintId) {
         hint.textContent = '✗ ' + err.message;
         hint.className = 'content-hint err';
     }
-    
+
     fbInput.disabled = false;
     setTimeout(() => hint.textContent = '', 4000);
 }

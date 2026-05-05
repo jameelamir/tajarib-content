@@ -48,7 +48,13 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
   if (req.method === "GET" && url.pathname === "/api/llm-config") {
     const config = llm.getConfig();
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ hasKey: !!config.key, baseUrl: config.baseUrl || "", model: config.model || "", manualMode: config.manualMode || false }));
+    res.end(JSON.stringify({
+      hasKey: !!config.key,
+      baseUrl: config.baseUrl || "",
+      model: config.model || "",
+      mode: config.mode || "hybrid",
+      manualMode: config.mode === "manual", // legacy alias for any old client
+    }));
     return true;
   }
 
@@ -73,10 +79,15 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
   if (req.method === "POST" && url.pathname === "/api/llm-config") {
     const body = await readBody(req);
     try {
-      const { apiKey, baseUrl, model, manualMode } = JSON.parse(body);
+      const { apiKey, baseUrl, model, mode, manualMode } = JSON.parse(body);
       if (apiKey !== undefined && apiKey && apiKey.length < 10) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: false, error: "Invalid key — too short" }));
+        return true;
+      }
+      if (mode !== undefined && !["auto", "hybrid", "manual"].includes(mode)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "mode must be auto, hybrid, or manual" }));
         return true;
       }
       const authPath = GLOBAL_AUTH_PATH;
@@ -85,7 +96,14 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
       if (apiKey !== undefined) existing.llm.key = apiKey || "";
       if (baseUrl !== undefined) existing.llm.baseUrl = baseUrl || "";
       if (model !== undefined) existing.llm.model = model || "";
-      if (manualMode !== undefined) existing.llm.manualMode = !!manualMode;
+      if (mode !== undefined) {
+        existing.llm.mode = mode;
+        delete existing.llm.manualMode; // Replaced by `mode`
+      } else if (manualMode !== undefined) {
+        // Legacy: clients still posting manualMode boolean
+        existing.llm.mode = manualMode ? "manual" : "auto";
+        delete existing.llm.manualMode;
+      }
       if (existing.anthropic) delete existing.anthropic;
       saveJSON(authPath, existing);
       res.writeHead(200, { "Content-Type": "application/json" });
