@@ -2813,6 +2813,7 @@ function rtRenderChunks(containerEl) {
     html += '<div style="display:flex; gap:6px;">' +
         '<button onclick="saveReelChunks(\'' + reelTranscriptReelId + '\')" class="primary" style="font-size:0.7rem; flex:1;" title="Save chunk edits to disk">Save</button>' +
         '<button onclick="resubReel(\'' + reelTranscriptReelId + '\')" style="font-size:0.7rem; flex:1;" title="Re-burn subtitles from saved chunks">Re-sub</button>' +
+        '<button onclick="zeroReelGaps()" style="font-size:0.7rem;" title="Set every chunk\'s end to the next chunk\'s start (zero gaps)">0-Gap</button>' +
         '<button onclick="uploadReelSrt(' + uploadArg + ')" style="font-size:0.7rem;" title="Upload SRT to replace transcript">↑ SRT</button>' +
         '<button onclick="downloadReelSRT()" style="font-size:0.7rem;" title="Download current chunks as SRT">↓ SRT</button>' +
         '<button onclick="copyReelTranscript()" style="font-size:0.7rem;" title="Copy transcript text to clipboard">Copy</button>' +
@@ -2918,6 +2919,28 @@ function rtMergeChunkWithPrev(chunkIdx) {
     tlRenderSubTrack(); // sync timeline
     var el = rtGetSegEl(chunkIdx - 1);
     if (el) { rtSetCursor(el, prevLen + 1); rtScrollSegIntoView(el.closest('.tm-seg')); }
+}
+
+function zeroReelGaps() {
+    if (!reelChunksData || reelChunksData.length < 2) return;
+    rtSyncDomToData();
+    var changed = 0;
+    for (var i = 0; i < reelChunksData.length - 1; i++) {
+        var nextStart = reelChunksData[i + 1].start;
+        if (reelChunksData[i].end !== nextStart) {
+            reelChunksData[i].end = nextStart;
+            changed++;
+        }
+    }
+    rtRenderChunks();
+    tlRenderSubTrack();
+    var statusEl = document.getElementById('reel-transcript-status');
+    if (statusEl) {
+        statusEl.textContent = changed
+            ? 'Closed ' + changed + ' gap' + (changed === 1 ? '' : 's') + '. Save to persist.'
+            : 'No gaps to close.';
+        statusEl.style.color = changed ? '#4ade80' : '#888';
+    }
 }
 
 function seekReelVideo(time) {

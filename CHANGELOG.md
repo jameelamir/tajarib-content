@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.39] - 2026-05-06
+
+### Added
+- "0-Gap" button in the reel transcript section that closes every gap between consecutive subtitle chunks: each chunk's end is set to the next chunk's start so subtitles flow continuously with no on-screen blank moments. Pure timestamp normalization — text isn't touched, in-progress edits are synced first, the timeline subtitle track re-renders to reflect the new bounds, and a status line reports the number of gaps closed. Behavior matches the existing split/merge helpers: changes live in memory until you hit Save. `public/js/reel-ui.js`.
+
 ## [1.0.38] - 2026-05-05
 
 ### Added
