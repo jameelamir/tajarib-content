@@ -43,8 +43,10 @@ let modelValidationTimer = null;
 
 // ── Video quality toggle ──────────────────────────────────────────────────────
 // 'full' (default) or 'low'. When 'low', /api/video URLs are tagged with q=low;
-// the server transcodes a 720p/CRF28 cached derivative on first request and
-// falls back to the original until that derivative is ready.
+// the server transcodes a 540p/CRF30 cached derivative on first request and
+// falls back to the original until that derivative is ready. The client polls
+// `&probe=1` so once ffmpeg finishes, the player swaps to the small file mid-
+// session (otherwise the first watch would always pay the full-file cost).
 let videoQuality = localStorage.getItem('tajarib-video-quality') === 'low' ? 'low' : 'full';
 
 function videoQualityParam() {
@@ -59,10 +61,60 @@ function setVideoQuality(q) {
     if (btn) updateVideoQualityToggle(btn);
 }
 
+function reloadVideoSrc(v) {
+    try {
+        var u = new URL(v.getAttribute('src') || '', location.origin);
+        u.searchParams.set('t', Date.now());
+        var resumeAt = v.currentTime;
+        var wasPaused = v.paused;
+        v.src = u.pathname + u.search;
+        v.addEventListener('loadedmetadata', function once() {
+            v.removeEventListener('loadedmetadata', once);
+            try { if (resumeAt > 0) v.currentTime = resumeAt; } catch (e) {}
+            if (!wasPaused) v.play().catch(function() {});
+        });
+    } catch (e) {}
+}
+
+// Poll the server until the .low.mp4 derivative is ready, then reload the
+// video so the player switches from the original to the small file.
+function attachLdProbe(v) {
+    if (videoQuality !== 'low') return;
+    var src = v.getAttribute('src') || '';
+    if (src.indexOf('/api/video') === -1 || src.indexOf('q=low') === -1) return;
+    if (v._ldProbeTimer) return;
+    var attempts = 0;
+    function poll() {
+        v._ldProbeTimer = null;
+        if (videoQuality !== 'low' || !v.isConnected) return;
+        var u;
+        try { u = new URL(v.getAttribute('src') || '', location.origin); } catch (e) { return; }
+        if (u.searchParams.get('q') !== 'low') return;
+        u.searchParams.set('probe', '1');
+        u.searchParams.delete('t');
+        fetch(u.pathname + u.search, { cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (videoQuality !== 'low' || !v.isConnected) return;
+                if (data && data.quality === 'low') {
+                    reloadVideoSrc(v);
+                } else if (data && data.quality === 'preparing' && attempts < 120) {
+                    attempts++;
+                    v._ldProbeTimer = setTimeout(poll, 5000);
+                }
+            })
+            .catch(function() {
+                if (attempts < 60) { attempts++; v._ldProbeTimer = setTimeout(poll, 10000); }
+            });
+    }
+    v._ldProbeTimer = setTimeout(poll, 1500);
+}
+
 function refreshVisibleVideos() {
     document.querySelectorAll('video').forEach(function(v) {
         var src = v.getAttribute('src') || '';
         if (src.indexOf('/api/video') === -1) return;
+        if (v._ldProbeTimer) { clearTimeout(v._ldProbeTimer); v._ldProbeTimer = null; }
         try {
             var u = new URL(src, location.origin);
             if (videoQuality === 'low') u.searchParams.set('q', 'low');
@@ -75,10 +127,19 @@ function refreshVisibleVideos() {
                 v.removeEventListener('loadedmetadata', once);
                 try { if (resumeAt > 0) v.currentTime = resumeAt; } catch (e) {}
                 if (!wasPaused) v.play().catch(function() {});
+                attachLdProbe(v);
             });
         } catch (e) {}
     });
 }
+
+// Catch videos that load with q=low already in their src (page-load case where
+// refreshVisibleVideos isn't triggered) — without this, first-watch never auto-
+// swaps to the small file.
+document.addEventListener('loadedmetadata', function(e) {
+    var v = e.target;
+    if (v && v.tagName === 'VIDEO') attachLdProbe(v);
+}, true);
 
 function updateVideoQualityToggle(btn) {
     var on = videoQuality === 'low';

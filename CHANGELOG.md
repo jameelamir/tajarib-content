@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.40] - 2026-05-08
+
+### Changed
+- LD (low-quality preview) toggle now actually feels low-quality on slow internet. Previous settings (720p / CRF 28 / 96k audio) shrank files only modestly; new settings are 540p / CRF 30 / 64k audio, typically 2–3× smaller. The biggest user-visible fix is mid-session auto-swap: the original behavior was that the *first* watch of any video always served the full file (because ffmpeg ran in the background and `ensureLowQuality` returned `null` until done), so toggling LD looked like a no-op. The browser now polls a new `&probe=1` endpoint on `/api/video` every ~5s while the server is still transcoding (`X-Video-Quality: preparing`), and as soon as the `.low.mp4` is ready the player reloads with the small file at the same playhead position — so even on first watch you transition to the small file within seconds rather than paying the full-file bandwidth cost. Existing cached `.low.mp4` files generated with the old settings are now detected as stale via a `LD_SPEC` version marker (`v2-540p-crf30-a64k`) written to a `.low.mp4.spec` sidecar, so they regenerate on next request instead of serving the old (less compressed) cache. Publishing pipeline is unaffected — `download=1` and `publish-routes.js` continue to bypass the low-quality file. `server/low-quality.js`, `server/routes/media-routes.js`, `public/js/state.js`.
+
 ## [1.0.39] - 2026-05-06
 
 ### Added

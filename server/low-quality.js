@@ -9,21 +9,27 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
-// Tracks transcodes currently running (keyed by source path) so we don't
-// double-spawn ffmpeg on parallel requests for the same source video.
+// Bump this when LD encoding params change so old cached `.low.mp4` files
+// are detected as stale and regenerated. Stored alongside each derivative
+// in a tiny `.low.mp4.spec` sidecar.
+const LD_SPEC = "v2-540p-crf30-a64k";
+
 const inFlight = new Set();
 
-// Returns the cached .low.mp4 path if ready, else null. When not ready, kicks
-// off a background ffmpeg transcode (non-blocking, fire-and-forget) so a
-// later request finds it cached. Atomic: writes to .tmp then renames.
+function readSpec(specPath) {
+  try { return fs.readFileSync(specPath, "utf8").trim(); } catch { return null; }
+}
+
 function ensureLowQuality(srcPath) {
   if (!srcPath || !/\.mp4$/i.test(srcPath)) return null;
   const lowPath = srcPath.replace(/\.mp4$/i, ".low.mp4");
+  const specPath = lowPath + ".spec";
   try {
     const srcStat = fs.statSync(srcPath);
     if (fs.existsSync(lowPath)) {
       const lowStat = fs.statSync(lowPath);
-      if (lowStat.size > 1024 && lowStat.mtimeMs >= srcStat.mtimeMs) return lowPath;
+      const specOk = readSpec(specPath) === LD_SPEC;
+      if (specOk && lowStat.size > 1024 && lowStat.mtimeMs >= srcStat.mtimeMs) return lowPath;
     }
   } catch { return null; }
   if (inFlight.has(srcPath)) return null;
@@ -32,17 +38,23 @@ function ensureLowQuality(srcPath) {
   try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
   const args = [
     "-y", "-i", srcPath,
-    "-vf", "scale='trunc(iw/2)*2':'min(720,trunc(ih/2)*2)':force_original_aspect_ratio=decrease",
-    "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
-    "-c:a", "aac", "-b:a", "96k",
+    "-vf", "scale='trunc(iw/2)*2':'min(540,trunc(ih/2)*2)':force_original_aspect_ratio=decrease",
+    "-c:v", "libx264", "-crf", "30", "-preset", "veryfast",
+    "-c:a", "aac", "-b:a", "64k",
     "-movflags", "+faststart",
     "-f", "mp4", tmpPath,
   ];
   const child = spawn("ffmpeg", args, { stdio: "ignore", detached: false });
   child.on("exit", (code) => {
     inFlight.delete(srcPath);
-    if (code === 0) { try { fs.renameSync(tmpPath, lowPath); } catch {} }
-    else { try { fs.unlinkSync(tmpPath); } catch {} }
+    if (code === 0) {
+      try {
+        fs.renameSync(tmpPath, lowPath);
+        fs.writeFileSync(specPath, LD_SPEC);
+      } catch {}
+    } else {
+      try { fs.unlinkSync(tmpPath); } catch {}
+    }
   });
   child.on("error", () => { inFlight.delete(srcPath); try { fs.unlinkSync(tmpPath); } catch {} });
   return null;

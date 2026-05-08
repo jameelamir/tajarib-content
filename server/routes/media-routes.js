@@ -86,6 +86,13 @@ module.exports = async function mediaRoutes(req, res, url, ctx) {
       if (lowPath) { videoPath = lowPath; servedQuality = "low"; }
       else { servedQuality = "preparing"; }
     }
+    // Probe-only: client polls this to know when ffmpeg has finished so it can
+    // swap the player to the small file. Doesn't stream — just status JSON.
+    if (url.searchParams.get("probe") === "1") {
+      res.writeHead(200, { "Content-Type": "application/json", "X-Video-Quality": servedQuality, "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ quality: servedQuality }));
+      return true;
+    }
     const stat = fs.statSync(videoPath);
     if (stat.size === 0) { res.writeHead(204); res.end(); return true; }
     const wantDownload = url.searchParams.get("download") === "1";
