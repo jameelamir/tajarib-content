@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.41] - 2026-05-19
+
+### Added
+- Guest name now appears on every episode card in the sidebar, directly under the slug, as a clickable `👤 Guest · Role` line. Clicking the chip auto-applies that guest as a filter on the new "Filter by guest" input above the episode list. The filter is a case-insensitive substring match across the active, Done, and Hidden buckets, and Done/Hidden auto-expand while a filter is active so matches in those folders are visible. Clearing the filter (`×` button) restores the previous folder open/closed state. When no episodes match, the list shows a small "No episodes match" empty state instead of going blank. Implementation: `guestFilter` state plus `setGuestFilter`, `clearGuestFilter`, `filterByGuest`, and a `jsAttr` helper for safely embedding guest names in inline handlers (guest names can contain quotes, so the existing single-quote escape pattern used for slugs is not safe). `public/js/episode-ui.js`, `public/index.html`.
+
 ## [1.0.40] - 2026-05-08
 
 ### Changed

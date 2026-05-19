@@ -25,6 +25,17 @@
         .ep-type-badge.episode { background: #1e1b4b; color: #818cf8; }
         .ep-type-badge.reel_full { background: #0f2d0f; color: #4ade80; }
         .ep-type-badge.reel_cut { background: #2d1b0f; color: #fb923c; }
+        .ep-guest-line { font-size: 0.7rem; color: #aaa; margin-top: 3px; margin-bottom: 2px; display: flex; align-items: center; gap: 5px; cursor: pointer; overflow: hidden; }
+        .ep-guest-line:hover { color: var(--accent); }
+        .ep-guest-line .ep-guest-icon { opacity: 0.55; font-size: 0.65rem; flex-shrink: 0; }
+        .ep-guest-line .ep-guest-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .ep-guest-line .ep-guest-role { color: #555; font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .ep-guest-line .ep-guest-role::before { content: '·'; margin-right: 4px; opacity: 0.5; }
+        .ep-filter-bar { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: #0f0f0f; flex-shrink: 0; }
+        .ep-filter-bar input { flex: 1; min-width: 0; background: #111; border: 1px solid #2a2a2a; color: #ddd; padding: 5px 8px; border-radius: 4px; font-size: 0.75rem; outline: none; }
+        .ep-filter-bar input:focus { border-color: var(--accent); }
+        .ep-filter-bar button { background: transparent; border: 1px solid #333; color: #666; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; line-height: 1; }
+        .ep-filter-bar button:hover { color: #ccc; border-color: #555; }
         .ep-published { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; background: var(--success); border-radius: 50%; }
         .running-dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; animation: pulse 1s infinite; display: none; }
         .ep-item.running .running-dot { display: block; }
@@ -288,6 +299,12 @@
                 <button class="delete-btn" onclick="bulkDelete()" style="font-size:0.7rem; padding:4px 10px;">🗑️ Delete Selected</button>
             </div>
         </div>
+    </div>
+
+    <!-- Guest Filter -->
+    <div class="ep-filter-bar">
+        <input type="text" id="ep-guest-filter" placeholder="Filter by guest..." oninput="setGuestFilter(this.value)" autocomplete="off">
+        <button type="button" id="ep-guest-filter-clear" onclick="clearGuestFilter()" title="Clear filter" style="display:none;">×</button>
     </div>
 
     <!-- Episode List -->

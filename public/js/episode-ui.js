@@ -1,5 +1,34 @@
 // ── Episode UI: Core rendering, editors, pipeline ───────────────────────────
 
+var guestFilter = ''; // lowercase substring; '' means no filter
+
+function setGuestFilter(value) {
+    guestFilter = String(value || '').trim().toLowerCase();
+    var clearBtn = document.getElementById('ep-guest-filter-clear');
+    if (clearBtn) clearBtn.style.display = guestFilter ? '' : 'none';
+    renderSidebar();
+}
+
+function clearGuestFilter() {
+    var input = document.getElementById('ep-guest-filter');
+    if (input) input.value = '';
+    setGuestFilter('');
+}
+
+function filterByGuest(guestName) {
+    var input = document.getElementById('ep-guest-filter');
+    if (input) input.value = guestName || '';
+    setGuestFilter(guestName || '');
+}
+
+// JSON-encode for safe embedding inside an HTML attribute (handles quotes, &, <)
+function jsAttr(str) {
+    return JSON.stringify(String(str == null ? '' : str))
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;');
+}
+
 // Data functions
 async function refresh() {
     console.log('🔄 refresh() called');
@@ -45,6 +74,15 @@ function renderSidebar() {
                 '<button class="sidebar-reel-btn" onclick="event.stopPropagation(); toggleHideEpisode(\'' + ep.slug + '\')" title="' + (ep.hidden ? 'Show' : 'Hide') + '">' + (ep.hidden ? '👁' : '−') + '</button>' +
             '</span>';
 
+        var guestLine = '';
+        if (ep.guest) {
+            guestLine = '<div class="ep-guest-line" onclick="event.stopPropagation(); filterByGuest(' + jsAttr(ep.guest) + ')" title="Click to filter by ' + escHtml(ep.guest) + '">' +
+                '<span class="ep-guest-icon">👤</span>' +
+                '<span class="ep-guest-name">' + escHtml(ep.guest) + '</span>' +
+                (ep.role ? '<span class="ep-guest-role">' + escHtml(ep.role) + '</span>' : '') +
+            '</div>';
+        }
+
         var epHtml = '<div class="ep-item ' + (currentSlug === ep.slug ? 'active' : '') + (ep.hidden ? ' ep-hidden' : '') + (ep.done ? ' ep-done' : '') + '" onclick="selectEp(\'' + ep.slug + '\')" style="' + (ep.hidden ? 'opacity:0.5;' : '') + '">' +
             '<div class="ep-slug">' +
                 '<span class="ep-type-badge ' + typeClass + '">' + typeLabel + mtLabel + '</span>' +
@@ -52,6 +90,7 @@ function renderSidebar() {
                 analyzeBtn +
                 epActions +
             '</div>' +
+            guestLine +
             (sizeMb || ownerBadge ? '<div class="ep-info">' + (sizeMb ? '<span>' + sizeMb + '</span>' : '') + ownerBadge + '</div>' : '') +
             (ep.steps.published ? '<div class="ep-published" title="Published"></div>' : '') +
         '</div>';
@@ -134,26 +173,39 @@ function renderSidebar() {
         return epHtml;
     }
 
-    var activeEps = episodes.filter(function(ep) { return !ep.hidden && !ep.done; });
-    var doneEps = episodes.filter(function(ep) { return !ep.hidden && ep.done; });
-    var hiddenEps = episodes.filter(function(ep) { return ep.hidden; });
+    function matchesGuestFilter(ep) {
+        if (!guestFilter) return true;
+        return (ep.guest || '').toLowerCase().indexOf(guestFilter) !== -1;
+    }
+    var activeEps = episodes.filter(function(ep) { return !ep.hidden && !ep.done && matchesGuestFilter(ep); });
+    var doneEps = episodes.filter(function(ep) { return !ep.hidden && ep.done && matchesGuestFilter(ep); });
+    var hiddenEps = episodes.filter(function(ep) { return ep.hidden && matchesGuestFilter(ep); });
+
+    // When a filter is active, force-expand Done/Hidden so matches there are visible.
+    var doneOpen = showDoneEpisodes || !!guestFilter;
+    var hiddenOpen = showHiddenEpisodes || !!guestFilter;
 
     var html = activeEps.map(renderEpItem).join('');
     if (doneEps.length > 0) {
-        html += '<div class="reel-folder-header' + (showDoneEpisodes ? ' open' : '') + '" onclick="showDoneEpisodes=!showDoneEpisodes; renderSidebar();">' +
-            '<span class="reel-folder-chevron">' + (showDoneEpisodes ? '▾' : '▸') + '</span>' +
+        html += '<div class="reel-folder-header' + (doneOpen ? ' open' : '') + '" onclick="showDoneEpisodes=!showDoneEpisodes; renderSidebar();">' +
+            '<span class="reel-folder-chevron">' + (doneOpen ? '▾' : '▸') + '</span>' +
             '<span class="reel-folder-label">Done</span>' +
             '<span class="reel-folder-count">' + doneEps.length + '</span>' +
         '</div>';
-        if (showDoneEpisodes) html += doneEps.map(renderEpItem).join('');
+        if (doneOpen) html += doneEps.map(renderEpItem).join('');
     }
     if (hiddenEps.length > 0) {
-        html += '<div class="reel-folder-header' + (showHiddenEpisodes ? ' open' : '') + '" onclick="showHiddenEpisodes=!showHiddenEpisodes; renderSidebar();">' +
-            '<span class="reel-folder-chevron">' + (showHiddenEpisodes ? '▾' : '▸') + '</span>' +
+        html += '<div class="reel-folder-header' + (hiddenOpen ? ' open' : '') + '" onclick="showHiddenEpisodes=!showHiddenEpisodes; renderSidebar();">' +
+            '<span class="reel-folder-chevron">' + (hiddenOpen ? '▾' : '▸') + '</span>' +
             '<span class="reel-folder-label">Hidden</span>' +
             '<span class="reel-folder-count">' + hiddenEps.length + '</span>' +
         '</div>';
-        if (showHiddenEpisodes) html += hiddenEps.map(renderEpItem).join('');
+        if (hiddenOpen) html += hiddenEps.map(renderEpItem).join('');
+    }
+    if (guestFilter && activeEps.length === 0 && doneEps.length === 0 && hiddenEps.length === 0) {
+        html = '<div class="empty-state" style="padding:30px 20px; height:auto;">' +
+            '<div class="subtitle" style="font-size:0.8rem;">No episodes match &ldquo;' + escHtml(guestFilter) + '&rdquo;</div>' +
+        '</div>';
     }
     list.innerHTML = html;
 }
