@@ -12,6 +12,14 @@ async function init() {
     await refresh();
     console.log('✅ refresh done, episodes:', episodes.length);
 
+    // Restore guest filter from localStorage
+    var savedGuestFilter = localStorage.getItem('tajarib-guest-filter');
+    if (savedGuestFilter) {
+        var filterInput = document.getElementById('ep-guest-filter');
+        if (filterInput) filterInput.value = savedGuestFilter;
+        setGuestFilter(savedGuestFilter);
+    }
+
     // Restore selected episode and reel from localStorage
     var savedSlug = localStorage.getItem('tajarib-selected-slug');
     var savedReel = localStorage.getItem('tajarib-selected-reel');

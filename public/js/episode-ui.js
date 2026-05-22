@@ -6,6 +6,8 @@ function setGuestFilter(value) {
     guestFilter = String(value || '').trim().toLowerCase();
     var clearBtn = document.getElementById('ep-guest-filter-clear');
     if (clearBtn) clearBtn.style.display = guestFilter ? '' : 'none';
+    if (guestFilter) localStorage.setItem('tajarib-guest-filter', guestFilter);
+    else localStorage.removeItem('tajarib-guest-filter');
     renderSidebar();
 }
 
