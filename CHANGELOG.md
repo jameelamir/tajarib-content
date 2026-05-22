@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.45] - 2026-05-22
+
+### Added
+- Restart Server button in Settings → Server. One click and the dashboard container restarts itself, no more "ssh into the VPS and `docker restart tajarib-app`" detour. The button proxies through the existing `tajarib-webhook` container (which already has the docker socket and runs outside the app, so it can restart the app without killing itself mid-request). Implementation: `POST /restart-app` on the webhook, HMAC-signed with the existing `WEBHOOK_SECRET` (same secret + same `sha256=` envelope as the GitHub deploy webhook, separate `x-tajarib-signature` header to avoid colliding with GitHub's `x-hub-signature-256`); `POST /api/restart-app` on the dashboard signs an empty body and proxies to `http://webhook:9000/restart-app` over the compose default network (configurable via `WEBHOOK_INTERNAL_HOST` if the topology changes). Returns 503 if `WEBHOOK_SECRET` is unset, 502 on webhook unreachable, 504 on a 5s timeout. Double-click guarded by a `restarting` flag in the webhook and `btn.disabled` in the UI. `scripts/webhook-receiver.js`, `server/routes/settings.js`, `index.html`, `public/js/config.js`.
+
 ## [1.0.44] - 2026-05-22
 
 ### Fixed

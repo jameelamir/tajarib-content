@@ -604,6 +604,14 @@
                 <div style="font-size:0.7rem; color:#666; margin-bottom:8px;">Edit generation, analysis, and format prompts</div>
                 <button onclick="closeSettingsModal(); openPromptsModal();" style="font-size:0.75rem; padding:6px 10px; width:100%;">Open Prompt Editor</button>
             </div>
+
+            <!-- Server -->
+            <div class="settings-group">
+                <h4><span class="dot" style="background:#f59e0b;"></span> Server</h4>
+                <div style="font-size:0.7rem; color:#666; margin-bottom:8px;">Restart the dashboard container if it's stuck</div>
+                <button id="restart-app-btn" onclick="restartAppContainer()" style="font-size:0.75rem; padding:6px 10px; width:100%;">Restart Server</button>
+                <div id="restart-app-status" style="font-size:0.7rem; margin-top:6px; color:#666;"></div>
+            </div>
         </div>
     </div>
 </div>

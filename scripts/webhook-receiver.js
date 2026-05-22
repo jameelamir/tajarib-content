@@ -25,6 +25,7 @@ if (!SECRET) {
 }
 
 let deploying = false;
+let restarting = false;
 
 function timingSafeEqualStr(a, b) {
   const ab = Buffer.from(a);
@@ -37,6 +38,21 @@ function verify(rawBody, signatureHeader) {
   if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
   const expected = "sha256=" + crypto.createHmac("sha256", SECRET).update(rawBody).digest("hex");
   return timingSafeEqualStr(expected, signatureHeader);
+}
+
+async function restartApp() {
+  if (restarting) { console.log("[webhook] restart already in progress, skipping"); return; }
+  restarting = true;
+  try {
+    console.log("[webhook] restarting tajarib-app…");
+    const code = await run("docker", ["restart", "tajarib-app"]);
+    if (code !== 0) throw new Error("docker restart failed");
+    console.log("[webhook] restart complete");
+  } catch (err) {
+    console.error("[webhook] restart failed:", err.message);
+  } finally {
+    restarting = false;
+  }
 }
 
 function run(cmd, args, opts = {}) {
@@ -90,6 +106,22 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return;
   }
+
+  if (req.method === "POST" && req.url === "/restart-app") {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const raw = Buffer.concat(chunks);
+      if (!verify(raw, req.headers["x-tajarib-signature"])) {
+        console.warn("[webhook] /restart-app invalid signature");
+        res.writeHead(401); res.end("invalid signature"); return;
+      }
+      res.writeHead(202); res.end("restarting");
+      restartApp();
+    });
+    return;
+  }
+
   if (req.method !== "POST" || req.url !== "/webhook") {
     res.writeHead(404); res.end(); return;
   }
