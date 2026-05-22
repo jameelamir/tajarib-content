@@ -3,6 +3,8 @@
  */
 const fs = require("fs");
 const path = require("path");
+const http = require("http");
+const crypto = require("crypto");
 const { GLOBAL_AUTH_PATH } = require("../global-config");
 
 module.exports = async function settingsRoutes(req, res, url, ctx) {
@@ -113,6 +115,51 @@ module.exports = async function settingsRoutes(req, res, url, ctx) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: err.message }));
     }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/restart-app") {
+    const secret = process.env.WEBHOOK_SECRET;
+    if (!secret) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "WEBHOOK_SECRET not configured" }));
+      return true;
+    }
+    const webhookHost = process.env.WEBHOOK_INTERNAL_HOST || "webhook";
+    const webhookPort = parseInt(process.env.WEBHOOK_LISTEN_PORT || "9000", 10);
+    const body = "";
+    const signature = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+    const reqOpts = {
+      host: webhookHost,
+      port: webhookPort,
+      method: "POST",
+      path: "/restart-app",
+      headers: { "Content-Length": "0", "x-tajarib-signature": signature },
+      timeout: 5000,
+    };
+    const proxyReq = http.request(reqOpts, (proxyRes) => {
+      proxyRes.on("data", () => {});
+      proxyRes.on("end", () => {
+        if (proxyRes.statusCode === 202) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true }));
+          io.emit("toast", { type: "info", message: "Server restarting…" });
+        } else {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: false, error: `webhook returned ${proxyRes.statusCode}` }));
+        }
+      });
+    });
+    proxyReq.on("error", (err) => {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    });
+    proxyReq.on("timeout", () => {
+      proxyReq.destroy();
+      res.writeHead(504, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "webhook timeout" }));
+    });
+    proxyReq.end();
     return true;
   }
 

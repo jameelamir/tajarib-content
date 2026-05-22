@@ -300,6 +300,26 @@ function closeSettingsModal() {
     document.getElementById('settings-modal').classList.remove('open');
 }
 
+async function restartAppContainer() {
+    if (!confirm('Restart the server? Dashboard will be unreachable for ~10 seconds.')) return;
+    const btn = document.getElementById('restart-app-btn');
+    const status = document.getElementById('restart-app-status');
+    btn.disabled = true;
+    status.textContent = 'Sending restart…';
+    status.style.color = '#888';
+    try {
+        const res = await fetch('/api/restart-app', { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'restart failed');
+        status.textContent = '✓ Restarting… page will drop briefly';
+        status.style.color = '#4ade80';
+    } catch (err) {
+        status.textContent = '✗ ' + err.message;
+        status.style.color = '#f87171';
+        btn.disabled = false;
+    }
+}
+
 // Prompts modal
 var promptsData = [];          // [{name, content}, ...]
 var promptsOriginal = {};      // name -> original content (for revert)
