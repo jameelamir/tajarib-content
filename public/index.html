@@ -232,6 +232,12 @@
         </div>
     </div>
 
+    <!-- Guest Filter -->
+    <div class="ep-filter-bar">
+        <input type="text" id="ep-guest-filter" placeholder="🔍 Filter episodes by guest..." oninput="setGuestFilter(this.value)" autocomplete="off">
+        <button type="button" id="ep-guest-filter-clear" onclick="clearGuestFilter()" title="Clear filter" style="display:none;">×</button>
+    </div>
+
     <!-- Media Type Selector -->
     <div class="media-type-row" id="mediaTypeRow">
         <div class="media-type-btn selected" data-type="episode" id="btn-episode">
@@ -299,12 +305,6 @@
                 <button class="delete-btn" onclick="bulkDelete()" style="font-size:0.7rem; padding:4px 10px;">🗑️ Delete Selected</button>
             </div>
         </div>
-    </div>
-
-    <!-- Guest Filter -->
-    <div class="ep-filter-bar">
-        <input type="text" id="ep-guest-filter" placeholder="Filter by guest..." oninput="setGuestFilter(this.value)" autocomplete="off">
-        <button type="button" id="ep-guest-filter-clear" onclick="clearGuestFilter()" title="Clear filter" style="display:none;">×</button>
     </div>
 
     <!-- Episode List -->

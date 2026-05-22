@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.42] - 2026-05-22
+
+### Changed
+- Guest filter input now sits directly under the sidebar header (above the Episode/Reel media type buttons) instead of buried below the two upload zones, Space-Saving Tip, and Zapier Connected boxes. Previously the filter rendered ~512px down the sidebar, so on any normal viewport it was below the fold and easy to miss. Now it is the first thing under the title, with a `🔍` prefix in the placeholder to read more obviously as a search box. `public/index.html`.
+
 ## [1.0.41] - 2026-05-19
 
 ### Added
