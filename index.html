@@ -25,6 +25,12 @@
         </div>
     </div>
 
+    <!-- Guest Filter -->
+    <div class="ep-filter-bar">
+        <input type="text" id="ep-guest-filter" placeholder="🔍 Filter episodes by guest..." oninput="setGuestFilter(this.value)" autocomplete="off">
+        <button type="button" id="ep-guest-filter-clear" onclick="clearGuestFilter()" title="Clear filter" style="display:none;">×</button>
+    </div>
+
     <!-- Profile bar (multi-user only — hidden when profiles.json absent) -->
     <div id="profile-bar" style="display:none; gap:6px; align-items:center; padding:6px 12px 0; flex-wrap:wrap;"></div>
 

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.43] - 2026-05-22
+
+### Fixed
+- Guest filter and per-card guest line now actually appear on the dashboard. v1.0.41 and v1.0.42 added the filter HTML to `public/index.html`, but the server (`server/routes/static.js`) serves the root-level `index.html` (the modular dashboard that loads `style.css` externally) at `/`, and falls back to `public/` only for sub-paths. So the filter was only visible at the explicit `/index.html` URL, not at `/`. Added the filter input directly under `.sidebar-header` in the root `index.html` so it shows on the page everyone actually uses, and moved the `.ep-filter-bar` and `.ep-guest-line` styles into `public/style.css` (the file the modular dashboard loads). `index.html`, `public/style.css`.
+
 ## [1.0.42] - 2026-05-22
 
 ### Changed
