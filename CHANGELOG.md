@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.44] - 2026-05-22
+
+### Fixed
+- Caption section now updates when navigating between reels. The preserve-edits guard only checked `document.activeElement === captionTextarea`, but reel-list-items are `<div>` elements and clicking a div does not blur a focused textarea. So once the user had clicked into the caption and switched reels, the textarea kept focus, the guard returned true, and the previous reel's caption stayed on screen. Added `reelCaptionReelId` tracking (mirrors `reelTranscriptReelId`) and now require both focus AND that the textarea belongs to the current reel before preserving. `public/js/reel-ui.js`.
+
+### Changed
+- Reel Transcript section now auto-loads on reel switch instead of requiring a Load / Edit button click. The button is removed (dock toggle stays). When the user clicks a reel, `loadReelTranscript(reelId)` fires automatically as part of `renderReelDetail`. Added a race-guard in `loadReelTranscript` that bails out if `reelTranscriptReelId` changes between awaits (covers fast A → B navigation while A's fetch is in flight), so a stale fetch can't clobber the newer reel's `reelChunksData` or `tlState.chunks`. The 5-second refresh poll doesn't re-trigger the fetch because the existing `loadedForCurrentReel` check preserves the already-initiated state. `public/js/reel-ui.js`.
+
 ## [1.0.43] - 2026-05-22
 
 ### Fixed

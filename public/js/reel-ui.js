@@ -166,9 +166,13 @@ function renderReelDetail(ep, reelId) {
     // Caption editor — show generated caption if available
     var captionEl = document.getElementById('reel-caption-editor');
     if (captionEl) {
-        // Skip rebuild if the user has an active caption textarea (preserves unsaved edits)
+        // Only preserve the existing textarea when it belongs to the current reel
+        // AND is focused (unsaved edits). Clicking another reel-list-item is a click
+        // on a div, which does not blur the textarea, so a focus-only guard would
+        // leave the previous reel's caption stuck on screen.
         var existingCaptionTextarea = document.getElementById('reel-caption-text');
-        if (existingCaptionTextarea && document.activeElement === existingCaptionTextarea) {
+        var captionBelongsToCurrentReel = String(reelCaptionReelId) === String(reelId);
+        if (existingCaptionTextarea && captionBelongsToCurrentReel && document.activeElement === existingCaptionTextarea) {
             captionEl.style.display = '';
         } else {
             var reelContent = null;
@@ -201,29 +205,27 @@ function renderReelDetail(ep, reelId) {
                         captionBtn +
                     '</div>';
             }
+            reelCaptionReelId = reelId;
         }
     }
 
-    // Reel transcript editor — show if reel transcript exists
+    // Reel transcript editor — auto-load on reel switch, no Load/Edit button
     var transcriptEditorEl = document.getElementById('reel-transcript-editor');
     if (transcriptEditorEl) {
-        // Preserve the loaded editor only when it belongs to the current reel
         var existingContent = document.getElementById('reel-transcript-content');
-        var hasLoadedEditor = existingContent && existingContent.style.display !== 'none' && existingContent.querySelector('#rt-seg-list');
         var loadedForCurrentReel = String(reelTranscriptReelId) === String(reelId);
-        if (hasLoadedEditor && loadedForCurrentReel) {
+        if (existingContent && loadedForCurrentReel) {
+            // Load already initiated for this reel (in-flight, loaded, or empty-result) — leave alone
             transcriptEditorEl.style.display = '';
         } else if (r.subtitled || r.cut || r.cropped) {
             transcriptEditorEl.style.display = '';
             transcriptEditorEl.innerHTML =
                 '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
                     '<div style="font-size:0.7rem; color:#666; text-transform:uppercase; letter-spacing:0.5px; font-weight:600;">Reel Transcript</div>' +
-                    '<div style="display:flex; gap:4px;">' +
-                        '<button onclick="loadReelTranscript(\'' + reelId + '\')" style="font-size:0.65rem;">Load / Edit</button>' +
-                        '<button class="transcript-dock-btn' + (transcriptDocked ? ' docked' : '') + '" onclick="toggleTranscriptDock()" style="font-size:0.65rem;" title="' + (transcriptDocked ? 'Undock from preview' : 'Dock next to preview') + '">' + (transcriptDocked ? '⇩' : '⇧') + '</button>' +
-                    '</div>' +
+                    '<button class="transcript-dock-btn' + (transcriptDocked ? ' docked' : '') + '" onclick="toggleTranscriptDock()" style="font-size:0.65rem;" title="' + (transcriptDocked ? 'Undock from preview' : 'Dock next to preview') + '">' + (transcriptDocked ? '⇩' : '⇧') + '</button>' +
                 '</div>' +
-                '<div id="reel-transcript-content" style="display:none;"></div>';
+                '<div id="reel-transcript-content"></div>';
+            loadReelTranscript(reelId);
         } else {
             transcriptEditorEl.style.display = 'none';
             transcriptEditorEl.innerHTML = '';
@@ -2431,6 +2433,7 @@ async function saveReelTrim(reelId) {
 
 var reelTranscriptData = null;
 var reelTranscriptReelId = null;
+var reelCaptionReelId = null;
 var reelChunksData = null; // computed/saved subtitle chunks
 var reelTranscriptAutosaveTimer = null;
 var reelTranscriptSaveInFlight = false;
@@ -2637,7 +2640,9 @@ async function loadReelTranscript(reelId) {
     try {
         var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
         if (chunksRes.ok) {
-            reelChunksData = JSON.parse(await chunksRes.text());
+            var chunksText = await chunksRes.text();
+            if (String(reelTranscriptReelId) !== String(reelId)) return;
+            reelChunksData = JSON.parse(chunksText);
 
             // Also load the transcript — if it has content outside the saved
             // chunks' time range (e.g. reel start was extended), merge new
@@ -2693,6 +2698,9 @@ async function loadReelTranscript(reelId) {
                 }
             } catch (_) {}
 
+            // Bail if user navigated to a different reel mid-fetch
+            if (String(reelTranscriptReelId) !== String(reelId)) return;
+
             // Sync with timeline subtitle track
             tlState.chunks = reelChunksData;
             tlState.chunksLoaded = true;
@@ -2706,7 +2714,9 @@ async function loadReelTranscript(reelId) {
     try {
         var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
         if (!res.ok) throw new Error('No reel transcript found');
-        reelTranscriptData = JSON.parse(await res.text());
+        var txParsed = JSON.parse(await res.text());
+        if (String(reelTranscriptReelId) !== String(reelId)) return;
+        reelTranscriptData = txParsed;
         var words = rtReelWordsFromTranscript(reelTranscriptData);
         reelChunksData = rtChunkWords(words);
         // Sync with timeline subtitle track
@@ -2715,6 +2725,7 @@ async function loadReelTranscript(reelId) {
         tlRenderSubTrack();
         rtRenderChunks(contentEl);
     } catch (err) {
+        if (String(reelTranscriptReelId) !== String(reelId)) return;
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
     }
 }
