@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.46] - 2026-05-22
+
+### Added
+- Guest filter selection now persists across page refreshes. Previously the sidebar guest filter lived only in the in-memory `guestFilter` variable, so reloading the page (or coming back tomorrow) cleared whatever guest you had filtered to. Now `setGuestFilter()` writes the active filter to `localStorage['tajarib-guest-filter']` (removing the key when cleared so an empty filter doesn't linger), and `init.js` restores it after `refresh()` completes by populating the `#ep-guest-filter` input and re-invoking `setGuestFilter()` so the sidebar renders filtered on first paint. Follows the same `tajarib-*` localStorage key convention used for `tajarib-selected-slug`, `tajarib-default-media`, and `tajarib-section-*`. `public/js/episode-ui.js`, `public/js/init.js`.
+
 ## [1.0.45] - 2026-05-22
 
 ### Added
