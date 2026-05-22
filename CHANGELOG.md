@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.47] - 2026-05-22
+
+### Fixed
+- Reel Transcript and Caption sections now also track the episode slug, not just the reel id, so navigating across episodes correctly re-loads when the new episode's reel has the same id as the last-viewed reel from a previous episode (very common — reel ids are "01", "02", etc., so a v1.0.44 reader would see Episode A's reel 01 transcript persist when clicking reel 01 in Episode B). Added `reelTranscriptSlug` and `reelCaptionSlug` companion variables; preserve guards now require both slug AND reel id to match. `loadReelTranscript` captures `currentSlug` at call time into a local `slug` and uses a `stillCurrent()` closure for the post-await race guards, so a stale fetch from a previous episode can't clobber the newer reel's `reelChunksData` or `tlState.chunks` either. `public/js/reel-ui.js`.
+
 ## [1.0.46] - 2026-05-22
 
 ### Added

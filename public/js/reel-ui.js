@@ -171,7 +171,7 @@ function renderReelDetail(ep, reelId) {
         // on a div, which does not blur the textarea, so a focus-only guard would
         // leave the previous reel's caption stuck on screen.
         var existingCaptionTextarea = document.getElementById('reel-caption-text');
-        var captionBelongsToCurrentReel = String(reelCaptionReelId) === String(reelId);
+        var captionBelongsToCurrentReel = String(reelCaptionReelId) === String(reelId) && String(reelCaptionSlug) === String(ep.slug);
         if (existingCaptionTextarea && captionBelongsToCurrentReel && document.activeElement === existingCaptionTextarea) {
             captionEl.style.display = '';
         } else {
@@ -206,6 +206,7 @@ function renderReelDetail(ep, reelId) {
                     '</div>';
             }
             reelCaptionReelId = reelId;
+            reelCaptionSlug = ep.slug;
         }
     }
 
@@ -213,7 +214,7 @@ function renderReelDetail(ep, reelId) {
     var transcriptEditorEl = document.getElementById('reel-transcript-editor');
     if (transcriptEditorEl) {
         var existingContent = document.getElementById('reel-transcript-content');
-        var loadedForCurrentReel = String(reelTranscriptReelId) === String(reelId);
+        var loadedForCurrentReel = String(reelTranscriptReelId) === String(reelId) && String(reelTranscriptSlug) === String(ep.slug);
         if (existingContent && loadedForCurrentReel) {
             // Load already initiated for this reel (in-flight, loaded, or empty-result) — leave alone
             transcriptEditorEl.style.display = '';
@@ -2433,7 +2434,9 @@ async function saveReelTrim(reelId) {
 
 var reelTranscriptData = null;
 var reelTranscriptReelId = null;
+var reelTranscriptSlug = null;
 var reelCaptionReelId = null;
+var reelCaptionSlug = null;
 var reelChunksData = null; // computed/saved subtitle chunks
 var reelTranscriptAutosaveTimer = null;
 var reelTranscriptSaveInFlight = false;
@@ -2633,22 +2636,28 @@ async function loadReelTranscript(reelId) {
     contentEl.innerHTML = '<div style="color:#888; font-size:0.7rem; padding:8px;">Loading...</div>';
 
     var padded = String(reelId).padStart(2, '0');
+    var slug = currentSlug;
     reelTranscriptReelId = reelId;
+    reelTranscriptSlug = slug;
     reelChunksData = null;
+
+    function stillCurrent() {
+        return String(reelTranscriptReelId) === String(reelId) && String(reelTranscriptSlug) === String(slug);
+    }
 
     // Try loading previously saved chunks first
     try {
-        var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
+        var chunksRes = await fetch('/api/file?slug=' + encodeURIComponent(slug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-chunks.json'));
         if (chunksRes.ok) {
             var chunksText = await chunksRes.text();
-            if (String(reelTranscriptReelId) !== String(reelId)) return;
+            if (!stillCurrent()) return;
             reelChunksData = JSON.parse(chunksText);
 
             // Also load the transcript — if it has content outside the saved
             // chunks' time range (e.g. reel start was extended), merge new
             // auto-generated chunks with the proofread ones.
             try {
-                var txRes = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+                var txRes = await fetch('/api/file?slug=' + encodeURIComponent(slug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
                 if (txRes.ok) {
                     var txData = JSON.parse(await txRes.text());
                     var txWords = rtReelWordsFromTranscript(txData);
@@ -2698,8 +2707,8 @@ async function loadReelTranscript(reelId) {
                 }
             } catch (_) {}
 
-            // Bail if user navigated to a different reel mid-fetch
-            if (String(reelTranscriptReelId) !== String(reelId)) return;
+            // Bail if user navigated to a different reel/episode mid-fetch
+            if (!stillCurrent()) return;
 
             // Sync with timeline subtitle track
             tlState.chunks = reelChunksData;
@@ -2712,10 +2721,10 @@ async function loadReelTranscript(reelId) {
 
     // Fall back to computing chunks from the reel transcript
     try {
-        var res = await fetch('/api/file?slug=' + encodeURIComponent(currentSlug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
+        var res = await fetch('/api/file?slug=' + encodeURIComponent(slug) + '&file=' + encodeURIComponent('reels/reel-' + padded + '-transcript.json'));
         if (!res.ok) throw new Error('No reel transcript found');
         var txParsed = JSON.parse(await res.text());
-        if (String(reelTranscriptReelId) !== String(reelId)) return;
+        if (!stillCurrent()) return;
         reelTranscriptData = txParsed;
         var words = rtReelWordsFromTranscript(reelTranscriptData);
         reelChunksData = rtChunkWords(words);
@@ -2725,7 +2734,7 @@ async function loadReelTranscript(reelId) {
         tlRenderSubTrack();
         rtRenderChunks(contentEl);
     } catch (err) {
-        if (String(reelTranscriptReelId) !== String(reelId)) return;
+        if (!stillCurrent()) return;
         contentEl.innerHTML = '<div style="color:#f59e0b; font-size:0.7rem; padding:8px;">No reel transcript yet — run Sub first to transcribe this reel.</div>';
     }
 }
