@@ -132,7 +132,8 @@ module.exports = function init(ctx) {
           },
           reelStatuses, clipsAnalysis, content,
           counts: { reels: reelCount, final: finalCount },
-          cropRatio: meta.cropRatio || null
+          cropRatio: meta.cropRatio || null,
+          hasEpisodeContext: !!(meta.episodeContext && String(meta.episodeContext).trim()),
         };
       })
       .sort((a, b) => {

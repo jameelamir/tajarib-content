@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.51] - 2026-05-23
+## [1.0.52] - 2026-05-23
 
 ### Fixed
 - Manual caption mode no longer waits for a running Re-sub on the same standalone reel before showing the prompt-to-paste-into-Claude. Previously, on `reel_full` / `reel_cut` episodes (where both Re-sub and Generate fire `/api/run-step` without a `reelId`), `computeProcKey` collapsed every episode-level step to the bare `slug` key, so the generate child couldn't spawn until subtitle's ffmpeg burn released `activeProcesses[slug]` — which on a multi-minute libx264+libass burn meant the AI-vs-Manual modal would pop instantly but clicking "Manual" would hang silently until the burn finished. Extended the existing reel-level video/meta lane split to the episode level: with no `reelId`, subtitle/overlay/crop/cut/clean now use `slug:video` and generate uses `slug:meta`, so the two lanes run in parallel on the same standalone reel. Transcribe stays at the bare `slug` (no group), and the existing stop/delete iterators (`key === slug || key.startsWith(slug + ':')`) plus the transcribe→subtitle auto-chain queue (keyed on bare `slug`) all keep working since the new keys still match the `slug:` prefix. `server/pipeline.js`.
+
+## [1.0.51] - 2026-05-23
+
+### Added
+- Optional **Episode Context** per episode, fed into every reel-caption LLM call so the model sees the full-episode arc (guest stance, main sections, notable claims) instead of writing captions blind off the clip transcript alone. New top-bar **Context** button opens a modal that loads the saved context, lets you paste/edit manually, or run **Generate from transcript** to summarize the whole episode in one LLM call (Iraqi-Arabic white-language summary, 250-400 words, structured by topic / guest stance / key sections / notable claims / editorial notes). The button stays out of the main pipeline — never blocks Cut / Crop / Sub / Overlay — and shows a green dot when context is set. Storage: `meta.episodeContext` (per-episode, persisted in `meta.json`). Backend: in-process `generateEpisodeContextFromTranscript` routed through the existing hybrid AI/manual paste flow, with three new endpoints (`GET /api/episode-context`, `POST /api/save-episode-context`, `POST /api/generate-episode-context`) modeled after `/api/generate-title`. Consumer: `generate.js` now prefers `meta.episodeContext` over the old `analysis.general_notes` fallback when filling the `{{episodeContext}}` slot in `prompts/generate-reels-user.md`, so re-running Caption automatically picks up the richer context once it's set. Reel-only mode (uploaded reels) also reads `meta.episodeContext`. New prompts: `prompts/episode-context-system.md` + `prompts/episode-context-user.md`. New module: `server/episode-context.js`. UI: `index.html`, `public/js/episode-ui.js`. Episode payload now exposes `hasEpisodeContext` so the indicator dot updates without an extra fetch.
 
 ## [1.0.50] - 2026-05-23
 

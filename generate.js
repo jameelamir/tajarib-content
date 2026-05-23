@@ -198,7 +198,14 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
     const fakeReel = { id: "reel-01", hook: "", start: "0:00", end: "1:00" };
 
     log(`   🎬 Generating reel caption…`);
-    const result = await generateReelCaption(fakeReel, guest, role, reelText, reelFormat, slug);
+    let episodeContext = "";
+    try {
+      const meta = loadJSON(path.join(EPISODES_DIR, slug, "meta.json"));
+      if (meta && meta.episodeContext && meta.episodeContext.trim()) {
+        episodeContext = meta.episodeContext.trim();
+      }
+    } catch (_) {}
+    const result = await generateReelCaption(fakeReel, guest, role, reelText, reelFormat, slug, episodeContext);
     totalTokens += result.tokens;
     log(`   ✅ Done (${result.tokens} tokens)`);
 
@@ -257,11 +264,22 @@ async function generate(slug, guest, role, force = false, reelOnly = false, reel
   // YouTube-only mode: skip reel processing entirely
   if (youtubeOnly) reelsToProcess = [];
 
+  // Prefer the user-curated episode context stored on meta.json. Falls back to
+  // analysis.general_notes (which the analyze step sometimes fills) and finally
+  // to an empty string so the prompt placeholder stays valid.
+  let episodeContext = "";
+  try {
+    const meta = loadJSON(path.join(EPISODES_DIR, slug, "meta.json"));
+    if (meta && meta.episodeContext && meta.episodeContext.trim()) {
+      episodeContext = meta.episodeContext.trim();
+    }
+  } catch (_) {}
+  if (!episodeContext && analysis.general_notes) episodeContext = analysis.general_notes;
+
   const reelCaptions = [];
   for (const reel of reelsToProcess) {
     const reelText = extractReelText(transcript, reel.start, reel.end);
     log(`   🎬 Reel ${reel.id}: ${reel.hook.slice(0, 50)}...`);
-    const episodeContext = analysis.general_notes || "";
     const result = await generateReelCaption(reel, guest, role, reelText, reelFormat, slug, episodeContext);
     const caption = {
       id: reel.id, start: reel.start, end: reel.end,
