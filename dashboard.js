@@ -68,6 +68,7 @@ Object.assign(ctx, require("./server/storage")(ctx));
 Object.assign(ctx, require("./server/ai-services")(ctx));
 Object.assign(ctx, require("./server/episodes")(ctx));
 Object.assign(ctx, require("./server/title-gen")(ctx));
+Object.assign(ctx, require("./server/episode-context")(ctx));
 Object.assign(ctx, require("./server/transcription")(ctx));
 Object.assign(ctx, require("./server/upload-state")(ctx));
 Object.assign(ctx, require("./server/publishing")(ctx));
