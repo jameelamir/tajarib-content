@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.52] - 2026-05-23
+
+### Fixed
+- Manual caption mode no longer waits for a running Re-sub on the same standalone reel before showing the prompt-to-paste-into-Claude. Previously, on `reel_full` / `reel_cut` episodes (where both Re-sub and Generate fire `/api/run-step` without a `reelId`), `computeProcKey` collapsed every episode-level step to the bare `slug` key, so the generate child couldn't spawn until subtitle's ffmpeg burn released `activeProcesses[slug]` — which on a multi-minute libx264+libass burn meant the AI-vs-Manual modal would pop instantly but clicking "Manual" would hang silently until the burn finished. Extended the existing reel-level video/meta lane split to the episode level: with no `reelId`, subtitle/overlay/crop/cut/clean now use `slug:video` and generate uses `slug:meta`, so the two lanes run in parallel on the same standalone reel. Transcribe stays at the bare `slug` (no group), and the existing stop/delete iterators (`key === slug || key.startsWith(slug + ':')`) plus the transcribe→subtitle auto-chain queue (keyed on bare `slug`) all keep working since the new keys still match the `slug:` prefix. `server/pipeline.js`.
+
 ## [1.0.51] - 2026-05-23
 
 ### Added
