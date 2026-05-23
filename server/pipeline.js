@@ -10,6 +10,23 @@ module.exports = function init(ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, PYTHON_BIN, NODE_BIN,
     activeProcesses, activeSteps, loadJSON, loadMeta, saveMeta, handlePostTranscription, getTranscriptionConfig } = ctx;
 
+  // Global ffmpeg concurrency gate. Subtitle/overlay/crop/clean/cut all run
+  // libx264 + libass on CPU; >2 in parallel just thrashes (each becomes 2-3×
+  // slower than solo). The per-reel lanes below still gate same-reel work;
+  // this gates across reels so two resubs don't starve each other.
+  const FFMPEG_GATE_MAX = Number(process.env.TAJARIB_FFMPEG_MAX) || 2;
+  const HEAVY_FFMPEG_STEPS = new Set(["subtitle", "overlay", "crop", "clean", "cut"]);
+  let ffmpegGateActive = 0;
+  const ffmpegGateWaiters = [];
+  function acquireFfmpegSlot() {
+    if (ffmpegGateActive < FFMPEG_GATE_MAX) { ffmpegGateActive++; return Promise.resolve(); }
+    return new Promise(resolve => ffmpegGateWaiters.push(resolve));
+  }
+  function releaseFfmpegSlot() {
+    if (ffmpegGateWaiters.length > 0) ffmpegGateWaiters.shift()();
+    else ffmpegGateActive = Math.max(0, ffmpegGateActive - 1);
+  }
+
   // Reel-level concurrency lanes. Jobs in different lanes on the same reel run
   // in parallel; jobs in the same lane serialize. video lane rewrites the reel's
   // working video file; meta lane only writes JSON metadata.
@@ -41,7 +58,7 @@ module.exports = function init(ctx) {
   }
 
   function spawnReelStep(slug, reelId, step, opts = {}) {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       const dir = path.join(EPISODES_DIR, slug);
       let cmd = NODE_BIN, args;
       switch (step) {
@@ -66,13 +83,20 @@ module.exports = function init(ctx) {
           break;
         default: resolve(-1); return;
       }
+      const gated = HEAVY_FFMPEG_STEPS.has(step);
+      if (gated) {
+        if (ffmpegGateActive >= FFMPEG_GATE_MAX) {
+          io.emit("log", { slug, reelId, text: `⏳ Waiting for ffmpeg slot (${ffmpegGateActive}/${FFMPEG_GATE_MAX} in use)\n` });
+        }
+        await acquireFfmpegSlot();
+      }
       const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
       const procKey = computeProcKey(slug, reelId, step);
       activeProcesses[procKey] = proc;
       proc.stdout.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
       proc.stderr.on("data", d => io.emit("log", { slug, reelId, text: d.toString() }));
-      proc.on("error", (err) => { delete activeProcesses[procKey]; io.emit("log", { slug, reelId, text: `❌ ${step} failed to start: ${err.message}\n` }); resolve(-1); });
-      proc.on("close", (code) => { delete activeProcesses[procKey]; resolve(code); });
+      proc.on("error", (err) => { delete activeProcesses[procKey]; if (gated) releaseFfmpegSlot(); io.emit("log", { slug, reelId, text: `❌ ${step} failed to start: ${err.message}\n` }); resolve(-1); });
+      proc.on("close", (code) => { delete activeProcesses[procKey]; if (gated) releaseFfmpegSlot(); resolve(code); });
     });
   }
 
@@ -150,7 +174,7 @@ module.exports = function init(ctx) {
     _runStep(params);
   }
 
-  function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim, silenceThreshold, removeFillers, forceManual }) {
+  async function _runStep({ slug, step, force, more, mediaType, guest, role, model, ratio, faceTrack, reelId, preferSide, resume, resumeRound, burnOnly, subtitleStyle, noTranscribe, youtubeOnly, topic, transcribeMethod, autoTrim, silenceThreshold, removeFillers, forceManual }) {
     let procKey = computeProcKey(slug, reelId, step);
     const dir = path.join(EPISODES_DIR, slug);
     let cmd, args;
@@ -219,6 +243,13 @@ module.exports = function init(ctx) {
     // Hybrid mode "manual" choice: env var makes the child's llm.getConfig()
     // resolve to mode='manual' for this spawn only, triggering paste-from-Claude.
     const spawnEnv = forceManual ? { ...process.env, TAJARIB_FORCE_MANUAL: "1" } : process.env;
+    const gated = HEAVY_FFMPEG_STEPS.has(step);
+    if (gated) {
+      if (ffmpegGateActive >= FFMPEG_GATE_MAX) {
+        io.emit("log", { slug, reelId: _rid, text: `⏳ Waiting for ffmpeg slot (${ffmpegGateActive}/${FFMPEG_GATE_MAX} in use)\n` });
+      }
+      await acquireFfmpegSlot();
+    }
     const proc = spawn(cmd, args, { cwd: WORKSPACE_DIR, stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: spawnEnv });
     activeProcesses[procKey] = proc;
     let stdoutBuffer = '', stderrBuffer = '', outputSent = false;
@@ -227,6 +258,7 @@ module.exports = function init(ctx) {
       console.error(`[Spawn Error] ${err.message}`);
       io.emit("log", { slug, text: `\n❌ Failed to start process: ${err.message}\n` });
       io.emit("process-end", { slug, step, code: -1, reelId: _rid });
+      if (gated) releaseFfmpegSlot();
       delete activeProcesses[procKey]; delete activeSteps[procKey];
     });
 
@@ -242,6 +274,7 @@ module.exports = function init(ctx) {
 
     proc.on("close", async (code) => {
       if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      if (gated) releaseFfmpegSlot();
       delete activeProcesses[procKey]; delete activeSteps[procKey];
 
       if (code === 42) {
