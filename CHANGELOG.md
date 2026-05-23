@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.50] - 2026-05-23
+
+### Fixed
+- Buffer publishing again, after 0x0.st (the temp host v1.0.48 switched to) disabled uploads with "uploads disabled because it's been almost nothing but AI botnet spam for the past few months." Swapped to `uguu.se` (100MB limit — matches our 95MB compression cap exactly; 24h retention — enough for Buffer to fetch + post; HEAD requests return 200 with proper headers on file URLs, which is what Buffer's media-accessibility verifier needs). API is JSON (not plain text like 0x0.st), so the response parsing now uses `JSON.parse` and extracts `files[0].url`, with explicit errors for non-JSON or `success:false` responses so the next time a temp host changes its API we get a clear log line instead of `Upload returned invalid response`. `buffer.js`.
+
 ## [1.0.49] - 2026-05-23
 
 ### Fixed
