@@ -121,6 +121,7 @@
         <!-- SHARED: Episode-level pipeline chips -->
         <div style="display:flex; align-items:center; gap:8px;">
             <div class="episode-pipeline-bar" id="episode-pipeline-bar" style="flex:1;"></div>
+            <button id="episode-context-btn" class="console-toggle-btn" style="display:none;" onclick="openEpisodeContextModal()" title="Episode context for reel captions">Context <span id="episode-context-dot" style="display:none; margin-left:4px; color:#10b981;">●</span></button>
             <button id="pipeline-stop-btn" class="stop-btn" style="display:none; font-size:0.7rem; padding:4px 10px;" onclick="if(currentSlug) socket.emit('stop-step',{slug:currentSlug})">Stop</button>
             <button class="console-toggle-btn" id="console-toggle-btn" onclick="toggleConsole()" title="Toggle Console">&#9638;</button>
         </div>
@@ -331,6 +332,24 @@
     </div>
 </div>
 
+
+<!-- Episode Context Modal — optional summary fed to reel-caption LLM -->
+<div class="modal" id="episode-context-modal">
+    <div class="modal-box" style="width:640px; max-height:85vh; display:flex; flex-direction:column;">
+        <h3 style="margin-top:0;">Episode Context</h3>
+        <div style="font-size:0.72rem; color:#888; margin-bottom:10px; line-height:1.5;">
+            Optional summary of the whole episode. When set, it's injected into every reel-caption prompt so the LLM knows the broader arc, not just the clip. Generate from the transcript, paste your own, or leave empty.
+        </div>
+        <textarea id="episode-context-text" dir="rtl" placeholder="اكتب أو الصق ملخص الحلقة هنا، أو اضغط Generate من النص." style="flex:1; min-height:280px; background:#0d0d0d; border:1px solid var(--border); color:#ddd; border-radius:6px; padding:10px 12px; font-size:0.8rem; line-height:1.6; font-family:inherit; resize:vertical;"></textarea>
+        <div id="episode-context-status" style="font-size:0.68rem; color:#666; margin-top:6px; min-height:14px;"></div>
+        <div class="modal-actions" style="margin-top:10px;">
+            <button onclick="closeEpisodeContextModal()">Close</button>
+            <button onclick="clearEpisodeContext()" style="color:#888;">Clear</button>
+            <button onclick="generateEpisodeContextNow()" id="episode-context-gen-btn">Generate from transcript</button>
+            <button class="primary" onclick="saveEpisodeContext()">Save</button>
+        </div>
+    </div>
+</div>
 
 <!-- Switch Point Editor Modal -->
 <div class="modal" id="switch-modal">

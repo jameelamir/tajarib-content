@@ -7,6 +7,7 @@ const path = require("path");
 module.exports = async function pipelineRoutes(req, res, url, ctx) {
   const { io, WORKSPACE_DIR, EPISODES_DIR, NODE_BIN, loadJSON, saveJSON, loadMeta, saveMeta, parseSrt,
     callModelForRevision, generateTitleFromTranscript, deduplicateSlug, renameEpisode, handlePostTranscription,
+    generateEpisodeContextFromTranscript, loadTranscriptText,
     runStep, runReelsParallel, pendingManualLLM, pendingModeChoices,
     askLlmModeChoice,
     readBody, formidable, UPLOADS_DIR, slugify } = ctx;
@@ -199,6 +200,62 @@ module.exports = async function pipelineRoutes(req, res, url, ctx) {
       io.emit("episode-renamed", { oldSlug: slug, newSlug }); io.emit("status-update", {}); io.emit("toast", { type: "success", message: `Renamed: ${newSlug}` });
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: true, oldSlug: slug, newSlug }));
     } catch (err) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ success: false, error: err.message })); }
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/episode-context") {
+    try {
+      const slug = url.searchParams.get("slug");
+      if (!slug) throw new Error("slug required");
+      const meta = loadMeta(slug);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, episodeContext: meta.episodeContext || "" }));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/save-episode-context") {
+    const body = await readBody(req);
+    try {
+      const { slug, episodeContext } = JSON.parse(body);
+      if (!slug) throw new Error("slug required");
+      const text = (episodeContext == null ? "" : String(episodeContext)).trim();
+      saveMeta(slug, { episodeContext: text });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, episodeContext: text }));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/generate-episode-context") {
+    const body = await readBody(req);
+    try {
+      const { slug } = JSON.parse(body);
+      if (!slug) throw new Error("slug required");
+      const fullText = loadTranscriptText(slug);
+      if (!fullText) throw new Error("No transcript found — transcribe first");
+      const meta = loadMeta(slug);
+      const choice = await askLlmModeChoice({ slug, step: "episode-context", description: "Summarize the full episode into context for reel captions" });
+      io.emit("log", { slug, text: choice === "manual"
+        ? "\n📋 Manual episode context — paste your LLM's response in the popup...\n"
+        : "\n🤖 Generating episode context from transcript...\n" });
+      const context = await generateEpisodeContextFromTranscript(fullText, meta.guest, meta.role, slug, choice === "manual");
+      if (!context) throw new Error("LLM returned an empty episode context");
+      saveMeta(slug, { episodeContext: context });
+      io.emit("log", { slug, text: `✅ Episode context saved (${context.length} chars)\n` });
+      io.emit("toast", { type: "success", message: "Episode context generated" });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, episodeContext: context }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    }
     return true;
   }
 

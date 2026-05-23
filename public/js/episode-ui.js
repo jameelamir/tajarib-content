@@ -445,6 +445,14 @@ function renderMain(slug) {
 }
 
 function renderEpisodePipelineBar(ep) {
+    // Episode-context button — visible whenever an episode is selected. The dot
+    // turns on when meta.episodeContext has content, so the user can see at a
+    // glance whether reel captions are getting the extra context or not.
+    const ctxBtn = document.getElementById('episode-context-btn');
+    const ctxDot = document.getElementById('episode-context-dot');
+    if (ctxBtn) ctxBtn.style.display = '';
+    if (ctxDot) ctxDot.style.display = ep.hasEpisodeContext ? '' : 'none';
+
     const bar = document.getElementById('episode-pipeline-bar');
     const steps = stepsForType(ep.mediaType, ep);
     const stepKeyMap = {transcribe:'transcribed', analyze:'analyzed', generate:'generated', cut:'cut', crop:'cropped', subtitle:'subtitled', overlay:'overlaid', compose:'composed'};
@@ -1126,6 +1134,93 @@ async function renameEpisodePrompt(slug) {
         showToast('Renamed: ' + data.newSlug, 'success');
     } catch (err) {
         showToast('Rename failed: ' + err.message, 'error');
+    }
+}
+
+// ── Episode Context (optional summary fed to reel-caption LLM) ──────────────
+
+async function openEpisodeContextModal() {
+    if (!currentSlug) return;
+    const modal = document.getElementById('episode-context-modal');
+    const ta = document.getElementById('episode-context-text');
+    const status = document.getElementById('episode-context-status');
+    ta.value = '';
+    status.textContent = 'Loading…';
+    modal.classList.add('open');
+    try {
+        const res = await fetch('/api/episode-context?slug=' + encodeURIComponent(currentSlug));
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to load');
+        ta.value = data.episodeContext || '';
+        status.textContent = ta.value
+            ? ta.value.length + ' chars saved'
+            : 'No context saved yet.';
+    } catch (e) {
+        status.textContent = 'Could not load: ' + e.message;
+    }
+}
+
+function closeEpisodeContextModal() {
+    document.getElementById('episode-context-modal').classList.remove('open');
+}
+
+function clearEpisodeContext() {
+    const ta = document.getElementById('episode-context-text');
+    ta.value = '';
+    ta.focus();
+}
+
+async function saveEpisodeContext() {
+    if (!currentSlug) return;
+    const ta = document.getElementById('episode-context-text');
+    const status = document.getElementById('episode-context-status');
+    const value = ta.value || '';
+    status.textContent = 'Saving…';
+    try {
+        const res = await fetch('/api/save-episode-context', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: currentSlug, episodeContext: value })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Save failed');
+        status.textContent = value.trim() ? value.trim().length + ' chars saved' : 'Cleared.';
+        showToast(value.trim() ? 'Episode context saved' : 'Episode context cleared', 'success');
+        refresh();
+    } catch (e) {
+        status.textContent = 'Save failed: ' + e.message;
+        showToast(e.message, 'error');
+    }
+}
+
+async function generateEpisodeContextNow() {
+    if (!currentSlug) return;
+    const btn = document.getElementById('episode-context-gen-btn');
+    const ta = document.getElementById('episode-context-text');
+    const status = document.getElementById('episode-context-status');
+    if (ta.value.trim() && !confirm('Replace the current episode context with a new generation?')) return;
+    btn.disabled = true;
+    const prevLabel = btn.textContent;
+    btn.textContent = 'Generating…';
+    status.textContent = 'Generating from transcript (this can take a minute)…';
+    try {
+        const res = await fetch('/api/generate-episode-context', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: currentSlug })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Generation failed');
+        ta.value = data.episodeContext || '';
+        status.textContent = ta.value.length + ' chars — review and Save (auto-saved already).';
+        showToast('Episode context generated', 'success');
+        refresh();
+    } catch (e) {
+        status.textContent = 'Generation failed: ' + e.message;
+        showToast(e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = prevLabel;
     }
 }
 
