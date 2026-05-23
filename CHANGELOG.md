@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.48] - 2026-05-23
+## [1.0.49] - 2026-05-23
 
 ### Fixed
 - Two simultaneous "Re-sub" clicks on different reels no longer thrash the server. Previously each resub spawned its own `subtitle.js` child, which called `execFileSync("ffmpeg", ...)` to burn subs with libass + libx264 (CPU only, no GPU). Two parallel burns competed for the same cores and each ran 2-3× slower, plus the post-step `prewarmReelStep` would fire another low-quality ffmpeg right when the second resub was still running, so peak load could be 4 concurrent ffmpegs. From the UI it looked like both reels hung. Added a global ffmpeg slot gate in `server/pipeline.js` covering all heavy steps (`subtitle`, `overlay`, `crop`, `clean`, `cut`) across both spawn entry points (`_runStep` for single-step runs, `spawnReelStep` for batch `runReelsParallel`). Default limit is 2, overridable via `TAJARIB_FFMPEG_MAX` env var (set to `1` to fully serialize on slower machines). When the gate is full, additional requests log `⏳ Waiting for ffmpeg slot` and run as soon as a slot frees up. Slot is released in both `error` and `close` handlers so a crashed child can't leak the gate. `server/pipeline.js`.
+
+## [1.0.48] - 2026-05-23
+
+### Fixed
+- Publishing to Buffer no longer fails with `HTTP 405 Not Allowed: Video URL is not accessible`. The temp host used to make the freshly-compressed reel reachable to Buffer's media-fetch was `litterbox.catbox.moe`, which rejects HEAD requests with 405 (and GET on the root with 403). Buffer's media-accessibility check uses HEAD, so every Facebook/Instagram/LinkedIn post was bouncing before it ever queued. Swapped to `0x0.st`, which serves HEAD properly. 72h retention preserved via the `expires=72` form field; 95MB compression cap in `server/publishing.js:8` keeps us well under 0x0.st's 512MB limit. `buffer.js`.
 
 ## [1.0.47] - 2026-05-22
 
