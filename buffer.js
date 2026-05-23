@@ -254,18 +254,19 @@ async function publish({ caption, videoUrl, videoThumbnailUrl, mode, channelIds 
 
 /**
  * Upload a video file to a temporary public host so Buffer can access it.
- * Uses litterbox.catbox.moe (72h retention, up to 1GB).
+ * Uses 0x0.st — supports HEAD requests (Buffer's URL verification needs them).
+ * catbox/litterbox blocks HEAD with 405, which causes Buffer's publish to fail.
  */
 async function uploadToTempHost(filePath) {
   return new Promise((resolve, reject) => {
     const sizeMB = (fs.statSync(filePath).size / 1024 / 1024).toFixed(1);
-    console.log(`[Upload] Starting upload of ${sizeMB}MB to catbox.moe...`);
+    console.log(`[Upload] Starting upload of ${sizeMB}MB to 0x0.st...`);
     const proc = spawn("curl", [
       "-sS", "--max-time", "300",
-      "-F", "reqtype=fileupload",
-      "-F", "time=72h",
-      "-F", `fileToUpload=@${filePath}`,
-      "https://litterbox.catbox.moe/resources/internals/api.php"
+      "-A", "tajarib-dashboard/1.0",
+      "-F", `file=@${filePath}`,
+      "-F", "expires=72",
+      "https://0x0.st"
     ]);
 
     let stdout = "";
