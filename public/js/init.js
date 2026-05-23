@@ -20,9 +20,18 @@ async function init() {
         setGuestFilter(savedGuestFilter);
     }
 
-    // Restore selected episode and reel from localStorage
-    var savedSlug = localStorage.getItem('tajarib-selected-slug');
-    var savedReel = localStorage.getItem('tajarib-selected-reel');
+    // Restore selected episode and reel from URL params (deep-link share), then
+    // fall back to localStorage. URL params let us send "?slug=X&reel=Y" links
+    // to editors so they land on the exact reel.
+    var urlParams = new URLSearchParams(window.location.search);
+    var urlSlug = urlParams.get('slug');
+    var urlReel = urlParams.get('reel');
+    var savedSlug = urlSlug || localStorage.getItem('tajarib-selected-slug');
+    var savedReel = urlReel || localStorage.getItem('tajarib-selected-reel');
+    if (urlSlug || urlReel) {
+        // Strip params so a later refresh doesn't keep overriding navigation.
+        history.replaceState({}, '', window.location.pathname);
+    }
     if (savedSlug && episodes.find(function(e) { return e.slug === savedSlug; })) {
         selectEp(savedSlug);
         if (savedReel) {
