@@ -4,6 +4,14 @@ function escHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function shareLink(slug, reelId) {
+    if (!slug) { showToast('Nothing to share', 'error'); return; }
+    var url = window.location.origin + '/?slug=' + encodeURIComponent(slug);
+    if (reelId) url += '&reel=' + encodeURIComponent(reelId);
+    var msg = reelId ? ('Reel ' + reelId + ' link copied') : 'Episode link copied';
+    copyToClipboard(url, msg);
+}
+
 function copyToClipboard(text, message) {
     var msg = message || 'Copied!';
     function fallback() {

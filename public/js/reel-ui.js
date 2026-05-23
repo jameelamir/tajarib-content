@@ -518,6 +518,7 @@ function buildReelActions(ep, reel) {
     var hasVideo = reel.cut || reel.cropped || reel.subtitled || reel.final;
     var canRecut = ep.mediaType === 'episode' && (reel.subtitled || reel.cut);
     html += '<div class="pipe-meta">' +
+        '<button onclick="shareLink(\'' + ep.slug + '\', \'' + reelId + '\')" style="color:#c084fc;" title="Copy a shareable link to this reel">&#128279; Share</button>' +
         (hasVideo ? '<button onclick="downloadReel(\'' + reelId + '\')" style="color:#60a5fa;" title="Download reel MP4">&#11015; Download</button>' : '') +
         '<button onclick="trimReel(\'' + reelId + '\')" style="color:#34d399;" title="Smart trim to 30-90s using AI">&#9986; Trim</button>' +
         (canRecut ? '<button onclick="recutFromSource(\'' + reelId + '\')" style="color:#a78bfa;" title="Match reel transcript to source video and re-cut a clean clip (resets crop/sub/overlay)">&#8634; Recut</button>' : '') +

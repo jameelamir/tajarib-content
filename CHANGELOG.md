@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.53] - 2026-05-23
+
+### Added
+- Share links on the dashboard for reels and episodes, so you can hand off a specific reel to an editor with one click ("take this one and finalize it") instead of asking them to manually navigate to the right episode and reel. Every reel detail now has a 🔗 Share button in the meta-actions row next to Download, and every episode header has a 🔗 Share button next to the HD toggle. Clicking either copies a host-aware URL to clipboard (`?slug=X` for episodes, `?slug=X&reel=Y` for reels). When the recipient opens the link, `init.js` reads the URL params (preferring them over localStorage), selects the right episode and reel, then strips the params via `history.replaceState` so a later refresh doesn't keep overriding manual navigation. Uses `window.location.origin` so the link matches whatever host the sender is on (VPS IP, localhost, or domain via reverse proxy). No new server routes — the dashboard itself is what gets shared, so the recipient lands in the full editor UI ready to cut/crop/sub/overlay/publish. `public/js/utils.js` (`shareLink` helper), `public/js/init.js`, `public/js/reel-ui.js` (`buildReelActions`), `index.html` (episode header).
+
 ## [1.0.52] - 2026-05-23
 
 ### Fixed
