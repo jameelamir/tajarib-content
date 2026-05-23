@@ -254,19 +254,20 @@ async function publish({ caption, videoUrl, videoThumbnailUrl, mode, channelIds 
 
 /**
  * Upload a video file to a temporary public host so Buffer can access it.
- * Uses 0x0.st — supports HEAD requests (Buffer's URL verification needs them).
- * catbox/litterbox blocks HEAD with 405, which causes Buffer's publish to fail.
+ * Uses uguu.se — 100MB limit (fine — publishing.js compresses to 90MB target),
+ * 24h retention (enough for Buffer to fetch + post), supports HEAD on file URLs.
+ * 0x0.st was previous host but disabled uploads ("AI botnet spam"). Before that
+ * catbox/litterbox blocked HEAD with 405. uguu.se is the current survivor.
  */
 async function uploadToTempHost(filePath) {
   return new Promise((resolve, reject) => {
     const sizeMB = (fs.statSync(filePath).size / 1024 / 1024).toFixed(1);
-    console.log(`[Upload] Starting upload of ${sizeMB}MB to 0x0.st...`);
+    console.log(`[Upload] Starting upload of ${sizeMB}MB to uguu.se...`);
     const proc = spawn("curl", [
       "-sS", "--max-time", "300",
       "-A", "tajarib-dashboard/1.0",
-      "-F", `file=@${filePath}`,
-      "-F", "expires=72",
-      "https://0x0.st"
+      "-F", `files[]=@${filePath}`,
+      "https://uguu.se/upload"
     ]);
 
     let stdout = "";
@@ -277,9 +278,13 @@ async function uploadToTempHost(filePath) {
     proc.on("close", code => {
       console.log(`[Upload] curl exited code=${code} stdout="${stdout.trim().substring(0, 200)}" stderr="${stderr.trim().substring(0, 200)}"`);
       if (code !== 0) return reject(new Error(`Upload failed (code ${code}): ${stderr.trim() || stdout.trim()}`));
-      const url = stdout.trim();
-      if (!url.startsWith("http")) return reject(new Error(`Upload returned invalid response: ${url.substring(0, 200)}`));
-      resolve(url);
+      let parsed;
+      try { parsed = JSON.parse(stdout); }
+      catch { return reject(new Error(`Upload returned non-JSON response: ${stdout.trim().substring(0, 200)}`)); }
+      if (!parsed.success || !parsed.files?.[0]?.url) {
+        return reject(new Error(`Upload failed: ${parsed.description || stdout.trim().substring(0, 200)}`));
+      }
+      resolve(parsed.files[0].url);
     });
   });
 }
