@@ -38,8 +38,8 @@ module.exports = function init(ctx) {
     return null;
   }
   function computeProcKey(slug, reelId, step) {
-    if (!reelId) return slug;
     const group = stepGroup(step);
+    if (!reelId) return group ? `${slug}:${group}` : slug;
     return group ? `${slug}:${reelId}:${group}` : `${slug}:${reelId}`;
   }
 
