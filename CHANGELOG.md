@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.48] - 2026-05-23
+
+### Fixed
+- Publishing to Buffer no longer fails with `HTTP 405 Not Allowed: Video URL is not accessible`. The temp host used to make the freshly-compressed reel reachable to Buffer's media-fetch was `litterbox.catbox.moe`, which rejects HEAD requests with 405 (and GET on the root with 403). Buffer's media-accessibility check uses HEAD, so every Facebook/Instagram/LinkedIn post was bouncing before it ever queued. Swapped to `0x0.st`, which serves HEAD properly. 72h retention preserved via the `expires=72` form field; 95MB compression cap in `server/publishing.js:8` keeps us well under 0x0.st's 512MB limit. `buffer.js`.
+
 ## [1.0.47] - 2026-05-22
 
 ### Fixed
